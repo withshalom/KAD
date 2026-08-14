@@ -446,12 +446,20 @@ body.drafting-mode #app { pointer-events:auto; z-index:20; }
    = current large-icon sidebar, unchanged. data-layout="classic" = a denser
    small-icon variant of the SAME sidebar — same tools, same grid, same
    show/hide rules (mobile-mode / sidebar-toggle are untouched), just
-   tighter and icon-only so more tools fit without scrolling. */
-body[data-layout="classic"] .tool-grid { grid-template-columns:1fr 1fr 1fr 1fr; }
+   tighter and icon-only so more tools fit without scrolling.
+   Classic is a desktop-oriented layout: a single vertical column of small
+   icons is the point of it (a compact list, not a compact grid). Multiple
+   columns are only a fallback for screens too small to show a tall single
+   column without excessive scrolling — see the max-width:900px override
+   below, matching the tablet/mobile breakpoint used elsewhere in the app. */
+body[data-layout="classic"] .tool-grid { grid-template-columns:1fr; }
 body[data-layout="classic"] .tool-btn { padding:5px 2px; gap:0; }
 body[data-layout="classic"] .tool-icon { width:15px; height:15px; }
 body[data-layout="classic"] .tool-icon svg { width:13px; height:13px; }
 body[data-layout="classic"] .tool-label { display:none; }
+@media (max-width: 900px) {
+  body[data-layout="classic"] .tool-grid { grid-template-columns:1fr 1fr 1fr 1fr; }
+}
 
 /* Offset bar */
 #offset-bar { display:none; align-items:center; gap:6px; padding:5px 8px; background:var(--panel2); border-bottom:1px solid var(--border); flex-shrink:0; }
@@ -9116,16 +9124,18 @@ function drawGrid(W,H) {
     // Dots instead of lines. Same colors, same minor/major spacing — a dot
     // grid shows a fraction of the rendered ink a line grid does, so it
     // recedes as texture instead of competing with committed linework the
-    // way two sets of continuous strokes inevitably do. Radii bumped up
-    // (was 1 / 1.6) — at the old size the dots all but disappeared against
-    // Blueprint's low-contrast steel-on-navy palette.
+    // way two sets of continuous strokes inevitably do. One radius for
+    // every dot — minor vs. major is carried by color (C.grid/C.gridMaj)
+    // alone; mixing in a second radius on top of that read as visual
+    // noise rather than a clean two-tier grid.
+    const DOT_R = 1.8;
     ctx.fillStyle = C.grid;
     for (let x=x0; x<=x1; x+=spacing) {
       const xMaj = Math.round(x/spacing)%major===0, sx = worldToScreen(x,0).x;
       for (let y=y0; y<=y1; y+=spacing) {
         if (xMaj || Math.round(y/spacing)%major===0) continue; // majors drawn below, on top
         const sy = worldToScreen(0,y).y;
-        ctx.beginPath(); ctx.arc(sx,sy,1.5,0,Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(sx,sy,DOT_R,0,Math.PI*2); ctx.fill();
       }
     }
     ctx.fillStyle = C.gridMaj;
@@ -9135,7 +9145,7 @@ function drawGrid(W,H) {
         const yMaj = Math.round(y/spacing)%major===0;
         if (!xMaj && !yMaj) continue;
         const sy = worldToScreen(0,y).y;
-        ctx.beginPath(); ctx.arc(sx,sy,2.3,0,Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(sx,sy,DOT_R,0,Math.PI*2); ctx.fill();
       }
     }
   } else if (gridStyle === 'lines') {
