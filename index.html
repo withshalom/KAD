@@ -48,37 +48,73 @@
 @import url('https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=Literata:ital,opsz,wght@0,16..30,400;0,16..30,500;0,16..30,600;0,16..30,700;1,16..30,400&family=Syne:wght@700;800&display=swap');
 
 
-/* ── LIGHT MODE ─────────────────────────────────────────────────────────────
-   Toggled via body.light-mode — all UI vars flip, accent stays cyan
+/* ── THEME SYSTEM ─────────────────────────────────────────────────────────
+   Four color themes, switched via body[data-theme="..."]. No attribute =
+   Blueprint (default, unchanged from prior dark theme — including the
+   committed=bronze / leading=cyan ink swap). Parchment is Blueprint's light
+   counterpart — same warm ink pairing, off-white paper instead of navy.
+   --green/--amber/--red are status colors (errors, live indicators), fixed
+   across all themes.
+   Layout (icon size / sidebar density) is a SEPARATE system — see
+   body[data-layout] rules further down — deliberately orthogonal to color.
    ─────────────────────────────────────────────────────────────────────────── */
-body.light-mode {
-  --void:       #eef6fb;      /* draftspace — paper blue */
-  --panel:      #8fc1e8;      /* panels main — powder blue */
-  --panel2:     #8fc1e8;      /* panels main — powder blue */
-  --hover:      #bcdcf2;      /* highlight wash — pale sky */
-  --border:     #1c4372;      /* subtle separator — slate navy */
-  --border-hi:  #0e2038;      /* prominent border (dropdown/menu) — dark navy,
-                                  darkened from before: against a panel this
-                                  pale, the old steel-hi read as barely-there */
-  --accent:     #7a4210;      /* warm bronze — the old bright cyan (#5ee8ff)
-                                  was tuned for light-on-dark against the old
-                                  medium-steel panel; on a genuinely pale
-                                  panel it's close to invisible (~1.3:1) */
-  --accent-dim: #a3672c;
-  --accent-glow: rgba(122,66,16,0.18);
-  --t1:  #0a1628;              /* primary text — midnight (was near-white) */
-  --t2:  #0e2038;              /* secondary text — dark navy */
-  --t3:  #1c4372;              /* muted text — slate navy */
+
+body[data-theme="classic-dark"] {
+  --void:       #0a0a0a;      /* pure black void */
+  --panel:      #161616;      /* near-black panels */
+  --panel2:     #161616;
+  --hover:      #262626;
+  --border:     #000000;
+  --border-hi:  #555555;
+  --accent:     #ffffff;      /* default ink: white lines on black */
+  --accent-dim: #cccccc;
+  --accent-glow: rgba(255,255,255,0.15);
+  --t1: #ffffff;
+  --t2: #dcdcdc;
+  --t3: #8c8c8c;
 }
-/* Icons: invert to dark cyan on light bg */
 
+body[data-theme="classic-light"] {
+  --void:       #ffffff;      /* pure white void */
+  --panel:      #ffffff;      /* white panels/buttons */
+  --panel2:     #ffffff;
+  --hover:      #ececec;
+  --border:     #cccccc;
+  --border-hi:  #999999;
+  --accent:     #000000;      /* default ink: black lines on white */
+  --accent-dim: #333333;
+  --accent-glow: rgba(0,0,0,0.12);
+  --t1: #000000;
+  --t2: #262626;
+  --t3: #666666;
+}
 
+/* Parchment — the light counterpart to Blueprint: same warm, papery feel,
+   just flipped for a bright drafting table instead of a lit-from-behind
+   drafting table at night. Off-white/tan paper instead of pure white,
+   sepia ink instead of flat black, so it reads as its own material rather
+   than a tinted Classic Light. */
+body[data-theme="parchment"] {
+  --void:       #f2e8d0;      /* parchment paper */
+  --panel:      #e4d5ab;      /* aged-paper panel — warm tan */
+  --panel2:     #e4d5ab;
+  --hover:      #d8c48f;      /* darker tan hover */
+  --border:     #b8a068;      /* warm brown separator */
+  --border-hi:  #8a7248;      /* prominent border (dropdown/menu) */
+  --accent:     #6b4423;      /* sepia ink — the UI accent */
+  --accent-dim: #8a5a2e;
+  --accent-glow: rgba(107,68,35,0.18);
+  --t1: #2e2412;               /* primary text — near-black warm brown */
+  --t2: #4a3a20;               /* secondary text */
+  --t3: #7a6640;               /* muted text */
+}
 
-/* Canvas: light mode draws on a pale paper-blue background */
-body.light-mode #main-canvas { background: #eef6fb; }
+body[data-theme="classic-dark"] #main-canvas,
+body[data-theme="classic-light"] #main-canvas,
+body[data-theme="parchment"] #main-canvas { background: var(--void); }
 
 :root {
-  --void:       #123259;  /* draftspace — blueprint (unchanged) */
+  --void:       #123259;  /* draftspace — blueprint (default theme, unchanged) */
   --panel:      #0e2038;  /* panels main — deep navy */
   --panel2:     #0e2038;  /* panels main — deep navy */
   --hover:      #2c5c8f;  /* highlight, lighter — steel */
@@ -101,6 +137,9 @@ body.light-mode #main-canvas { background: #eef6fb; }
   --sidebar-w:     272px;
   --toolbar-h:     48px;
   --status-h:      32px;
+  --stb-w:         100px;  /* sidebar-toggle-btn width — single source of truth so
+                               the tab-bar clearance and drawer clearance below
+                               can never drift out of sync with the button again */
 }
 
 
@@ -218,8 +257,12 @@ html, body { width:100%; height:100%; overflow:hidden; box-sizing:border-box; ba
 .ctxcfg-row input { accent-color:var(--accent); width:15px; height:15px; flex-shrink:0; }
 .ctxcfg-row .ctxcfg-key { margin-left:auto; font-size:11px; color:var(--t3); font-family:var(--fm); }
 
-/* ── UNIT TOGGLE ── */
-#theme-toggle {
+/* ── AUX PICKERS (theme / grid style / layout) ──
+   Shared pill styling + dropdown. Each control is a .tb-aux-wrap containing
+   a .tb-aux-btn and a .tb-dropdown, positioned by JS the same way the
+   topbar menus are. */
+.tb-aux-wrap { position: relative; display: flex; }
+.tb-aux-btn {
   background: var(--panel2);
   border: 1px solid var(--border-hi);
   border-radius: 4px;
@@ -234,20 +277,22 @@ html, body { width:100%; height:100%; overflow:hidden; box-sizing:border-box; ba
   letter-spacing: 0.08em;
   white-space: nowrap;
 }
-#theme-toggle:hover {
+.tb-aux-btn:hover, .tb-aux-btn.open {
   border-color: var(--accent);
   color: var(--accent);
 }
-#theme-toggle .t-icon {
+.tb-aux-btn .t-icon {
   font-size: 18px;
   line-height: 1;
   flex-shrink: 0;
 }
-#theme-toggle .t-label {
+.tb-aux-btn .t-icon svg { width: 16px; height: 16px; display: block; }
+.tb-aux-btn .t-label {
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
+.tb-dd-item.checked::after { content:'\2713'; margin-left:auto; padding-left:14px; color:var(--accent); }
 
 /* ── STARTUP UNIT SPLASH ── */
 #splash-overlay {
@@ -395,6 +440,18 @@ body.drafting-mode #app { pointer-events:auto; z-index:20; }
 .tool-icon { width:22px; height:22px; display:flex; align-items:center; justify-content:center; }
 .tool-label { font-size:11px; font-family:var(--fu); color:var(--t2); letter-spacing:0.05em; opacity:0.9; }
 .tool-btn.active .tool-label { color:var(--accent); }
+
+/* ── LAYOUT SYSTEM ──────────────────────────────────────────────────────
+   Separate from color theme. Default (no attribute, or data-layout="touch")
+   = current large-icon sidebar, unchanged. data-layout="classic" = a denser
+   small-icon variant of the SAME sidebar — same tools, same grid, same
+   show/hide rules (mobile-mode / sidebar-toggle are untouched), just
+   tighter and icon-only so more tools fit without scrolling. */
+body[data-layout="classic"] .tool-grid { grid-template-columns:1fr 1fr 1fr 1fr; }
+body[data-layout="classic"] .tool-btn { padding:5px 2px; gap:0; }
+body[data-layout="classic"] .tool-icon { width:15px; height:15px; }
+body[data-layout="classic"] .tool-icon svg { width:13px; height:13px; }
+body[data-layout="classic"] .tool-label { display:none; }
 
 /* Offset bar */
 #offset-bar { display:none; align-items:center; gap:6px; padding:5px 8px; background:var(--panel2); border-bottom:1px solid var(--border); flex-shrink:0; }
@@ -1462,21 +1519,14 @@ body.kanvas-mode { --accent: #0090a8; --accent-dim: #006888; --accent-glow: rgba
 .tool-btn:hover .tool-icon svg { stroke:#a8f0ff; color:#a8f0ff; }
 .tool-btn.active .tool-icon svg { stroke:var(--accent); color:var(--accent); filter:drop-shadow(0 0 3px var(--accent)); }
 
-/* Icons: invert to dark cyan on light bg (light-mode vars themselves are
-   defined once, near the top of the file) */
-body.light-mode .tool-icon svg {
-  stroke: #a8d8ec;
-  color:  #a8d8ec;
-}
-body.light-mode .tool-btn:hover .tool-icon svg {
-  stroke: #d0ecfa;
-  color:  #d0ecfa;
-}
-body.light-mode .tool-btn.active .tool-icon svg {
-  stroke: var(--accent);
-  color:  var(--accent);
-  filter: drop-shadow(0 0 3px var(--accent));
-}
+/* Icons per theme. .active already reads var(--accent), themed above, so
+   only the hardcoded default/hover states need per-theme rules. */
+body[data-theme="classic-dark"] .tool-icon svg { stroke:#b0b0b0; color:#b0b0b0; }
+body[data-theme="classic-dark"] .tool-btn:hover .tool-icon svg { stroke:#eeeeee; color:#eeeeee; }
+body[data-theme="classic-light"] .tool-icon svg { stroke:#444444; color:#444444; }
+body[data-theme="classic-light"] .tool-btn:hover .tool-icon svg { stroke:#000000; color:#000000; }
+body[data-theme="parchment"] .tool-icon svg { stroke:#6b4423; color:#6b4423; }
+body[data-theme="parchment"] .tool-btn:hover .tool-icon svg { stroke:#2e2412; color:#2e2412; }
 
 /* ═══════════════════════════════════════════════════════════
    MOBILE / TABLET DRAFTING MODE
@@ -1485,25 +1535,56 @@ body.light-mode .tool-btn.active .tool-icon svg {
    sidebar-toggle button's long-press (see JS init).
    ═══════════════════════════════════════════════════════════ */
 
-/* Sidebar toggle button — hamburger/close, top-left of canvas area */
+/* Sidebar toggle button — top-left of canvas area. This is the primary
+   discovery point for the entire tool palette on touch/mobile, where the
+   sidebar starts hidden — so it reads as a labeled pill ("TOOLS"/"CLOSE")
+   rather than an unlabeled hamburger glyph a new user has to guess at.
+   Neutral when closed; picks up the accent color while open so the two
+   states are visually distinct at a glance. */
 #sidebar-toggle-btn {
   display: none;
   position: fixed;
   top: calc(var(--toolbar-h) + 10px);
   left: 10px;
   z-index: 210;
-  width: 40px; height: 40px;
-  border-radius: 8px;
+  width: var(--stb-w);
+  height: 44px;
+  padding: 0;
+  border-radius: 22px;
   background: var(--panel);
   border: 1px solid var(--border-hi);
   color: var(--t1);
   align-items: center;
   justify-content: center;
-  font-size: 18px;
+  gap: 7px;
   cursor: pointer;
   box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  transition: background 0.15s, border-color 0.15s, color 0.15s, opacity 0.15s;
 }
 .mobile-mode #sidebar-toggle-btn { display: flex; }
+/* Every .tb-dropdown (topbar File/Edit/... menus AND the theme/grid/layout
+   aux pickers) is position:fixed and can be wide enough on a narrow phone
+   to hang out over this button's spot at top-left of the canvas — the two
+   would sit on top of each other with nothing to say which one a tap
+   should hit. Simplest fix: the button steps out of the way (fades +
+   stops accepting taps) for as long as any dropdown is open, restored the
+   instant it closes. body.dd-open is toggled in JS alongside every
+   open/close of either menu system (search "dd-open" to find both). */
+.mobile-mode.dd-open #sidebar-toggle-btn { opacity: 0; pointer-events: none; }
+#sidebar-toggle-btn .stb-icon { font-size: 17px; line-height: 1; flex-shrink: 0; }
+#sidebar-toggle-btn .stb-label {
+  font-family: var(--fu);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.mobile-mode.sidebar-open #sidebar-toggle-btn {
+  background: var(--accent-glow);
+  border-color: var(--accent);
+  color: var(--accent);
+}
 
 /* Backdrop scrim behind the open drawer */
 #sidebar-scrim {
@@ -1535,6 +1616,13 @@ body.light-mode .tool-btn.active .tool-icon svg {
 }
 .mobile-mode.sidebar-open #sidebar { transform: translateX(0); }
 
+/* Reserve a band at the top of the drawer equal to the toggle button's
+   own footprint (10px top offset + 44px height) so CLOSE never sits on
+   top of the drawer's own first row (was covering "LAYERS" + the active
+   layer row) — this holds regardless of what content a future section
+   puts first, since it's a blanket clearance rather than a per-row fix. */
+.mobile-mode.sidebar-open #sidebar { padding-top: 54px; }
+
 /* KANVAS's tool palette was a fixed --sidebar-w column with no mobile rule
    at all, so on a phone it permanently ate a third of the sheet and there
    was no way to dismiss it — while the identical palette in model space
@@ -1556,7 +1644,7 @@ body.light-mode .tool-btn.active .tool-icon svg {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
 }
-.mobile-mode.sidebar-open #kanvas-sidebar { transform: translateX(0); }
+.mobile-mode.sidebar-open #kanvas-sidebar { transform: translateX(0); padding-top: 54px; }
 /* Larger tap targets in the KANVAS palette, matching the model tool grid. */
 .mobile-mode #kanvas-sidebar .tbtn { border-radius: 8px; }
 .mobile-mode #kanvas-sidebar .in-btn { padding: 9px 2px; }
@@ -1682,7 +1770,7 @@ body.kanvas-mode #app {
 .mobile-mode .brand-sub { display: none; }
 
 /* Tab bar: clear the fixed ☰ sidebar button that covered "Model Space" */
-.mobile-mode .tab-bar { padding-left: 58px; }
+.mobile-mode .tab-bar { padding-left: calc(10px + var(--stb-w) + 8px); }
 
 /* ── FLOATING COMMIT BUTTON ──
    The touch Enter key. Appears only while an open line/polyline chain has
@@ -1801,6 +1889,18 @@ body.kanvas-mode #app {
   color: var(--accent);
 }
 
+/* #hint is centered and nowrap by default, which is fine on desktop but on
+   a phone it runs edge-to-edge and passes straight under LOCK on the right
+   (and would pass under TOOLS/ESC on the left too, for longer hint strings).
+   Constrain it to the gap between those fixed elements and let it wrap
+   instead of overflowing behind them. */
+.mobile-mode #hint {
+  white-space: normal;
+  text-align: center;
+  max-width: calc(100vw - 230px);
+  line-height: 1.4;
+}
+
 /* Canvas: hand touch gestures fully to our own JS handlers rather than
    fighting the browser's native scroll/pinch — required for clean pinch-zoom */
 .mobile-mode #main-canvas { touch-action: none; }
@@ -1838,7 +1938,7 @@ body.kanvas-mode #app {
 .mobile-mode .tb-menu-item { padding: 0 8px; font-size: 13px; }
 .mobile-mode .tb-right { gap: 4px; flex-shrink: 0; }
 .mobile-mode .tb-badge { display: none; }        /* v0.0 badge — no room */
-.mobile-mode #theme-toggle .t-label { display: none; }  /* icon only */
+.mobile-mode .tb-aux-btn .t-label { display: none; }  /* icon only */
 
 /* Positioning is handled for every screen size in the base .tb-dropdown rule
    now, so mobile only needs bigger tap targets. */
@@ -1925,7 +2025,7 @@ body.kanvas-mode #app {
 
 <div id="app">
 
-<button id="sidebar-toggle-btn" onclick="toggleMobileSidebar()" aria-label="Toggle tools">☰</button>
+<button id="sidebar-toggle-btn" onclick="toggleMobileSidebar()" aria-label="Open tools panel"><span class="stb-icon">☰</span><span class="stb-label">Tools</span></button>
 <div id="sidebar-scrim" onclick="toggleMobileSidebar(false)"></div>
 
 <!-- TOPBAR -->
@@ -2015,11 +2115,39 @@ body.kanvas-mode #app {
       <span class="kloud-dot" id="kloud-dot"></span>SHARE
     </button>
     <span class="tb-badge">v0.0</span>
-<button id="theme-toggle" onclick="toggleTheme()" title="Toggle dark / light mode">
-      <span class="t-icon" id="theme-icon-dark">☾</span>
-      <span class="t-icon" id="theme-icon-light" style="display:none;">☀</span>
-      <span class="t-label" id="theme-label">DARK</span>
-    </button>
+    <div class="tb-aux-wrap" id="layout-wrap">
+      <button class="tb-aux-btn" id="layout-toggle" onclick="toggleAuxMenu(event,'layout')" title="Sidebar layout">
+        <span class="t-icon">▥</span>
+        <span class="t-label" id="layout-label">TOUCH</span>
+      </button>
+      <div class="tb-dropdown" id="layout-dropdown">
+        <div class="tb-dd-item" id="layout-opt-touch" onclick="setLayout('touch');closeAuxMenus()">Touch (large icons)</div>
+        <div class="tb-dd-item" id="layout-opt-classic" onclick="setLayout('classic');closeAuxMenus()">Classic (small icons)</div>
+      </div>
+    </div>
+    <div class="tb-aux-wrap" id="grid-wrap">
+      <button class="tb-aux-btn" id="grid-toggle" onclick="toggleAuxMenu(event,'grid')" title="Grid style">
+        <span class="t-icon">▦</span>
+        <span class="t-label" id="grid-label">LINES</span>
+      </button>
+      <div class="tb-dropdown" id="grid-dropdown">
+        <div class="tb-dd-item" id="grid-opt-lines" onclick="setGridStyle('lines');closeAuxMenus()">Grid Lines</div>
+        <div class="tb-dd-item" id="grid-opt-dots" onclick="setGridStyle('dots');closeAuxMenus()">Dots</div>
+        <div class="tb-dd-item" id="grid-opt-void" onclick="setGridStyle('void');closeAuxMenus()">Void</div>
+      </div>
+    </div>
+    <div class="tb-aux-wrap" id="theme-wrap">
+      <button class="tb-aux-btn" id="theme-toggle" onclick="toggleAuxMenu(event,'theme')" title="Color theme">
+        <span class="t-icon" id="theme-icon"></span>
+        <span class="t-label" id="theme-label">BLUEPRINT</span>
+      </button>
+      <div class="tb-dropdown" id="theme-dropdown">
+        <div class="tb-dd-item" id="theme-opt-blueprint" onclick="setTheme('blueprint');closeAuxMenus()">Blueprint</div>
+        <div class="tb-dd-item" id="theme-opt-parchment" onclick="setTheme('parchment');closeAuxMenus()">Parchment</div>
+        <div class="tb-dd-item" id="theme-opt-classic-dark" onclick="setTheme('classic-dark');closeAuxMenus()">Classic Dark</div>
+        <div class="tb-dd-item" id="theme-opt-classic-light" onclick="setTheme('classic-light');closeAuxMenus()">Classic Light</div>
+      </div>
+    </div>
         <button id="unit-toggle" onclick="toggleUnits()" title="Toggle mm / inches (U)">
       <span class="unit-seg active" id="unit-seg-mm">mm</span>
       <span class="unit-divider"></span>
@@ -2396,6 +2524,10 @@ body.kanvas-mode #app {
     <button class="tbtn" data-tool="select" id="kv-tb-select" onclick="kvSetTool('select')" title="Select (S)">
       <svg viewBox="0 0 24 24"><path d="m5 3 14 9-7 1-4 7z"/></svg>
       <span class="tl">SELECT</span>
+    </button>
+    <button class="tbtn" data-tool="node" id="kv-tb-node" onclick="kvSetTool('node')" title="Node Edit — reshape a Bezier path's anchors and handles">
+      <svg viewBox="0 0 24 24"><path d="M4 18 C 4 10, 10 6, 20 6"/><rect x="2" y="16" width="4" height="4"/><rect x="18" y="4" width="4" height="4"/><circle cx="11" cy="9" r="1.6"/></svg>
+      <span class="tl">NODE</span>
     </button>
     <button class="tbtn" data-tool="viewport" id="kv-tb-viewport" onclick="kvSetTool('viewport')" title="Viewport window (J) — a clipped view into model space">
       <svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="1"/><path d="M7 14l3-3 2.5 2.5L16 10l3 3"/><circle cx="9" cy="9.5" r="1"/></svg>
@@ -4348,6 +4480,7 @@ const _clone = o => (typeof structuredClone === 'function')
 function snapshotOf(space) {
   if (space === 'kanvas') {
     return { strokes:_clone(KVM.strokes), dims:_clone(KVM.dims), welds:_clone(KVM.welds),
+             paths:_clone(KVM.paths),
              layers:_clone(KVM.layers), activeLayer:KVM.activeLayer, nextId:KVM.nextId };
   }
   return { objects:_clone(GeoMemory.objects), nextId:GeoMemory.nextId,
@@ -4359,7 +4492,13 @@ function restoreSnapshot(space, s) {
   try {
     if (space === 'kanvas') {
       KVM.strokes = _clone(s.strokes); KVM.dims = _clone(s.dims); KVM.welds = _clone(s.welds);
+      KVM.paths   = _clone(s.paths || []);
       KVM.layers  = _clone(s.layers);  KVM.activeLayer = s.activeLayer; KVM.nextId = s.nextId;
+      // An undo that removes the path under active editing must drop out of
+      // Node Edit rather than point it at an id that no longer exists.
+      if (kvEditingPathId != null && !KVM.paths.some(p => p.id === kvEditingPathId)) {
+        kvEditingPathId = null; kvSelectedNodeIdx = -1; kvNodeDrag = null; kvNodeTapStart = null;
+      }
       kvBuildLayerList();
       if (typeof buildKvLayerDropdown === 'function' && kvActive) buildKvLayerDropdown();
       kvRebuildEraseCanvas();
@@ -4480,12 +4619,14 @@ let openMenuName = null;
 
 function openMenu(name) {
   closeMenus();
+  if (typeof closeAuxMenus === 'function') closeAuxMenus();
   const item = document.getElementById('menu-' + name);
   const dd   = document.getElementById('dd-' + name);
   if (!item || !dd) return;
   item.classList.add('open');
   dd.classList.add('open');
   openMenuName = name;
+  document.body.classList.add('dd-open');
 
   // .tb-dropdown is position:fixed on every screen, so anchoring is this
   // function's job. Place it under the header, then pull it back if the panel
@@ -4506,6 +4647,7 @@ function closeMenus() {
   document.querySelectorAll('.tb-menu-item.open').forEach(el => el.classList.remove('open'));
   document.querySelectorAll('.tb-dropdown.open').forEach(el => el.classList.remove('open'));
   openMenuName = null;
+  if (!openAuxName) document.body.classList.remove('dd-open');
 }
 
 (function bindTopbarMenus() {
@@ -7032,7 +7174,10 @@ canvas.addEventListener('touchcancel', function() {
 function toggleMobileSidebar(force) {
   const open = typeof force === 'boolean' ? force : !document.body.classList.contains('sidebar-open');
   document.body.classList.toggle('sidebar-open', open);
-  document.getElementById('sidebar-toggle-btn').textContent = open ? '✕' : '☰';
+  const stb = document.getElementById('sidebar-toggle-btn');
+  stb.querySelector('.stb-icon').textContent = open ? '✕' : '☰';
+  stb.querySelector('.stb-label').textContent = open ? 'Close' : 'Tools';
+  stb.setAttribute('aria-label', open ? 'Close tools panel' : 'Open tools panel');
   // The KANVAS pane resizes when the drawer transitions in or out of the
   // layout; re-measure once the 0.22s slide has finished.
   if (typeof kvActive !== 'undefined' && kvActive) {
@@ -8107,27 +8252,43 @@ function updateGridLabel() {
 }
 
 // ── RENDER ──────────────────────────────────────────────
-// C is a live getter — returns correct colors for current theme
+// Theme system: getTheme() is the single source of truth. C is a live
+// getter that reads off THEME_PALETTES by theme name.
+function getTheme() {
+  return document.body.dataset.theme || 'blueprint';
+}
+const THEME_PALETTES = {
+  // Blueprint (default) — unchanged from the prior dark theme.
+  blueprint: {
+    bg:'#123259', grid:'#1a2840', gridMaj:'#253a58', axis:'#2a5080', tick:'#243550',
+    entity:'#ffc94d', entitySel:'#ffaa00', point:'#ffaa00',
+    rubberLine:'#ffc94d', startPt:'#00ff9d', originRgb:'0,212,255',
+  },
+  // Classic Dark — white lines on black, per spec. Grid/axis are
+  // graduated grays instead of blueprint's steel-blues so it doesn't just
+  // read as "blueprint, darker."
+  'classic-dark': {
+    bg:'#0a0a0a', grid:'#232323', gridMaj:'#3a3a3a', axis:'#555555', tick:'#333333',
+    entity:'#ffffff', entitySel:'#ffaa00', point:'#ffaa00',
+    rubberLine:'#ffffff', startPt:'#00ff9d', originRgb:'255,255,255',
+  },
+  // Classic Light — black lines on white, per spec.
+  'classic-light': {
+    bg:'#ffffff', grid:'#d9d9d9', gridMaj:'#bbbbbb', axis:'#8a8a8a', tick:'#b8c0c8',
+    entity:'#000000', entitySel:'#b35900', point:'#b35900',
+    rubberLine:'#000000', startPt:'#00704a', originRgb:'0,0,0',
+  },
+  // Parchment — Blueprint's light counterpart. Warm paper instead of navy,
+  // sepia grid/axis instead of steel-blue, same accent identity (sepia ink
+  // standing in for Blueprint's cyan).
+  parchment: {
+    bg:'#f2e8d0', grid:'#d9c9a3', gridMaj:'#c2ac7a', axis:'#c7ad80', tick:'#d1b98f',
+    entity:'#5b3a1a', entitySel:'#8a4b12', point:'#8a4b12',
+    rubberLine:'#5b3a1a', startPt:'#2f6b46', originRgb:'107,68,35',
+  },
+};
 const C = new Proxy({}, {
-  get(_, key) {
-    const light = document.body.classList.contains('light-mode');
-    // Drafting ink: amber-gold in dark mode, brass in light mode — cyan/blue
-    // ink on a blue draftspace had no hue separation from the paper itself.
-    const dark = {
-      bg:'#123259', grid:'#1a2840', gridMaj:'#253a58', axis:'#2a5080',
-      entity:'#ffc94d', entitySel:'#ffaa00', point:'#ffaa00',
-      rubberLine:'#ffc94d', startPt:'#00ff9d',
-    };
-    // Light mode's bg is bright again (cloud) — ink flips back to
-    // dark-on-light. Grid stays genuinely dark (not washed-out pale) per
-    // request, graduated grid < gridMaj < axis same as dark mode.
-    const lt = {
-      bg:'#eef6fb', grid:'#1c4372', gridMaj:'#123259', axis:'#b8c0c8',
-      entity:'#8a5a00', entitySel:'#b35900', point:'#b35900',
-      rubberLine:'#8a5a00', startPt:'#00704a',
-    };
-    return (light ? lt : dark)[key];
-  }
+  get(_, key) { return THEME_PALETTES[getTheme()][key]; }
 });
 
 
@@ -8951,18 +9112,20 @@ function drawGrid(W,H) {
   const x0=Math.floor(tl.x/spacing)*spacing, x1=Math.ceil(br.x/spacing)*spacing;
   const y0=Math.floor(br.y/spacing)*spacing, y1=Math.ceil(tl.y/spacing)*spacing;
 
-  if (document.body.classList.contains('light-mode')) {
+  if (gridStyle === 'dots') {
     // Dots instead of lines. Same colors, same minor/major spacing — a dot
     // grid shows a fraction of the rendered ink a line grid does, so it
     // recedes as texture instead of competing with committed linework the
-    // way two sets of continuous strokes inevitably do.
+    // way two sets of continuous strokes inevitably do. Radii bumped up
+    // (was 1 / 1.6) — at the old size the dots all but disappeared against
+    // Blueprint's low-contrast steel-on-navy palette.
     ctx.fillStyle = C.grid;
     for (let x=x0; x<=x1; x+=spacing) {
       const xMaj = Math.round(x/spacing)%major===0, sx = worldToScreen(x,0).x;
       for (let y=y0; y<=y1; y+=spacing) {
         if (xMaj || Math.round(y/spacing)%major===0) continue; // majors drawn below, on top
         const sy = worldToScreen(0,y).y;
-        ctx.beginPath(); ctx.arc(sx,sy,1,0,Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(sx,sy,1.5,0,Math.PI*2); ctx.fill();
       }
     }
     ctx.fillStyle = C.gridMaj;
@@ -8972,10 +9135,10 @@ function drawGrid(W,H) {
         const yMaj = Math.round(y/spacing)%major===0;
         if (!xMaj && !yMaj) continue;
         const sy = worldToScreen(0,y).y;
-        ctx.beginPath(); ctx.arc(sx,sy,1.6,0,Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(sx,sy,2.3,0,Math.PI*2); ctx.fill();
       }
     }
-  } else {
+  } else if (gridStyle === 'lines') {
     ctx.lineWidth=1;
     ctx.strokeStyle=C.grid; ctx.beginPath();
     for(let x=x0;x<=x1;x+=spacing){ if(Math.round(x/spacing)%major!==0){ const sx=worldToScreen(x,0).x; ctx.moveTo(sx,0); ctx.lineTo(sx,H); } }
@@ -8987,12 +9150,14 @@ function drawGrid(W,H) {
     for(let y=y0;y<=y1;y+=spacing){ if(Math.round(y/spacing)%major===0){ const sy=worldToScreen(0,y).y; ctx.moveTo(0,sy); ctx.lineTo(W,sy); } }
     ctx.stroke();
   }
+  // gridStyle === 'void': no grid drawn at all — axis + origin tick below
+  // still render, so orientation isn't lost, just the field texture.
 
   ctx.strokeStyle=C.axis; ctx.lineWidth=1.5; ctx.beginPath();
   const ox=worldToScreen(0,0).x, oy=worldToScreen(0,0).y;
   ctx.moveTo(ox,0); ctx.lineTo(ox,H); ctx.moveTo(0,oy); ctx.lineTo(W,oy); ctx.stroke();
 
-  ctx.strokeStyle = document.body.classList.contains('light-mode') ? '#b8c0c8' : '#243550';
+  ctx.strokeStyle = C.tick;
   ctx.lineWidth=1; ctx.beginPath();
   ctx.moveTo(ox-6,oy); ctx.lineTo(ox+6,oy); ctx.moveTo(ox,oy-6); ctx.lineTo(ox,oy+6); ctx.stroke();
 }
@@ -9001,10 +9166,8 @@ function drawEntities() {
   (function drawOrigin() {
     const o = worldToScreen(0, 0);
     const sz = 8;
-    // Same subtlety mechanism dark mode already had (accent color at low
-    // opacity) — it was hardcoded to dark mode's cyan before, so light
-    // mode was never actually using its own accent here at all.
-    const rgb = document.body.classList.contains('light-mode') ? '122,66,16' : '0,212,255';
+    // Per-theme accent, at low opacity for subtlety.
+    const rgb = C.originRgb;
     ctx.save();
     ctx.strokeStyle = `rgba(${rgb},0.35)`;
     ctx.lineWidth = 1;
@@ -9116,14 +9279,24 @@ function drawDot(sx,sy,color,r=2.5) {
 // ── DRAFTING INK: single source of truth ────────────────────────────────
 // Committed = placed geometry on the default ink layer (SOLID/Layer_0).
 // Leading   = any in-progress/preview line not yet committed (rubber
-// band, circle/arc/polygon/rect previews). Both flip with light/dark
-// mode; every draw path below calls these instead of hardcoding a color.
-function draftCommittedColor() {
-  return document.body.classList.contains('light-mode') ? '#0e2038' : '#00d4ff';
-}
-function draftLeadingColor() {
-  return document.body.classList.contains('light-mode') ? '#8a5a00' : '#ffc94d';
-}
+// band, circle/arc/polygon/rect previews). Both are per-theme; every draw
+// path below calls these instead of hardcoding a color.
+const DRAFT_INK = {
+  // Blueprint: committed = bronze, leading = cyan. Unchanged.
+  blueprint: { committed: '#cd7f32', leading: '#00d4ff' },
+  // Parchment: same bronze/cyan identity as Blueprint, darkened for
+  // contrast against light paper instead of navy.
+  parchment: { committed: '#7a4210', leading: '#006e8a' },
+  // Classic Dark: committed = white (per spec), leading = amber — reuses
+  // the same amber already used for selection/points, so "in progress"
+  // reads as one consistent highlight color across the whole theme.
+  'classic-dark': { committed: '#ffffff', leading: '#ffaa00' },
+  // Classic Light: committed = black (per spec), leading = the same amber,
+  // darkened for contrast on white — mirrors classic-dark's pairing.
+  'classic-light': { committed: '#000000', leading: '#b35900' },
+};
+function draftCommittedColor() { return DRAFT_INK[getTheme()].committed; }
+function draftLeadingColor()   { return DRAFT_INK[getTheme()].leading; }
 function hexA(hex, a) {
   const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
   return `rgba(${r},${g},${b},${a})`;
@@ -11013,6 +11186,12 @@ const KVM = {
   strokes: [],
   dims:    [],
   welds:   [],
+  // True Bezier vector paths — the pen tool's output. Kept as its own array
+  // rather than folded into strokes: a path is a cubic Bezier segment chain
+  // with anchors and handles a user reopens and reshapes, not a recorded
+  // pressure gesture. Mixing the two would mean every stroke-only routine
+  // (pressure taper, brush rendering) grows a branch it doesn't need.
+  paths:   [],
   layers:  [{name:'Annotations',color:'#000000',visible:true},
             {name:'Dimensions', color:'#00d4ff',visible:true},
             {name:'Weld Symbols',color:'#ffaa00',visible:true},
@@ -11027,7 +11206,8 @@ const KVM = {
   // Dimensions and welds were never filtered by layer, so hiding a layer
   // hid its ink but left its dimensions floating on the sheet.
   visibleDims(){  return this._vis(this.dims);  },
-  visibleWelds(){ return this._vis(this.welds); }
+  visibleWelds(){ return this._vis(this.welds); },
+  visiblePaths(){ return this._vis(this.paths); }
 };
 
 // Single entry point for switching annotation layer. Everything that has to
@@ -11573,6 +11753,11 @@ function kvRender() {
     kvDrawWeldSymbol(ctx, s1, s2, w.weldType, w.arrowSide, w.size, w.length, w.note);
   }
 
+  // 7b. Bezier paths — true vector, drawn fresh every frame like welds and
+  // dims rather than baked into the erase-composited ink buffer: a path is
+  // reshaped after the fact, so it can never be "erased" pixel by pixel.
+  for (const p of KVM.visiblePaths()) kvDrawPath(ctx, p);
+
   // 8. Live tool previews — including the stroke currently under the pen,
   //    which isn't in the erase buffer yet (it lands there on release).
   if (kvStroke) kvStrokePath(ctx, kvStroke);
@@ -11647,6 +11832,7 @@ function kvDrawToolPreview(ctx) {
   // sequence and the rig has to persist between taps.
   kvDrawKompassPreview();
   if (typeof kvDrawConstructPreview === 'function') kvDrawConstructPreview();
+  kvDrawNodeEdit(ctx);
 }
 
 function kvScheduleDraw() {
@@ -11676,6 +11862,15 @@ let kvShapeState  = null;   // {cx,cy} for rect/ellipse/polygon
 function kvResetConstructions() {
   kvAnchorA = null; kvArcPts = []; kvPenAnchors = []; kvShapeState = null;
 }
+
+// Node-edit state: which path is open for editing, which node is selected,
+// the live anchor/handle drag (if any), and — because touch has no dblclick
+// to lean on — the down-position of a tap still being decided between
+// "select a different path" and "add a node here" until it lifts.
+let kvEditingPathId = null;
+let kvSelectedNodeIdx = -1;
+let kvNodeDrag = null;
+let kvNodeTapStart = null;
 
 // The style every constructed mark is born with. Constructed inputs take their
 // weight from the Shape panel, not from pen pressure — that is the whole point
@@ -11824,14 +12019,67 @@ function kvConstructDown(w) {
   return false;
 }
 
+// Ramer-Douglas-Peucker simplification — thins near-duplicate clicks (e.g.
+// two taps close enough to be the same intended anchor) before fitting.
+function kvRdp(pts, eps) {
+  if (pts.length <= 2) return pts;
+  const p0=pts[0], pN=pts[pts.length-1];
+  const dx=pN.x-p0.x, dy=pN.y-p0.y, len2=dx*dx+dy*dy || 1;
+  let maxD=0, idx=0;
+  for (let i=1;i<pts.length-1;i++) {
+    const t = Math.max(0, Math.min(1, ((pts[i].x-p0.x)*dx + (pts[i].y-p0.y)*dy)/len2));
+    const d = (p0.x+t*dx-pts[i].x)**2 + (p0.y+t*dy-pts[i].y)**2;
+    if (d > maxD) { maxD=d; idx=i; }
+  }
+  if (maxD > eps*eps)
+    return [...kvRdp(pts.slice(0,idx+1),eps).slice(0,-1), ...kvRdp(pts.slice(idx),eps)];
+  return [p0,pN];
+}
+// Fits a chain of TRUE cubic Bezier segments through clicked anchors —
+// {x0,y0,cx1,cy1,cx2,cy2,x3,y3} per segment, the same shape canvas's
+// bezierCurveTo and KANVAS.html's own path objects use, so a sheet exported
+// from here needs no translation on the way into either. Unlike a freehand
+// brush stroke, pen anchors are already deliberate clicks rather than a
+// dense sample, so the simplification pass is a light dedupe, not real
+// thinning — the shape comes from the tangent construction below, not from
+// discarding points.
+function kvFitBeziers(pts) {
+  if (pts.length < 2) return [];
+  const sp = kvRdp(pts, 0.6 / Math.max(kvZoom, 0.001));
+  if (sp.length < 2) return [];
+  const segs = [], tension = 0.32;
+  for (let i=0;i<sp.length-1;i++) {
+    const p0=sp[i], p3=sp[i+1];
+    const prev=sp[Math.max(0,i-1)], next=sp[Math.min(sp.length-1,i+2)];
+    segs.push({
+      x0:p0.x, y0:p0.y,
+      cx1:p0.x+(p3.x-prev.x)*tension, cy1:p0.y+(p3.y-prev.y)*tension,
+      cx2:p3.x-(next.x-p0.x)*tension, cy2:p3.y-(next.y-p0.y)*tension,
+      x3:p3.x, y3:p3.y,
+    });
+  }
+  return segs;
+}
+function kvEvalBez(b,t) {
+  const m = 1-t;
+  return { x: m*m*m*b.x0 + 3*m*m*t*b.cx1 + 3*m*t*t*b.cx2 + t*t*t*b.x3,
+           y: m*m*m*b.y0 + 3*m*m*t*b.cy1 + 3*m*t*t*b.cy2 + t*t*t*b.y3 };
+}
+
 // Bezier is open-ended, so it needs an explicit finish — the same COMMIT the
-// Kompass sweep and the model-space chain use.
+// Kompass sweep and the model-space chain use. Writes a true vector path to
+// KVM.paths (reshapeable later via Node Edit), not the old tessellated
+// stroke — the anchors you click become real, adjustable curve geometry.
 function kvCommitPen() {
   if (kvPenAnchors.length < 2) { kvResetConstructions(); kvScheduleDraw(); return false; }
-  kvCommitVector({ vector:'bezier', closed:KV_SH.closed,
-                   anchors: kvPenAnchors.map(a => ({x:a.x, y:a.y})),
-                   pts: kvTessBezier(kvPenAnchors, KV_SH.closed) });
-  showToast('Bezier \u00b7 ' + 'placed');
+  const beziers = kvFitBeziers(kvPenAnchors.map(a => ({x:a.x, y:a.y})));
+  if (beziers.length < 1) { kvResetConstructions(); kvScheduleDraw(); return false; }
+  markKanvasDirty();
+  KVM.paths.push(Object.assign({ id: KVM.nextId++, type:'path' }, kvVecStyle(),
+                                { closed: KV_SH.closed, beziers }));
+  kvResetConstructions();
+  kvScheduleDraw();
+  showToast('Bezier path \u00b7 placed \u00b7 Node Edit to reshape it');
   return true;
 }
 
@@ -11865,6 +12113,141 @@ function kvCommitShape(pt) {
 }
 
 // Nearest stroke to a page point — used by the eyedropper.
+// ── BEZIER NODE EDITING ──────────────────────────────────────────────────────
+// A path is reopened for editing by tapping it with the Node tool, then its
+// anchors and handles are dragged directly on the sheet. Kept entirely
+// separate from kvPickStroke below: strokes are erase-composited ink with no
+// notion of a "node," paths are true vector geometry with nothing else.
+
+// Nearest path to a world point, sampled along its curve — same
+// tolerance-in-mm approach as kvPickStroke, so both feel consistent at any zoom.
+function kvPickPath(w) {
+  let best = null, bestD = 6;   // mm
+  for (const p of KVM.visiblePaths()) {
+    for (const b of (p.beziers || [])) {
+      for (let j = 0; j <= 16; j++) {
+        const pt = kvEvalBez(b, j/16);
+        const d = Math.hypot(pt.x - w.x, pt.y - w.y);
+        if (d < bestD) { bestD = d; best = p; }
+      }
+    }
+  }
+  return best;
+}
+// One entry per anchor, each carrying which segment(s) it terminates —
+// segIn/segOut of -1 marks an open path's free end.
+function kvPathNodes(o) {
+  const bz = o.beziers, n = bz && bz.length;
+  if (!n) return [];
+  const out = [];
+  if (o.closed) {
+    for (let i = 0; i < n; i++) out.push({ x:bz[i].x0, y:bz[i].y0, segIn:(i-1+n)%n, segOut:i });
+  } else {
+    out.push({ x:bz[0].x0, y:bz[0].y0, segIn:-1, segOut:0 });
+    for (let i = 1; i < n; i++) out.push({ x:bz[i].x0, y:bz[i].y0, segIn:i-1, segOut:i });
+    out.push({ x:bz[n-1].x3, y:bz[n-1].y3, segIn:n-1, segOut:-1 });
+  }
+  return out;
+}
+// Moving a node translates it AND its two attached handles by the same
+// delta — preserves the local curve shape rather than leaving the handles
+// behind.
+function kvMoveNode(o, idx, nx, ny) {
+  const nodes = kvPathNodes(o);
+  const nd = nodes[idx]; if (!nd) return;
+  const dx = nx - nd.x, dy = ny - nd.y;
+  if (nd.segOut !== -1) { const b = o.beziers[nd.segOut]; b.x0 += dx; b.y0 += dy; b.cx1 += dx; b.cy1 += dy; }
+  if (nd.segIn  !== -1) { const b = o.beziers[nd.segIn];  b.x3 += dx; b.y3 += dy; b.cx2 += dx; b.cy2 += dy; }
+}
+// A handle moves independently of its anchor — a cusp/corner node by
+// default. Symmetric-handle mirroring is a natural follow-on, not built yet.
+function kvMoveHandle(o, segIdx, which, nx, ny) {
+  const b = o.beziers[segIdx]; if (!b) return;
+  if (which === 'cx1') { b.cx1 = nx; b.cy1 = ny; } else { b.cx2 = nx; b.cy2 = ny; }
+}
+// Exact De Casteljau split: the two resulting cubics together trace
+// precisely the same curve the single original one did, at any t.
+function kvSplitBezierSeg(b, t) {
+  const lerp = (p,q,k) => ({ x:p.x+(q.x-p.x)*k, y:p.y+(q.y-p.y)*k });
+  const P0={x:b.x0,y:b.y0}, P1={x:b.cx1,y:b.cy1}, P2={x:b.cx2,y:b.cy2}, P3={x:b.x3,y:b.y3};
+  const A=lerp(P0,P1,t), M=lerp(P1,P2,t), C=lerp(P2,P3,t);
+  const D=lerp(A,M,t), E=lerp(M,C,t), F=lerp(D,E,t);
+  return [
+    { x0:P0.x,y0:P0.y, cx1:A.x,cy1:A.y, cx2:D.x,cy2:D.y, x3:F.x,y3:F.y },
+    { x0:F.x,y0:F.y,   cx1:E.x,cy1:E.y, cx2:C.x,cy2:C.y, x3:P3.x,y3:P3.y },
+  ];
+}
+function kvInsertNodeOnSegment(o, segIdx, t) {
+  const tt = Math.max(0.02, Math.min(0.98, t));
+  o.beziers.splice(segIdx, 1, ...kvSplitBezierSeg(o.beziers[segIdx], tt));
+  markKanvasDirty();
+  kvScheduleDraw();
+  showToast('Node added');
+}
+// Deleting the first/last node of an open path just drops the end segment.
+// A middle node merges its two adjacent segments into one — not
+// curvature-exact, but predictable: the surviving segment keeps the outer
+// two handles and spans straight to the next anchor. Closed paths are
+// excluded for now — the wrap-around case needs its own care.
+function kvDeleteSelectedNode() {
+  if (kvTool !== 'node' || kvSelectedNodeIdx < 0) return false;
+  const o = KVM.paths.find(p => p.id === kvEditingPathId);
+  if (!o) return false;
+  const nodes = kvPathNodes(o);
+  if (nodes.length <= 2) { showToast('A curve needs at least two nodes'); return true; }
+  if (o.closed) { showToast('Deleting nodes on closed curves isn\u2019t supported yet'); return true; }
+  const idx = kvSelectedNodeIdx;
+  if (idx === 0) o.beziers.shift();
+  else if (idx === nodes.length - 1) o.beziers.pop();
+  else {
+    const a = o.beziers[idx-1], b = o.beziers[idx];
+    o.beziers.splice(idx-1, 2, { x0:a.x0,y0:a.y0, cx1:a.cx1,cy1:a.cy1, cx2:b.cx2,cy2:b.cy2, x3:b.x3,y3:b.y3 });
+  }
+  kvSelectedNodeIdx = -1;
+  markKanvasDirty();
+  kvScheduleDraw();
+  showToast('Node deleted');
+  return true;
+}
+// Hit-test against the edited path's nodes and handles, in screen space —
+// a fixed pixel radius so it stays easy to grab (and thumb-friendly) at any
+// zoom.
+function kvNodeHitTest(sPt) {
+  const o = KVM.paths.find(p => p.id === kvEditingPathId);
+  if (!o) return null;
+  const tol = 14;
+  const nodes = kvPathNodes(o);
+  for (let i = 0; i < nodes.length; i++) {
+    const p = kvW2S(nodes[i].x, nodes[i].y);
+    if (Math.hypot(sPt.x-p.x, sPt.y-p.y) <= tol) return { kind:'anchor', nodeIdx:i };
+  }
+  for (let i = 0; i < o.beziers.length; i++) {
+    const b = o.beziers[i];
+    const h1 = kvW2S(b.cx1,b.cy1), h2 = kvW2S(b.cx2,b.cy2);
+    if (Math.hypot(sPt.x-h1.x, sPt.y-h1.y) <= tol) return { kind:'handle', segIdx:i, which:'cx1' };
+    if (Math.hypot(sPt.x-h2.x, sPt.y-h2.y) <= tol) return { kind:'handle', segIdx:i, which:'cx2' };
+  }
+  return null;
+}
+// Nearest point ON the curve to a world coordinate — sampled, not solved in
+// closed form, which is plenty accurate for "where did you tap".
+function kvNodeCurveHit(w) {
+  const o = KVM.paths.find(p => p.id === kvEditingPathId);
+  if (!o) return null;
+  let best = null;
+  const SAMPLES = 24;
+  for (let i = 0; i < o.beziers.length; i++) {
+    const b = o.beziers[i];
+    for (let j = 0; j <= SAMPLES; j++) {
+      const t = j / SAMPLES;
+      const p = kvEvalBez(b, t);
+      const d = Math.hypot(p.x-w.x, p.y-w.y);
+      if (!best || d < best.d) best = { segIdx:i, t, d };
+    }
+  }
+  return (best && best.d <= 3) ? best : null;   // 3mm, page space
+}
+
 function kvPickStroke(pt) {
   let best = null, bestD = 6;   // mm
   for (const s of KVM.visibleStrokes()) {
@@ -12223,14 +12606,14 @@ const KV_TOOL_PANEL = {
   'dim-linear':'dim', 'dim-radial':'dim', 'dim-angle':'dim',
   weld:'weld',
   viewport:'viewport',
-  select:null, eyedrop:null, kompass:'draw',
+  select:null, eyedrop:null, kompass:'draw', node:null,
 };
 const KV_TOOL_LABEL = {
   draw:'Draw', rect:'Rectangle', ellipse:'Ellipse', polygon:'Polygon',
   text:'Text', erase:'Erase',
   'dim-linear':'Linear dim', 'dim-radial':'Radial dim', 'dim-angle':'Angle dim',
   weld:'Weld symbol', select:'Select', eyedrop:'Eyedropper', kompass:'Kompass',
-  viewport:'Viewport',
+  viewport:'Viewport', node:'Node edit',
 };
 
 // What the header says. For DRAW that is the PAIR, because the pair is what
@@ -12571,6 +12954,11 @@ function kvSetTool(t) {
   if (kvTool === 'select' && t !== 'select' && typeof kvSelectedIds !== 'undefined' && kvSelectedIds.size) {
     kvSelectedIds.clear();
   }
+  // Leaving Node Edit always closes out whatever path was open — re-entering
+  // is a fresh pick, never a resume, so a stale id can't point at nothing.
+  if (kvTool === 'node' && t !== 'node') {
+    kvEditingPathId = null; kvSelectedNodeIdx = -1; kvNodeDrag = null; kvNodeTapStart = null;
+  }
   kvTool = t;
   kvSetContextLabel('KV\u00b7' + t.toUpperCase());
 
@@ -12614,6 +13002,7 @@ function kvSetTool(t) {
     'kompass':      'KOMPASS — click pivot, set span (or type R), click to lock, swing',
     'viewport':     'VIEWPORT — drag a window onto the sheet to see model space',
     'erase':        'ERASE — paint to erase',
+    'node':         'NODE EDIT — tap a Bezier path, then drag its anchors and handles',
   }[t] || t.toUpperCase());
   kvScheduleDraw();
 }
@@ -12746,7 +13135,7 @@ function kvOnDown(e) {
   const constructing = kvKompassActive() ||
                        (kvTool === 'draw' && kvInput !== 'freehand') ||
                        kvTool === 'rect' || kvTool === 'ellipse' || kvTool === 'polygon' ||
-                       kvTool === 'eyedrop' || kvTool === 'viewport';
+                       kvTool === 'eyedrop' || kvTool === 'viewport' || kvTool === 'node';
   const navigating = ((e.button === 1) || (e.button === 0 && kvSpaceDown) ||
                       !kvContactDraws(e) || kvTool === 'select')
                      && !constructing;
@@ -12876,6 +13265,35 @@ function kvOnDown(e) {
     // stacking a second field on top.
     if (kvTextState.active) kvCommitTextEntry();
     else kvOpenTextEntry(kvMouseWorld.x, kvMouseWorld.y, e.clientX, e.clientY);
+  } else if (kvTool === 'node') {
+    // No path open yet: this tap picks one. Touch has no dblclick to lean
+    // on, so Node Edit is entirely tap-driven, unlike the mouse-oriented
+    // double-click-to-enter convention elsewhere.
+    if (kvEditingPathId == null) {
+      const hitPath = kvPickPath(w);
+      if (hitPath) {
+        kvEditingPathId = hitPath.id;
+        kvSelectedNodeIdx = -1;
+        showToast('Editing nodes \u00b7 drag to reshape \u00b7 tap the curve to add a node \u00b7 Esc when done');
+      } else {
+        showToast('Tap a Bezier path to edit its nodes');
+      }
+    } else {
+      const hit = kvNodeHitTest(s);
+      if (hit) {
+        kvNodeDrag = hit;
+        if (hit.kind === 'anchor') kvSelectedNodeIdx = hit.nodeIdx;
+        kvNodeTapStart = null;
+      } else {
+        // Not a node or handle: defer the decision to release. A drag from
+        // here pans nothing (Node is in the constructing set), so if the
+        // pointer never travels this was a tap — onto the curve (insert a
+        // node), onto another path (switch to it), or onto nothing (done).
+        kvSelectedNodeIdx = -1;
+        kvNodeTapStart = {x:s.x, y:s.y, w:{x:w.x, y:w.y}};
+      }
+    }
+    kvScheduleDraw();
   }
 }
 
@@ -12913,6 +13331,16 @@ function kvOnMove(e) {
       if (vp && !vp.locked) { vp.x = w.x - kvVpDrag.moving.ox; vp.y = w.y - kvVpDrag.moving.oy; }
     }
     kvScheduleDraw();
+  }
+
+  if (kvNodeDrag) {
+    const o = KVM.paths.find(p => p.id === kvEditingPathId);
+    if (o) {
+      if (kvNodeDrag.kind === 'anchor') kvMoveNode(o, kvNodeDrag.nodeIdx, w.x, w.y);
+      else kvMoveHandle(o, kvNodeDrag.segIdx, kvNodeDrag.which, w.x, w.y);
+    }
+    kvScheduleDraw();
+    return;
   }
 
   // Any open construction repaints on every move, for the same reason: there
@@ -12962,11 +13390,41 @@ function kvOnUp(e) {
   // commit whatever the tool would have done.
   if (kvHoldFired) { kvHoldFired = false; kvAbortStroke(); kvIsPanning = false; kvScheduleDraw(); return; }
 
-  // Release: commit the window. This lives in kvOnUp and NOT in kvOnMove —
-  // both functions contain an `if (kvStroke)` block, and putting it before the
-  // wrong one meant the window was cut and the drag torn down on the very
-  // first pointermove, so every attempt produced a tiny box the size of one
-  // mouse step and then nothing more happened.
+  // Node/handle drag finalize: one history capture for the whole drag, not
+  // one per pointermove — same contract as the viewport-move case below.
+  if (kvNodeDrag) {
+    markKanvasDirty();
+    kvNodeDrag = null;
+    kvScheduleDraw();
+    return;
+  }
+  // A node-tool press that hit neither a node nor a handle was deferred to
+  // here. If it never travelled, it's a tap: onto the curve inserts a node,
+  // onto a different path switches to editing it, onto nothing ends editing.
+  if (kvNodeTapStart) {
+    const upS = kvSpt(e);
+    const travelled = Math.hypot(upS.x - kvNodeTapStart.x, upS.y - kvNodeTapStart.y) > KV_SLOP;
+    if (!travelled) {
+      const tw = kvNodeTapStart.w;
+      const onCurve = kvNodeCurveHit(tw);
+      if (onCurve) {
+        const o = KVM.paths.find(p => p.id === kvEditingPathId);
+        if (o) kvInsertNodeOnSegment(o, onCurve.segIdx, onCurve.t);
+      } else {
+        const other = kvPickPath(tw);
+        if (other && other.id !== kvEditingPathId) {
+          kvEditingPathId = other.id; kvSelectedNodeIdx = -1;
+          showToast('Editing a different path');
+        } else if (!other) {
+          kvSetTool('select');
+        }
+      }
+    }
+    kvNodeTapStart = null;
+    kvScheduleDraw();
+    return;
+  }
+
   if (kvVpDrag) {
     const d = kvVpDrag; kvVpDrag = null;
     const x = Math.min(d.x0, d.x1), y = Math.min(d.y0, d.y1);
@@ -13342,6 +13800,69 @@ function kvStrokePath(ctx, s) {
   ctx.restore();
 }
 
+// True cubic curve, stroked directly — no tessellation, no erase-buffer
+// bake, so a node drag redraws exactly what's actually stored.
+function kvDrawPath(ctx, p) {
+  if (!p.beziers || !p.beziers.length) return;
+  ctx.save();
+  ctx.beginPath();
+  const s0 = kvW2S(p.beziers[0].x0, p.beziers[0].y0);
+  ctx.moveTo(s0.x, s0.y);
+  for (const b of p.beziers) {
+    const c1 = kvW2S(b.cx1,b.cy1), c2 = kvW2S(b.cx2,b.cy2), e = kvW2S(b.x3,b.y3);
+    ctx.bezierCurveTo(c1.x,c1.y, c2.x,c2.y, e.x,e.y);
+  }
+  if (p.closed) ctx.closePath();
+  ctx.strokeStyle = p.color || '#ff3cac';
+  ctx.lineWidth = Math.max(0.5, p.size || 1) * kvZoom;
+  ctx.globalAlpha = p.alpha != null ? p.alpha : 0.9;
+  if (p.dashed) ctx.setLineDash([5*kvZoom, 4*kvZoom]);
+  ctx.stroke();
+  // The path under active node-editing gets a second, faint highlight pass
+  // so it reads clearly against everything else on a busy sheet.
+  if (p.id === kvEditingPathId) {
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = 'rgba(0,255,163,0.55)';
+    ctx.lineWidth = Math.max(1, 1.5 * kvZoom);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// Anchor/handle overlay for the path currently open in Node Edit — squares
+// for anchors, circles for handles, dashed tangent lines between them.
+function kvDrawNodeEdit(ctx) {
+  if (kvTool !== 'node' || kvEditingPathId == null) return;
+  const o = KVM.paths.find(p => p.id === kvEditingPathId);
+  if (!o || !o.beziers) return;
+  const AC = 'rgba(0,255,163,';
+  ctx.save();
+  for (let i = 0; i < o.beziers.length; i++) {
+    const b = o.beziers[i];
+    const p0 = kvW2S(b.x0,b.y0), c1 = kvW2S(b.cx1,b.cy1), c2 = kvW2S(b.cx2,b.cy2), p3 = kvW2S(b.x3,b.y3);
+    ctx.strokeStyle = AC+'0.4)'; ctx.lineWidth = 1; ctx.setLineDash([2,3]);
+    ctx.beginPath(); ctx.moveTo(p0.x,p0.y); ctx.lineTo(c1.x,c1.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(p3.x,p3.y); ctx.lineTo(c2.x,c2.y); ctx.stroke();
+    ctx.setLineDash([]);
+    for (const [h, which] of [[c1,'cx1'],[c2,'cx2']]) {
+      const active = kvNodeDrag && kvNodeDrag.kind === 'handle' && kvNodeDrag.segIdx === i && kvNodeDrag.which === which;
+      ctx.beginPath(); ctx.arc(h.x, h.y, 5, 0, Math.PI*2);
+      ctx.fillStyle = active ? AC+'1)' : 'rgba(10,10,16,0.92)';
+      ctx.fill(); ctx.strokeStyle = AC+'0.9)'; ctx.lineWidth = 1.3; ctx.stroke();
+    }
+  }
+  const nodes = kvPathNodes(o);
+  for (let i = 0; i < nodes.length; i++) {
+    const p = kvW2S(nodes[i].x, nodes[i].y);
+    const active = (i === kvSelectedNodeIdx) || (kvNodeDrag && kvNodeDrag.kind === 'anchor' && kvNodeDrag.nodeIdx === i);
+    ctx.beginPath(); ctx.rect(p.x-5, p.y-5, 10, 10);
+    ctx.fillStyle = active ? AC+'1)' : 'rgba(10,10,16,0.92)';
+    ctx.fill(); ctx.strokeStyle = AC+'1)'; ctx.lineWidth = 1.8; ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function kvRenderStroke(ctx, s) {
   if (!s) return;
   if (s.type === 'brush' || s.type === 'erase') { kvStrokePath(ctx, s); return; }
@@ -13422,6 +13943,7 @@ function kvSheetPayload(withRef) {
     strokes:     KVM.strokes,
     dims:        KVM.dims,
     welds:       KVM.welds,
+    paths:       KVM.paths,
   };
   if (withRef) p.modelRef = { role:'kad-reference', locked:true, units:unitMode, objects:GeoMemory.objects };
   return p;
@@ -13435,7 +13957,7 @@ function kvSheetsPayload() {
     activeSheet: kvSheetIdx,
     sheets: KV_SHEETS.map(s => ({
       name: s.name, page: s.page, view: s.view, dimStd: s.dimStd,
-      strokes: s.mem.strokes, dims: s.mem.dims, welds: s.mem.welds,
+      strokes: s.mem.strokes, dims: s.mem.dims, welds: s.mem.welds, paths: s.mem.paths,
       layers: s.mem.layers, activeLayer: s.mem.activeLayer, nextId: s.mem.nextId
     })),
     grid: kvShowGrid, snap: kvSnapEnabled,
@@ -13472,9 +13994,10 @@ function kvDeserialize(text) {
   KVM.strokes = Array.isArray(d.strokes) ? d.strokes : [];
   KVM.dims    = Array.isArray(d.dims)    ? d.dims    : [];
   KVM.welds   = Array.isArray(d.welds)   ? d.welds   : [];
+  KVM.paths   = Array.isArray(d.paths)   ? d.paths   : [];
   KVM.activeLayer = d.activeLayer || (KVM.layers[0] && KVM.layers[0].name) || 'Annotations';
   // Never trust a stored nextId: a file edited elsewhere could collide ids.
-  const maxId = [...KVM.strokes, ...KVM.dims, ...KVM.welds]
+  const maxId = [...KVM.strokes, ...KVM.dims, ...KVM.welds, ...KVM.paths]
     .reduce((m,o) => Math.max(m, o.id || 0), 0);
   KVM.nextId = Math.max(d.nextId || 1, maxId + 1);
 
@@ -13530,7 +14053,7 @@ function kvRestoreSheets(k) {
       id:_kvSheetSeq, name: kvUniqueSheetName(sh.name || ('Sheet ' + _kvSheetSeq)),
       page: sh.page ? {...sh.page} : {...KV_PAGE_SIZES.a3p},
       view: {...(sh.view || KV_VIEW)}, dimStd: sh.dimStd || kvDimStd, cam: null,
-      mem: { strokes:sh.strokes||[], dims:sh.dims||[], welds:sh.welds||[],
+      mem: { strokes:sh.strokes||[], dims:sh.dims||[], welds:sh.welds||[], paths:sh.paths||[],
              layers:sh.layers||kvBlankMemory().layers,
              activeLayer:sh.activeLayer||'Annotations', nextId:sh.nextId||1 },
       hist: { past:[], future:[], last:null, timer:null }
@@ -14294,7 +14817,11 @@ function kvOnKey(e) {
     if (kvKompassActive() && kvKompassPhase !== 'idle') { kvKompassAdvance(); return; }
     if (kvPenAnchors && kvPenAnchors.length >= 2) { kvCommitPen(); return; }
   }
-  if (e.key==='Escape') SPACE().cancel();
+  if ((e.key==='Delete' || e.key==='Backspace') && kvTool==='node') { e.preventDefault(); kvDeleteSelectedNode(); return; }
+  if (e.key==='Escape') {
+    if (kvTool === 'node') { kvSetTool('select'); return; }
+    SPACE().cancel();
+  }
 }
 
 // ── KANVAS SIDEBAR HELPERS ────────────────────────────────────────────────────
@@ -14380,7 +14907,7 @@ let kvAdoptName = null;
 
 function kvBlankMemory() {
   return {
-    strokes: [], dims: [], welds: [],
+    strokes: [], dims: [], welds: [], paths: [],
     layers: [{name:'Annotations',color:'#ff3cac',visible:true},
              {name:'Dimensions', color:'#00d4ff',visible:true},
              {name:'Weld Symbols',color:'#ffaa00',visible:true},
@@ -14398,7 +14925,7 @@ function kvCommitSheetState() {
   s.viewports = KV_VIEWPORTS;     // by reference — the record IS the storage
   s.dimStd = kvDimStd;
   s.cam    = {zoom:kvZoom, panX:kvPanX, panY:kvPanY};
-  s.mem    = { strokes:KVM.strokes, dims:KVM.dims, welds:KVM.welds,
+  s.mem    = { strokes:KVM.strokes, dims:KVM.dims, welds:KVM.welds, paths:KVM.paths,
                layers:KVM.layers, activeLayer:KVM.activeLayer, nextId:KVM.nextId };
   s.hist   = History.kanvas;
 }
@@ -14415,6 +14942,7 @@ function kvApplySheetState(i) {
   kvActiveVp = null;
   kvDimStd = s.dimStd;
   KVM.strokes = s.mem.strokes; KVM.dims = s.mem.dims; KVM.welds = s.mem.welds;
+  KVM.paths   = s.mem.paths || (s.mem.paths = []);
   KVM.layers  = s.mem.layers;  KVM.activeLayer = s.mem.activeLayer; KVM.nextId = s.mem.nextId;
   History.kanvas = s.hist;     // each sheet keeps its own undo timeline
   if (s.cam) { kvZoom = s.cam.zoom; kvPanX = s.cam.panX; kvPanY = s.cam.panY; }
@@ -14486,7 +15014,7 @@ function kvEnsureSheets() {
     id:_kvSheetSeq++, name:kvUniqueSheetName('Sheet 1'),
     page:{...KV_PAGE}, view:{...KV_VIEW}, dimStd:kvDimStd,
     cam:{zoom:kvZoom, panX:kvPanX, panY:kvPanY},
-    mem:{ strokes:KVM.strokes, dims:KVM.dims, welds:KVM.welds,
+    mem:{ strokes:KVM.strokes, dims:KVM.dims, welds:KVM.welds, paths:KVM.paths,
           layers:KVM.layers, activeLayer:KVM.activeLayer, nextId:KVM.nextId },
     hist:History.kanvas
   });
@@ -15417,52 +15945,142 @@ kInput.addEventListener('blur', () => {
 // the boot init calls setTool('pline') two frames after load, so a
 // separate DOMContentLoaded sync would only flash a stale label first.
 
-// ── Theme toggle ─────────────────────────────────────────────────────────────
-let _lightMode = false;
+// ── THEME / GRID / LAYOUT CONTROLS ───────────────────────────────────────
+// Three independent, separately-persisted systems:
+//   • Color theme (data-theme)  — blueprint / parchment / classic-dark / classic-light
+//   • Grid style  (gridStyle)   — lines / dots / void, saved PER THEME so
+//     each theme can default differently without the choices fighting
+//   • Layout      (data-layout) — touch (current, large icons) / classic
+//     (small icons); orthogonal to color, sidebar show/hide rules untouched
 
-function _applyTheme(light) {
-  _lightMode = light;
-  document.body.classList.toggle('light-mode', _lightMode);
-  const di = document.getElementById('theme-icon-dark');
-  const li = document.getElementById('theme-icon-light');
-  const lb = document.getElementById('theme-label');
-  if(di) di.style.display = _lightMode ? 'none' : '';
-  if(li) li.style.display = _lightMode ? ''     : 'none';
-  if(lb) lb.textContent   = _lightMode ? 'LIGHT' : 'DARK';
-  if(typeof render === 'function') render();
+const THEME_GRID_DEFAULTS = { blueprint: 'lines', parchment: 'dots', 'classic-dark': 'dots', 'classic-light': 'void' };
+const THEME_LABELS  = { blueprint: 'BLUEPRINT', parchment: 'PARCHMENT', 'classic-dark': 'CLASSIC DARK', 'classic-light': 'CLASSIC LIGHT' };
+const GRID_LABELS   = { lines: 'LINES', dots: 'DOTS', void: 'VOID' };
+const LAYOUT_LABELS = { touch: 'TOUCH', classic: 'CLASSIC' };
+
+// Per-theme icon for the theme-toggle button. Was a single hardcoded ☾
+// before — always a moon regardless of theme, which is exactly the "always
+// shows moon" bug: a static glyph can't communicate a 4-way (soon) choice.
+// SVG instead of a text glyph so it renders identically everywhere rather
+// than depending on the platform's emoji/symbol font for a shape as fine
+// as a crescent at 16px.
+const THEME_ICONS = {
+  blueprint: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="1"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>',
+  parchment: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 3h9l5 5v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="7" y1="16" x2="17" y2="16"/></svg>',
+  'classic-dark': '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z"/></svg>',
+  'classic-light': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="4.9" y1="4.9" x2="7" y2="7"/><line x1="17" y1="17" x2="19.1" y2="19.1"/><line x1="4.9" y1="19.1" x2="7" y2="17"/><line x1="17" y1="7" x2="19.1" y2="4.9"/></svg>',
+};
+
+let gridStyle = 'lines';
+
+function setTheme(theme) {
+  if (!THEME_PALETTES[theme]) return;
+  document.body.dataset.theme = theme;
+  try { localStorage.setItem('kad-theme', theme); } catch(e) {}
+
+  const lbl = document.getElementById('theme-label');
+  if (lbl) lbl.textContent = THEME_LABELS[theme];
+  const icon = document.getElementById('theme-icon');
+  if (icon) icon.innerHTML = THEME_ICONS[theme];
+  document.querySelectorAll('#theme-dropdown .tb-dd-item').forEach(el => el.classList.remove('checked'));
+  const opt = document.getElementById('theme-opt-' + theme);
+  if (opt) opt.classList.add('checked');
+
+  // Each theme remembers its own grid-style preference — fall back to
+  // that theme's default the first time it's selected.
+  let g = null;
+  try { g = localStorage.getItem('kad-grid-' + theme); } catch(e) {}
+  applyGridStyle(g || THEME_GRID_DEFAULTS[theme]);
+
+  if (typeof render === 'function') render();
 }
 
+function applyGridStyle(style) {
+  gridStyle = style;
+  const lbl = document.getElementById('grid-label');
+  if (lbl) lbl.textContent = GRID_LABELS[style];
+  document.querySelectorAll('#grid-dropdown .tb-dd-item').forEach(el => el.classList.remove('checked'));
+  const opt = document.getElementById('grid-opt-' + style);
+  if (opt) opt.classList.add('checked');
+}
+
+function setGridStyle(style) {
+  applyGridStyle(style);
+  try { localStorage.setItem('kad-grid-' + getTheme(), style); } catch(e) {}
+  if (typeof render === 'function') render();
+}
+
+function setLayout(layout) {
+  document.body.dataset.layout = layout;
+  try { localStorage.setItem('kad-layout', layout); } catch(e) {}
+  const lbl = document.getElementById('layout-label');
+  if (lbl) lbl.textContent = LAYOUT_LABELS[layout];
+  document.querySelectorAll('#layout-dropdown .tb-dd-item').forEach(el => el.classList.remove('checked'));
+  const opt = document.getElementById('layout-opt-' + layout);
+  if (opt) opt.classList.add('checked');
+}
+
+// Cycles color themes — kept for the command palette / keyboard shortcut,
+// which expects a single no-argument toggle rather than a picked value.
 function toggleTheme() {
-  // User explicitly chose — save preference and override OS setting
-  const next = !_lightMode;
-  try { localStorage.setItem('kad-theme', next ? 'light' : 'dark'); } catch(e) {}
-  _applyTheme(next);
+  const order = ['blueprint', 'parchment', 'classic-dark', 'classic-light'];
+  setTheme(order[(order.indexOf(getTheme()) + 1) % order.length]);
 }
 
-// Init: prefer saved user choice, fall back to OS/device setting
+// ── Aux dropdowns (theme / grid / layout) ────────────────────────────────
+const AUX_MENUS = {
+  theme:  ['theme-dropdown', 'theme-toggle'],
+  grid:   ['grid-dropdown', 'grid-toggle'],
+  layout: ['layout-dropdown', 'layout-toggle'],
+};
+let openAuxName = null;
+
+function toggleAuxMenu(e, name) {
+  e.stopPropagation();
+  if (typeof closeMenus === 'function') closeMenus(); // close any open topbar menu too
+  if (openAuxName === name) { closeAuxMenus(); return; }
+  closeAuxMenus();
+  const [ddId, btnId] = AUX_MENUS[name];
+  const dd = document.getElementById(ddId), btn = document.getElementById(btnId);
+  if (!dd || !btn) return;
+  dd.classList.add('open');
+  btn.classList.add('open');
+  openAuxName = name;
+  document.body.classList.add('dd-open');
+  const r = btn.getBoundingClientRect();
+  dd.style.top = r.bottom + 'px';
+  dd.style.left = 'auto';
+  dd.style.right = Math.max(6, window.innerWidth - r.right) + 'px';
+}
+
+function closeAuxMenus() {
+  Object.values(AUX_MENUS).forEach(([ddId, btnId]) => {
+    const dd = document.getElementById(ddId), btn = document.getElementById(btnId);
+    if (dd) dd.classList.remove('open');
+    if (btn) btn.classList.remove('open');
+  });
+  openAuxName = null;
+  if (!openMenuName) document.body.classList.remove('dd-open');
+}
+
+document.addEventListener('click', e => {
+  if (!openAuxName) return;
+  if (!(e.target instanceof Element) || !e.target.closest('.tb-aux-wrap')) closeAuxMenus();
+});
+document.addEventListener('keydown', e => {
+  if (openAuxName && e.key === 'Escape') closeAuxMenus();
+});
+
+// Init: theme (defaults to Blueprint), its grid style, and layout
+// (defaults to Touch — today's behavior, unchanged) from saved prefs.
 (function() {
-  let saved = null;
-  try { saved = localStorage.getItem('kad-theme'); } catch(e) {}
+  let savedTheme = null;
+  try { savedTheme = localStorage.getItem('kad-theme'); } catch(e) {}
+  setTheme(THEME_PALETTES[savedTheme] ? savedTheme : 'blueprint');
 
-  if(saved === 'light') {
-    _applyTheme(true);
-  } else if(saved === 'dark') {
-    _applyTheme(false);
-  } else {
-    // No saved preference — follow OS/device prefers-color-scheme
-    const prefersDark = window.matchMedia &&
-                        window.matchMedia('(prefers-color-scheme: dark)').matches;
-    _applyTheme(!prefersDark); // OS dark → our dark mode (light-mode class OFF)
-  }
-
-  // Live-update if OS theme changes while app is open (no saved preference)
-  if(window.matchMedia) {
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
-      let pref = null;
-      try { pref = localStorage.getItem('kad-theme'); } catch(ex) {}
-      if(!pref) _applyTheme(!e.matches); // only follow OS if user hasn't overridden
-    });
-  }
+  let savedLayout = null;
+  try { savedLayout = localStorage.getItem('kad-layout'); } catch(e) {}
+  setLayout(savedLayout === 'classic' ? 'classic' : 'touch');
 })();
 
 </script>
