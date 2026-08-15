@@ -430,7 +430,24 @@ body.drafting-mode #app { pointer-events:auto; z-index:20; }
 .tb-dd-sep { height:1px; background:var(--border); margin:3px 0; }
 
 /* ── SIDEBAR ── */
-#sidebar { background:var(--panel); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; position:relative; z-index:10; height:100%; flex-shrink:0; }
+/* The rail is sized by the LAYOUT, not by its contents.
+   #sidebar is a flex child of #model-pane, and #model-pane spans the whole
+   grid (grid-column:1/-1), so the --sidebar-w track declared on #app never
+   applied to this element at all. With no width of its own and
+   flex-shrink:0, the rail's width was simply whatever its widest descendant
+   demanded — measured at 266px, set by an unhidden .dxf file input (see
+   #load-dxf below), NOT by the tool grid that has to live in it.
+
+   That is the mechanism behind the stretched icons: Classic laid the tools
+   out in a single column, and a single column inside a 266px content-sized
+   rail gives you one 265px-wide button holding one 15px glyph. Narrowing
+   --sidebar-w could not fix it, because nothing was reading --sidebar-w.
+
+   Declaring the width here — mirroring #kanvas-sidebar, which always had
+   one — makes the rail a deliberate dimension each layout sets for itself.
+   min-width:0 keeps any future oversized child clipping inside the rail
+   rather than shoving the whole column out over the canvas. */
+#sidebar { width:var(--sidebar-w); min-width:0; background:var(--panel); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; position:relative; z-index:10; height:100%; flex-shrink:0; }
 .section-head { padding:8px 14px 5px; font-family:var(--fu); font-size:12px; font-weight:500; color:var(--t3); letter-spacing:0.14em; text-transform:uppercase; border-bottom:1px solid var(--border); flex-shrink:0; }
 .tool-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:1px; padding:6px; background:var(--border); border-bottom:1px solid var(--border); flex-shrink:0; }
 .tool-btn { background:var(--panel2); border:none; cursor:pointer; padding:8px 4px; display:flex; flex-direction:column; align-items:center; gap:3px; transition:background 0.15s,box-shadow 0.15s; position:relative; overflow:hidden; }
@@ -442,23 +459,113 @@ body.drafting-mode #app { pointer-events:auto; z-index:20; }
 .tool-btn.active .tool-label { color:var(--accent); }
 
 /* ── LAYOUT SYSTEM ──────────────────────────────────────────────────────
-   Separate from color theme. Default (no attribute, or data-layout="touch")
-   = current large-icon sidebar, unchanged. data-layout="classic" = a denser
-   small-icon variant of the SAME sidebar — same tools, same grid, same
-   show/hide rules (mobile-mode / sidebar-toggle are untouched), just
-   tighter and icon-only so more tools fit without scrolling.
-   Classic is a desktop-oriented layout: a single vertical column of small
-   icons is the point of it (a compact list, not a compact grid). Multiple
-   columns are only a fallback for screens too small to show a tall single
-   column without excessive scrolling — see the max-width:900px override
-   below, matching the tablet/mobile breakpoint used elsewhere in the app. */
-body[data-layout="classic"] .tool-grid { grid-template-columns:1fr; }
-body[data-layout="classic"] .tool-btn { padding:5px 2px; gap:0; }
-body[data-layout="classic"] .tool-icon { width:15px; height:15px; }
-body[data-layout="classic"] .tool-icon svg { width:13px; height:13px; }
-body[data-layout="classic"] .tool-label { display:none; }
-@media (max-width: 900px) {
-  body[data-layout="classic"] .tool-grid { grid-template-columns:1fr 1fr 1fr 1fr; }
+   Layout is a separate axis from colour theme, and it exists so the two
+   pointer types can each get a native-feeling build of the SAME app
+   rather than one compromise that suits neither:
+
+     data-layout="touch"    fingers. Big targets, labels always visible,
+                            nothing that depends on hover existing.
+     data-layout="classic"  mouse + monitor. Dense icon rail, no labels,
+                            hover tooltips carry the naming, more tools
+                            visible without scrolling.
+
+   Both drive the same markup and the same show/hide rules — mobile-mode
+   and the sidebar drawer are untouched by either. Only sizing, density
+   and hover affordances differ.
+
+   ── Scoping note ──
+   Every selector below names #sidebar specifically rather than the bare
+   .tool-grid / .tool-btn classes. .tool-grid is also used inside
+   #kanvas-sidebar, so an unscoped layout rule reaches into KANVAS's palette
+   as well. Today that happens to be harmless — #kanvas-sidebar .tool-grid
+   carries an ID and outranks a body[data-layout] selector, so KANVAS keeps
+   its own column count either way — but that is specificity luck, not
+   isolation, and it silently stops protecting anything the moment a rule
+   here is written with an ID or !important. Scoping makes the separation
+   explicit, matching the KANVAS-conformance block further down. */
+
+/* ── CLASSIC — desktop ────────────────────────────────────────────────
+   Trades the large touch grid for a narrower rail with more columns: a
+   compact icon GRID, not a tall single-column LIST. The previous single
+   column stretched every icon across a wide, mostly-empty row because it
+   inherited the touch rail's width; Classic now sets its own narrower
+   --sidebar-w (scoped to #app, so only the grid track it owns shrinks)
+   and fills that width properly.
+
+   Icons sit at 20px — deliberately larger than the old 15px, which was
+   small enough to be a hit-accuracy problem with a mouse, and small
+   enough that the glyphs stopped reading as distinct shapes. 20px is
+   about the density of a desktop CAD ribbon: compact, still legible. */
+/* Set on #sidebar itself rather than #app: #kanvas-sidebar also resolves
+   width from --sidebar-w, and KANVAS's palette is text-led (named controls,
+   swatch rows) rather than icon-led, so it has no business being dragged
+   to a drafting-icon width by KAD's layout switch. Same reasoning as the
+   selector scoping above — one file, two sidebars, no leakage. */
+body[data-layout="classic"] #sidebar { --sidebar-w: 184px; }
+body[data-layout="classic"] #sidebar .tool-grid { grid-template-columns:repeat(4,1fr); }
+body[data-layout="classic"] #sidebar .tool-btn { padding:7px 3px; gap:0; min-height:34px; }
+body[data-layout="classic"] #sidebar .tool-icon { width:20px; height:20px; }
+body[data-layout="classic"] #sidebar .tool-icon svg { width:18px; height:18px; }
+body[data-layout="classic"] #sidebar .tool-label { display:none; }
+/* Names live in the hover tooltip instead of under the icon, so the
+   pointer needs to read as "this is a thing that will tell you more". */
+body[data-layout="classic"] #sidebar .tool-btn { cursor:default; }
+/* The file column is the other place Classic can reclaim vertical space —
+   its buttons are text-led and were sized for a fingertip. */
+body[data-layout="classic"] #sidebar .op-btn { padding:4px 8px; font-size:12px; }
+body[data-layout="classic"] #sidebar .section-head { padding:6px 12px 4px; }
+/* Below the mobile/tablet breakpoint the sidebar becomes a fixed-width
+   drawer (.mobile-mode #sidebar) that ignores --sidebar-w entirely, so
+   the width override above is inert there and the grid simply gets the
+   drawer's own comfortable width — no separate fallback needed. */
+
+/* ── TOUCH — fingers ──────────────────────────────────────────────────
+   Every interactive target in the drafting chrome is brought up to a
+   comfortable minimum. The tool buttons were already generous; the file
+   ops, layer rows and menu items were not, and they are exactly the
+   controls a tablet user reaches for mid-draw with a stylus in the other
+   hand. min-height rather than padding so the label position is unchanged
+   and nothing reflows.
+
+   :not([data-layout="classic"]) rather than [data-layout="touch"] so the
+   rules also apply before the layout attribute is written at boot — the
+   app must never render a frame with sub-target hit areas. */
+body:not([data-layout="classic"]) #sidebar .tool-btn { min-height:52px; }
+body:not([data-layout="classic"]) #sidebar .op-btn  { min-height:40px; }
+body:not([data-layout="classic"]) .tb-dd-item       { min-height:38px; }
+body:not([data-layout="classic"]) .layer-row        { min-height:38px; }
+/* Kill the tap-to-zoom delay and the grey flash on every control. Applied
+   to the interactive chrome only — the canvas sets touch-action itself and
+   must keep its own value. */
+button, .tb-menu-item, .tb-dd-item, .layer-row, .tab-item, .sb-item.sb-toggle {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ── DESKTOP TOOLTIP ──────────────────────────────────────────────────
+   Classic hides the tool labels, so the name has to come back on hover —
+   and the native title= tooltip is the wrong instrument for it: it waits
+   about a second, it is styled by the OS rather than the app, and it does
+   not fire at all on a touch screen (where a long-press instead triggers
+   the browser's own context UI). This is a fixed-position layer driven
+   from data-tip, so it can also escape #sidebar's overflow:hidden, which
+   would clip any tooltip drawn as a child of the button.
+
+   Gated on a fine pointer that actually hovers: on a tablet the element
+   is never inserted, so there is nothing to mis-fire on a tap. */
+#kad-tip {
+  position: fixed; z-index: 900; pointer-events: none;
+  background: var(--panel); color: var(--t1);
+  border: 1px solid var(--border-hi); border-radius: 4px;
+  padding: 4px 9px; font-family: var(--fu); font-size: 12px;
+  letter-spacing: 0.04em; white-space: nowrap;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.55);
+  opacity: 0; transform: translateY(2px);
+  transition: opacity 0.09s ease, transform 0.09s ease;
+}
+#kad-tip.show { opacity: 1; transform: translateY(0); }
+#kad-tip .tip-key {
+  color: var(--accent); margin-left: 7px; font-size: 11px;
 }
 
 /* Offset bar */
@@ -476,7 +583,14 @@ body[data-layout="classic"] .tool-label { display:none; }
 .op-btn.dxf { color:var(--green); border-color:var(--green-dim); }
 .op-btn.dxf:hover { background:rgba(0,255,157,0.06); border-color:var(--green); }
 .op-btn svg { width:12px; height:12px; flex-shrink:0; }
-#load-kad { display:none; }
+/* Both file inputs are click-proxied from .op-btn above and must never
+   render. #load-dxf was missing from this rule, so a native "Choose File"
+   control was drawn in the sidebar — and because a file input has a large,
+   unshrinkable intrinsic width, it also silently set the FLOOR for the
+   whole sidebar column (~266px). That floor is why narrowing --sidebar-w
+   for Classic had no visible effect: the grid track shrank, the sidebar
+   overflowed it. #vec-file-input is hidden inline at its own markup. */
+#load-kad, #load-dxf { display:none; }
 
 /* Coord input panel */
 #coord-panel { flex-shrink:0; border-bottom:1px solid var(--border); }
@@ -1186,11 +1300,40 @@ body[data-layout="classic"] .tool-label { display:none; }
 #layer-dd-panel .layer-hint {
   display: block; padding: 2px 8px 6px; border-bottom: 1px solid var(--border); margin-bottom: 4px;
 }
+/* .layer-add-btn had no rule anywhere in the sheet — it was rendering as a
+   raw user-agent button, which was easy to miss while it sat at the bottom
+   of a long sidebar but is conspicuous now that the dropdown is its only
+   home. Full width so it reads as the panel's action row rather than a
+   stray control, and so it clears the touch-target minimum. */
+.layer-add-btn {
+  display: block; width: 100%; margin-top: 5px;
+  padding: 8px 10px; background: var(--panel2);
+  border: 1px dashed var(--border-hi); border-radius: 4px;
+  color: var(--t2); font-family: var(--fu); font-size: 12px;
+  letter-spacing: 0.08em; text-align: center; cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.layer-add-btn:hover { background: var(--hover); color: var(--accent); border-color: var(--accent-dim); }
 /* Phone: shrink the button chrome and let the panel use the screen width,
    but keep it anchored to the same control so it never floats loose. */
 .mobile-mode #layer-dd-btn { font-size: 10px; padding: 0 6px; gap: 4px; }
 .mobile-mode #layer-dd-btn .dd-word { display: none; }  /* swatch + name carry it */
-.mobile-mode #layer-dd-panel { min-width: 0; width: min(300px, calc(100vw - 16px)); }
+/* Pinned to the viewport rather than to the button, for the same reason the
+   topbar dropdowns are (see .tb-dropdown): the tab strip scrolls sideways on
+   a narrow screen, so #layer-dd-wrap's own right edge can sit past 100vw —
+   measured 6px off-screen on a 390px phone, which clipped the layer rows'
+   right-hand controls. Anchoring to the viewport edge instead makes that
+   unreachable regardless of how far the strip has scrolled. The tab bar is
+   the fixed 32px grid row directly under the topbar, so its underside is a
+   known offset rather than something that needs measuring. */
+.mobile-mode #layer-dd-panel {
+  position: fixed;
+  top: calc(var(--toolbar-h) + 32px + 4px);
+  right: max(8px, env(safe-area-inset-right, 0px));
+  left: auto;
+  min-width: 0;
+  width: min(300px, calc(100vw - 16px));
+}
 .mobile-mode #layer-dd-panel .layer-row { padding: 7px 8px; }  /* larger tap targets */
 
 /* ── Model / KANVAS pane wrappers ── */
@@ -1778,7 +1921,35 @@ body.kanvas-mode #app {
 .mobile-mode .brand-sub { display: none; }
 
 /* Tab bar: clear the fixed ☰ sidebar button that covered "Model Space" */
+/* The tab strip has a fixed 118px band reserved on the left for the floating
+   TOOLS button, two mode tabs, and the LAYERS control pinned to the right.
+   At full label width that totalled 422px, so on any phone the strip
+   overflowed and clipped its right edge — which is exactly where LAYERS
+   sits. That was survivable while the sidebar still carried a second copy
+   of the layer list; now that the dropdown is the only way to reach layers,
+   a clipped LAYERS button means layers are unreachable on a phone. So the
+   tabs give way and the control does not:
+     · short labels ("Model", "KV") below the tablet breakpoint
+     · tabs may shrink to nothing (min-width:0) and clip their own text
+     · #layer-dd-wrap keeps flex-shrink:0, so it is last to lose space
+   Measured worst case after this: 320px viewport, LAYERS fully on screen. */
+.tab-short { display: none; }
 .mobile-mode .tab-bar { padding-left: calc(10px + var(--stb-w) + 8px); }
+.mobile-mode .tab-full  { display: none; }
+.mobile-mode .tab-short { display: inline; }
+.mobile-mode .tab-item {
+  padding: 0 9px; font-size: 12px; letter-spacing: 0.05em;
+  min-width: 0; overflow: hidden; white-space: nowrap;
+}
+.mobile-mode #layer-dd-wrap { flex-shrink: 0; }
+/* Very narrow phones: the TOOLS button's own label is the last thing worth
+   its width. --stb-w is the single source of truth for the button, this
+   strip's clearance and the drawer clearance, so overriding it here moves
+   all three together. */
+@media (max-width: 380px) {
+  .mobile-mode { --stb-w: 52px; }
+  .mobile-mode #sidebar-toggle-btn .stb-label { display: none; }
+}
 
 /* ── FLOATING COMMIT BUTTON ──
    The touch Enter key. Appears only while an open line/polyline chain has
@@ -1902,11 +2073,32 @@ body.kanvas-mode #app {
    (and would pass under TOOLS/ESC on the left too, for longer hint strings).
    Constrain it to the gap between those fixed elements and let it wrap
    instead of overflowing behind them. */
+/* #hint is centered and nowrap by default, which is fine on desktop but on
+   a phone it collides with the two floating controls that flank it — TOOLS
+   on the left, LOCK on the right. The previous fix constrained its WIDTH to
+   the gap between them (100vw - 230px), which at 320px leaves 90px: the
+   hint stopped overlapping and instead became an eight-line vertical ribbon
+   down the middle of the drawing.
+   The controls are stacked at a known height, not spread across the row, so
+   the fix is vertical, not horizontal — drop the hint beneath them and it
+   gets the full width back. LOCK is the lower of the two: it sits at
+   --toolbar-h + 60px and is 36px tall, so it ends at --toolbar-h + 96px.
+   #hint is positioned inside the canvas wrap, which begins under the 32px
+   tab strip, hence 96 - 32 = 64px, plus an 8px breathing gap. */
 .mobile-mode #hint {
   white-space: normal;
   text-align: center;
-  max-width: calc(100vw - 230px);
-  line-height: 1.4;
+  top: 72px;
+  /* left:50% on an auto-width absolute box caps its available space at half
+     the container, so max-width alone could never widen it past 50vw — it
+     was still wrapping at 160px on a 320px screen. An explicit width opts
+     out of that shrink-to-fit measurement; max-content then lets it stay a
+     pill on wide screens and the max-width clamps it on narrow ones. */
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  line-height: 1.35;
+  font-size: 12px;
+  padding: 4px 10px;
 }
 
 /* Canvas: hand touch gestures fully to our own JS handlers rather than
@@ -1929,12 +2121,27 @@ body.kanvas-mode #app {
 .mobile-mode .sb-right {
   display: none;  /* Hide hotkey legend on mobile */
 }
+/* Notched / rounded-corner devices: the statusbar and topbar are the two
+   rows that run edge-to-edge, so they are the two that lose content to the
+   home indicator and the corner radius. Padding only — the grid row heights
+   are fixed and must not change, and the floating overlays already carry
+   their own safe-area offsets further down. */
+.mobile-mode #statusbar {
+  padding-left:  calc(8px + env(safe-area-inset-left, 0px));
+  padding-right: calc(8px + env(safe-area-inset-right, 0px));
+}
+.mobile-mode #sidebar {
+  padding-left: env(safe-area-inset-left, 0px);
+}
 
 /* ── MOBILE TOPBAR REFLOW ──
    The far-right buttons (version badge, theme toggle, unit toggle) don't
    fit alongside the menu on narrow screens. Drop the badge, compact the
    toggles, and let the menu area scroll horizontally if it must. */
-.mobile-mode #topbar { padding: 0 6px; }
+.mobile-mode #topbar {
+  padding-left:  calc(6px + env(safe-area-inset-left, 0px));
+  padding-right: calc(6px + env(safe-area-inset-right, 0px));
+}
 .mobile-mode .tb-menu {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
@@ -1947,6 +2154,25 @@ body.kanvas-mode #app {
 .mobile-mode .tb-right { gap: 4px; flex-shrink: 0; }
 .mobile-mode .tb-badge { display: none; }        /* v0.0 badge — no room */
 .mobile-mode .tb-aux-btn .t-label { display: none; }  /* icon only */
+
+/* Narrow phones: .tb-right is flex-shrink:0 (deliberately — these toggles
+   must not squash into unreadable slivers), so once its content exceeds the
+   space left by the brand and the menu strip, the overflow runs off the
+   right edge and the LAST control silently leaves the screen. That control
+   is the mm/in unit toggle, which on a drafting app is not optional chrome.
+   Measured: 338px of content in a 320px viewport.
+   Rather than shrink everything, drop the two labels that are carried
+   perfectly well by their remaining glyphs — SHARE keeps its status dot,
+   and the brand wordmark is already repeated in the document title. */
+@media (max-width: 400px) {
+  .mobile-mode .brand-sub { display: none; }
+  .mobile-mode #kloud-share-btn { font-size: 0; padding: 0 8px; gap: 0; }
+  .mobile-mode #kloud-share-btn .kloud-dot { margin: 0; }
+  .mobile-mode #unit-toggle .unit-seg { padding: 0 6px; }
+}
+@media (max-width: 340px) {
+  .mobile-mode .brand { display: none; }  /* last resort — toggles win */
+}
 
 /* Positioning is handled for every screen size in the base .tb-dropdown rule
    now, so mobile only needs bigger tap targets. */
@@ -2168,10 +2394,10 @@ body.kanvas-mode #app {
 <!-- ── MODEL / KANVAS TAB BAR ── -->
 <div class="tab-bar">
   <div class="tab-item active" id="kad-tab-model" onclick="kadSwitchTab('model')">
-    <div class="tab-mark">KD</div>Model Space
+    <div class="tab-mark">KD</div><span class="tab-full">Model Space</span><span class="tab-short">Model</span>
   </div>
   <div class="tab-item kanvas-tab" id="kad-tab-kanvas" onclick="kadSwitchTab('kanvas')">
-    <div class="tab-mark" style="background:linear-gradient(135deg,#0090a8,#006888);color:#000;">KV</div>KANVAS
+    <div class="tab-mark" style="background:linear-gradient(135deg,#0090a8,#006888);color:#000;">KV</div><span class="tab-full">KANVAS</span><span class="tab-short">KV</span>
   </div>
   <div class="tab-spacer"></div>
   <div id="layer-dd-wrap">
@@ -2200,103 +2426,98 @@ body.kanvas-mode #app {
 
 <!-- SIDEBAR -->
 <div id="sidebar">
-  <!-- ── LAYERS ────────────────────────────────────────────────────── -->
-  <div id="layer-panel">
-    <div class="section-head" style="display:flex;align-items:center;justify-content:space-between;padding-right:8px;">
-      <span>LAYERS <span class="layer-hint">tap to draw on</span></span>
-      <span id="active-layer-indicator" style="color:var(--accent);font-size:11px;">SOLID</span>
-    </div>
-    <div id="layer-list"></div>
-    <button class="layer-add-btn" onclick="addCustomLayer()">+ New Layer</button>
-  </div>
-
+  <!-- Layers now live exclusively in the tab-bar dropdown (#layer-dd-wrap,
+       above the mode tabs) — see the LAYERS dropdown comment near the top
+       of this stylesheet. Keeping one mount point instead of two means the
+       sidebar's width is set by the tool grid alone, not by how wide a
+       layer name + swatch + gear controls need to be. -->
   <div class="section-head">Draw Tools</div>
   <div class="tool-grid">
-    <button class="tool-btn active" id="btn-pline" onclick="setTool('pline')">
+    <button class="tool-btn active" id="btn-pline" onclick="setTool('pline')" data-tip="Polyline" data-tip-key="P L" aria-label="Polyline (P L)">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="3 20 8 8 14 14 21 4"/><circle cx="3" cy="20" r="1.6" fill="currentColor"/><circle cx="8" cy="8" r="1.6" fill="currentColor"/><circle cx="14" cy="14" r="1.6" fill="currentColor"/><circle cx="21" cy="4" r="1.6" fill="currentColor"/></svg></div>
       <span class="tool-label">PLINE</span>
     </button>
-    <button class="tool-btn" id="btn-line" onclick="setTool('line')">
+    <button class="tool-btn" id="btn-line" onclick="setTool('line')" data-tip="Line" data-tip-key="L" aria-label="Line (L)">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="4" y1="20" x2="20" y2="4"/><circle cx="4" cy="20" r="2" fill="currentColor"/><circle cx="20" cy="4" r="2" fill="currentColor"/></svg></div>
       <span class="tool-label">LINE</span>
     </button>
-    <button class="tool-btn" id="btn-rect" onclick="setTool('rect')">
+    <button class="tool-btn" id="btn-rect" onclick="setTool('rect')" data-tip="Rectangle" data-tip-key="R" aria-label="Rectangle (R)">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="6" width="16" height="12" rx="1"/></svg></div>
       <span class="tool-label">RECT</span>
     </button>
-    <button class="tool-btn" id="btn-polygon" onclick="setTool('polygon')">
+    <button class="tool-btn" id="btn-polygon" onclick="setTool('polygon')" data-tip="Polygon" data-tip-key="P" aria-label="Polygon (P)">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="12,3 21,9 17,20 7,20 3,9"/></svg></div>
       <span class="tool-label">POLY</span>
     </button>
-    <button class="tool-btn" id="btn-offset" onclick="setTool('offset')">
+    <button class="tool-btn" id="btn-offset" onclick="setTool('offset')" data-tip="Offset" data-tip-key="O" aria-label="Offset (O)">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="3" y1="8" x2="21" y2="8"/><line x1="3" y1="16" x2="21" y2="16"/><path d="M14 11.5l3 2.5-3 2.5" stroke-width="1.2"/></svg></div>
       <span class="tool-label">OFFSET</span>
     </button>
 
-    <button class="tool-btn" id="btn-rotate" onclick="setTool('rotate')">
+    <button class="tool-btn" id="btn-rotate" onclick="setTool('rotate')" data-tip="Rotate" data-tip-key="T" aria-label="Rotate (T)">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg></div>
       <span class="tool-label">ROTATE</span>
     </button>
-    <button class="tool-btn" id="btn-arc" onclick="setTool('arc')">
+    <button class="tool-btn" id="btn-arc" onclick="setTool('arc')" data-tip="Arc" data-tip-key="A" aria-label="Arc (A)">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 19a9 9 0 0 1 14 0"/><circle cx="5" cy="19" r="1.5" fill="currentColor"/><circle cx="19" cy="19" r="1.5" fill="currentColor"/></svg></div>
       <span class="tool-label">ARC</span>
     </button>
-    <button class="tool-btn" id="btn-circle" onclick="setTool('circle')">
+    <button class="tool-btn" id="btn-circle" onclick="setTool('circle')" data-tip="Circle" data-tip-key="C" aria-label="Circle (C)">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/></svg></div>
       <span class="tool-label">CIRCLE</span>
     </button>
-    <button class="tool-btn" id="btn-kompass" onclick="setTool('kompass')" title="Kompass — plant a pivot, set the span, swing (K)">
+    <button class="tool-btn" id="btn-kompass" onclick="setTool('kompass')" data-tip="Kompass" data-tip-key="V" aria-label="Kompass (V)">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="5" r="1.6" fill="currentColor"/><path d="M12 6.5 5 20"/><path d="M12 6.5 19 20"/><path d="M7.5 17a7 7 0 0 0 9 0"/></svg></div>
       <span class="tool-label">KOMPASS</span>
     </button>
-    <button class="tool-btn" id="btn-fillet" onclick="setTool('fillet')">
+    <button class="tool-btn" id="btn-fillet" onclick="setTool('fillet')" data-tip="Fillet" data-tip-key="F" aria-label="Fillet (F)">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 19 L5 8 Q5 5 8 5 L19 5"/></svg></div>
       <span class="tool-label">FILLET</span>
     </button>
-    <button class="tool-btn" id="btn-chamfer" onclick="setTool('chamfer')">
+    <button class="tool-btn" id="btn-chamfer" onclick="setTool('chamfer')" data-tip="Chamfer" data-tip-key="H" aria-label="Chamfer (H)">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
         <path d="M4 20 L12 4 L20 20"/>
         <line x1="7" y1="14" x2="17" y2="14"/>
       </svg></div>
       <span class="tool-label">CHAMFER</span>
     </button>
-    <button class="tool-btn" id="btn-mirror" onclick="setTool('mirror')">
+    <button class="tool-btn" id="btn-mirror" onclick="setTool('mirror')" data-tip="Mirror" data-tip-key="M" aria-label="Mirror (M)">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="3" x2="12" y2="21" stroke-dasharray="2 2"/><polyline points="3,7 9,12 3,17"/><polyline points="21,7 15,12 21,17"/></svg></div>
       <span class="tool-label">MIRROR</span>
     </button>
-    <button class="tool-btn" id="btn-dim" onclick="setTool('dim')">
+    <button class="tool-btn" id="btn-dim" onclick="setTool('dim')" data-tip="Dimension" data-tip-key="D" aria-label="Dimension (D)">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="3" y1="17" x2="21" y2="17"/><line x1="3" y1="14" x2="3" y2="20"/><line x1="21" y1="14" x2="21" y2="20"/><line x1="8" y1="12" x2="8" y2="17"/><line x1="16" y1="12" x2="16" y2="17"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="10" y1="5" x2="8" y2="7"/><line x1="10" y1="9" x2="8" y2="7"/><line x1="14" y1="5" x2="16" y2="7"/><line x1="14" y1="9" x2="16" y2="7"/></svg></div>
       <span class="tool-label">DIM</span>
     </button>
-    <button class="tool-btn" id="btn-trim" onclick="setTool('trim')">
+    <button class="tool-btn" id="btn-trim" onclick="setTool('trim')" data-tip="Trim" data-tip-key="Q" aria-label="Trim (Q)">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="4" y1="12" x2="20" y2="12"/><line x1="12" y1="4" x2="12" y2="10"/><line x1="12" y1="14" x2="12" y2="20" stroke-dasharray="2 2" opacity="0.4"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg></div>
       <span class="tool-label">TRIM</span>
     </button>
-    <button class="tool-btn" id="btn-extend" onclick="setTool('extend')">
+    <button class="tool-btn" id="btn-extend" onclick="setTool('extend')" data-tip="Extend" data-tip-key="E" aria-label="Extend (E)">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="4" y1="12" x2="16" y2="12"/><polyline points="13,9 16,12 13,15"/><line x1="19" y1="5" x2="19" y2="19"/></svg></div>
       <span class="tool-label">EXTEND</span>
     </button>
-    <button class="tool-btn" id="btn-break" onclick="setTool('break')">
+    <button class="tool-btn" id="btn-break" onclick="setTool('break')" data-tip="Break" data-tip-key="B" aria-label="Break (B)">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="4" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="20" y2="12"/><line x1="9" y1="9" x2="12" y2="15"/><line x1="12" y1="9" x2="15" y2="15"/></svg></div>
       <span class="tool-label">BREAK</span>
     </button>
-    <button class="tool-btn" id="btn-scale" onclick="setTool('scale')">
+    <button class="tool-btn" id="btn-scale" onclick="setTool('scale')" data-tip="Scale" data-tip-key="I" aria-label="Scale (I)">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="8" height="8"/><rect x="13" y="13" width="8" height="8"/><line x1="11" y1="7" x2="13" y2="7" stroke-dasharray="2 2"/><line x1="17" y1="11" x2="17" y2="13" stroke-dasharray="2 2"/></svg></div>
       <span class="tool-label">SCALE</span>
     </button>
-    <button class="tool-btn" id="btn-stretch" onclick="setTool('stretch')">
+    <button class="tool-btn" id="btn-stretch" onclick="setTool('stretch')" data-tip="Stretch" data-tip-key="W" aria-label="Stretch (W)">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="4" y1="20" x2="12" y2="12"/><line x1="12" y1="12" x2="20" y2="4"/><circle cx="20" cy="4" r="2.5" fill="currentColor"/><path d="M17 1l3 3-3 3" stroke-width="1.2"/></svg></div>
       <span class="tool-label">STRETCH</span>
     </button>
-    <button class="tool-btn" id="btn-text" onclick="setTool('text')">
+    <button class="tool-btn" id="btn-text" onclick="setTool('text')" data-tip="Text" data-tip-key="K" aria-label="Text (K)">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 7V5h16v2"/><line x1="12" y1="5" x2="12" y2="19"/><line x1="8" y1="19" x2="16" y2="19"/></svg></div>
       <span class="tool-label">TEXT</span>
     </button>
-    <button class="tool-btn" id="btn-array" onclick="openArrayDialog()">
+    <button class="tool-btn" id="btn-array" onclick="openArrayDialog()" data-tip="Array" data-tip-key="N" aria-label="Array (N)">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="5" height="5"/><rect x="10" y="3" width="5" height="5"/><rect x="17" y="3" width="4" height="5"/><rect x="3" y="10" width="5" height="5"/><rect x="10" y="10" width="5" height="5"/><rect x="17" y="10" width="4" height="5"/></svg></div>
       <span class="tool-label">ARRAY</span>
     </button>
-    <button class="tool-btn" id="btn-select" onclick="setTool('select')">
+    <button class="tool-btn" id="btn-select" onclick="setTool('select')" data-tip="Select" data-tip-key="S" aria-label="Select (S)">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 3l14 9-7 1-4 7z"/></svg></div>
       <span class="tool-label">SELECT</span>
     </button>
@@ -2360,7 +2581,7 @@ body.kanvas-mode #app {
     <input type="checkbox" id="poly-inscribed" checked title="Inscribed (vertices on circle) vs circumscribed"/>
   </div>
   <div class="tool-grid-bottom">
-    <button class="tool-btn" id="btn-delete" onclick="deleteSelected()" style="color:#ff4455;">
+    <button class="tool-btn" id="btn-delete" onclick="deleteSelected()" style="color:#ff4455;" data-tip="Delete Selected" data-tip-key="Del" aria-label="Delete Selected (Del)">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#ff4455" stroke-width="1.5">
         <polyline points="3 6 5 6 21 6"/>
         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
@@ -2460,7 +2681,7 @@ body.kanvas-mode #app {
     <span><span class="coord-label">X </span><span id="cx">0.0000</span></span>
     <span><span class="coord-label">Y </span><span id="cy">0.0000</span></span>
     <span class="coord-label" id="coord-unit-lbl">mm</span>
-    <span id="draw-layer-chip" title="Drawing layer — tap to change" onclick="focusLayerPanel()">SOLID</span>
+    <span id="draw-layer-chip" title="Drawing layer — tap to change" onclick="toggleLayerDropdown(event)">SOLID</span>
     <span id="hover-src" style="color:var(--green);font-size:11px;"></span>
   </div>
   <div id="hint">Press <span>L</span> Line · <span>A</span> Arc · <span>C</span> Circle · <span>R</span> Rect · <span>P</span> Poly · <span>F</span> Fillet · Right-click</div>
@@ -8711,17 +8932,13 @@ function getLayer(name) {
 function setActiveLayer(name) {
   if (!LAYERS[name]) return;
   activeLayer = name;
-  // Update layer UI — .layer-row exists in both the sidebar panel and the
-  // tab-bar dropdown, so this querySelectorAll covers both at once.
+  // Update layer UI — .layer-row now lives only in the tab-bar dropdown
+  // (#layer-dd-list), but this stays a querySelectorAll in case a future
+  // mount point is added; it's a no-op elsewhere.
   document.querySelectorAll('.layer-row').forEach(el => {
     el.classList.toggle('active', el.dataset.layer === name);
   });
-  const indicator = document.getElementById('active-layer-indicator');
   const lay = getLayer(name);
-  if (indicator) {
-    indicator.textContent = lay.name;
-    indicator.style.color = lay.color;
-  }
   updateDrawLayerChip();
   updateLayerDropdownLabel();
   closeLayerDropdown();   // picking a layer is the end of the interaction
@@ -8737,20 +8954,6 @@ function updateDrawLayerChip() {
   const lay = getLayer(activeLayer);
   chip.textContent = lay.name;
   chip.style.color = lay.color;
-}
-
-// Tapping the chip reveals the layer panel — on mobile that means opening
-// the sidebar drawer first, otherwise the panel is already on screen.
-function focusLayerPanel() {
-  if (document.body.classList.contains('mobile-mode')) toggleMobileSidebar(true);
-  const panel = document.getElementById('layer-panel');
-  if (panel) {
-    panel.scrollIntoView({block:'nearest', behavior:'smooth'});
-    panel.animate(
-      [{boxShadow:'0 0 0 0 var(--accent)'}, {boxShadow:'0 0 0 3px var(--accent)'}, {boxShadow:'0 0 0 0 var(--accent)'}],
-      {duration:700}
-    );
-  }
 }
 
 // Routes "+ New Layer" to whichever space is in front — adding a model
@@ -8790,9 +8993,8 @@ function toggleLayerVisibility(name) {
 }
 
 
-// Builds one layer row. Both mount points — the sidebar panel and the
-// tab-bar dropdown — render from this single builder so the two can never
-// drift apart or grow separate feature sets.
+// Builds one layer row for the tab-bar dropdown (#layer-dd-list), the
+// sole mount point for the layer list.
 function buildLayerRow(key, lay) {
   const row = document.createElement('div');
   row.className = 'layer-row' + (key === activeLayer ? ' active' : '');
@@ -8827,13 +9029,10 @@ function buildLayerPanel() {
   // position, same gesture — it just addresses whichever space is in front,
   // which is the whole point of the two tabs feeling like one program.
   if (typeof kvActive !== 'undefined' && kvActive) { buildKvLayerDropdown(); return; }
-  const targets = [document.getElementById('layer-list'),
-                   document.getElementById('layer-dd-list')].filter(Boolean);
-  if (!targets.length) return;
-  for (const panel of targets) {
-    panel.innerHTML = '';
-    for (const [key, lay] of Object.entries(LAYERS)) panel.appendChild(buildLayerRow(key, lay));
-  }
+  const panel = document.getElementById('layer-dd-list');
+  if (!panel) return;
+  panel.innerHTML = '';
+  for (const [key, lay] of Object.entries(LAYERS)) panel.appendChild(buildLayerRow(key, lay));
   updateDrawLayerChip();
   updateLayerDropdownLabel();
 }
@@ -8917,8 +9116,6 @@ document.addEventListener('keydown', (e) => {
 function setLayerColor(key, hex) {
   if (!LAYERS[key]) return;
   LAYERS[key].color = hex;
-  const ind = document.getElementById('active-layer-indicator');
-  if (key === activeLayer && ind) ind.style.color = hex;
   updateDrawLayerChip();
   updateLayerDropdownLabel();
   render();
@@ -10555,7 +10752,7 @@ requestAnimationFrame(()=>{
     setTool('pline');
     // The layer list was never populated at startup — buildLayerPanel()
     // was only ever called from the add/rename/delete/visibility actions,
-    // so #layer-list rendered empty on load with nothing in it to click.
+    // so #layer-dd-list rendered empty on load with nothing in it to click.
     // That's the real reason switching layers wasn't discoverable: there
     // was no list, not just a hard-to-find one.
     buildLayerPanel();
@@ -16028,7 +16225,94 @@ function setLayout(layout) {
   document.querySelectorAll('#layout-dropdown .tb-dd-item').forEach(el => el.classList.remove('checked'));
   const opt = document.getElementById('layout-opt-' + layout);
   if (opt) opt.classList.add('checked');
+  // A layout switch can pull the hovered button out from under the cursor;
+  // a tooltip left showing would then be pointing at nothing.
+  if (typeof kadTipHide === 'function') kadTipHide();
 }
+
+// ── DESKTOP HOVER TOOLTIP ──────────────────────────────────────────────
+// Classic hides the tool labels, so the name has to return on hover. The
+// native title= attribute is not adequate for it: ~1s delay, OS styling,
+// and it cannot be positioned. This is a single fixed-position node driven
+// off data-tip / data-tip-key, reused by every control that opts in.
+//
+// Two things make the fixed positioning load-bearing rather than cosmetic:
+// #sidebar sets overflow:hidden, so a tooltip parented to the button would
+// be clipped at the rail edge; and the rail is narrow in Classic, so the
+// tooltip has to sit OUTSIDE it, over the canvas, to be readable at all.
+//
+// The whole engine is behind a hover+fine-pointer check. On a tablet the
+// node is never created and no listeners are bound, so there is nothing
+// that can fire on a tap or fight the drawer.
+let _kadTipEl = null, _kadTipTimer = null, _kadTipTarget = null;
+
+function kadTipHide() {
+  if (_kadTipTimer) { clearTimeout(_kadTipTimer); _kadTipTimer = null; }
+  _kadTipTarget = null;
+  if (_kadTipEl) _kadTipEl.classList.remove('show');
+}
+
+function kadTipShow(target) {
+  if (!_kadTipEl || !target || !target.isConnected) return;
+  const name = target.getAttribute('data-tip');
+  if (!name) return;
+  const key = target.getAttribute('data-tip-key');
+  _kadTipEl.textContent = name;
+  if (key) {
+    const k = document.createElement('span');
+    k.className = 'tip-key';
+    k.textContent = key;
+    _kadTipEl.appendChild(k);
+  }
+  // Measure with the node laid out but still transparent, then place it.
+  _kadTipEl.style.left = '0px';
+  _kadTipEl.style.top  = '0px';
+  const r = target.getBoundingClientRect();
+  const t = _kadTipEl.getBoundingClientRect();
+  const GAP = 8, PAD = 6;
+  // Prefer the right of the control (the tool rail is on the left); flip to
+  // the left only if that would run past the viewport edge.
+  let x = r.right + GAP;
+  if (x + t.width > window.innerWidth - PAD) x = r.left - t.width - GAP;
+  if (x < PAD) x = PAD;
+  let y = r.top + (r.height - t.height) / 2;
+  y = Math.max(PAD, Math.min(y, window.innerHeight - t.height - PAD));
+  _kadTipEl.style.left = Math.round(x) + 'px';
+  _kadTipEl.style.top  = Math.round(y) + 'px';
+  _kadTipEl.classList.add('show');
+}
+
+(function initKadTips() {
+  const fine = window.matchMedia &&
+               window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+  if (!fine) return;   // touch/pen: engine never exists
+
+  _kadTipEl = document.createElement('div');
+  _kadTipEl.id = 'kad-tip';
+  document.body.appendChild(_kadTipEl);
+
+  // Delegated so buttons rendered later (layer rows, future panels) are
+  // covered without re-binding anything.
+  document.addEventListener('mouseover', (e) => {
+    if (!(e.target instanceof Element)) return;
+    const el = e.target.closest('[data-tip]');
+    if (!el || el === _kadTipTarget) return;
+    kadTipHide();
+    _kadTipTarget = el;
+    _kadTipTimer = setTimeout(() => kadTipShow(el), 260);
+  });
+  document.addEventListener('mouseout', (e) => {
+    if (!(e.target instanceof Element)) return;
+    const el = e.target.closest('[data-tip]');
+    if (el && el === _kadTipTarget) kadTipHide();
+  });
+  // A tooltip must never survive the interaction that dismissed its target:
+  // clicking a tool, scrolling the rail, or leaving the window.
+  document.addEventListener('mousedown', kadTipHide, true);
+  document.addEventListener('wheel', kadTipHide, {passive:true, capture:true});
+  window.addEventListener('blur', kadTipHide);
+  window.addEventListener('resize', kadTipHide);
+})();
 
 // Cycles color themes — kept for the command palette / keyboard shortcut,
 // which expects a single no-argument toggle rather than a picked value.
@@ -16088,9 +16372,24 @@ document.addEventListener('keydown', e => {
   try { savedTheme = localStorage.getItem('kad-theme'); } catch(e) {}
   setTheme(THEME_PALETTES[savedTheme] ? savedTheme : 'blueprint');
 
+  // Layout default is chosen by pointer capability on first run, not by a
+  // hardcoded preference for one input type. A desktop user opening KAD for
+  // the first time got the tablet build until they went hunting through a
+  // topbar menu they had no reason to open; a tablet user got the right
+  // thing by accident. An explicit choice always wins and is remembered —
+  // this only decides what happens before the user has expressed one.
   let savedLayout = null;
   try { savedLayout = localStorage.getItem('kad-layout'); } catch(e) {}
-  setLayout(savedLayout === 'classic' ? 'classic' : 'touch');
+  if (savedLayout === 'classic' || savedLayout === 'touch') {
+    setLayout(savedLayout);
+  } else {
+    const desktop = window.matchMedia &&
+                    window.matchMedia('(hover: hover) and (pointer: fine)').matches &&
+                    window.innerWidth >= 1024;
+    // setLayout persists, which is deliberate: the guess becomes the saved
+    // preference so a later window resize can't silently re-guess mid-session.
+    setLayout(desktop ? 'classic' : 'touch');
+  }
 })();
 
 </script>
