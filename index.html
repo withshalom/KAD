@@ -44,8 +44,44 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="KAD">
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     GOOGLE FONTS — CDN-hosted, only the faces actually used in this file:
+       Atkinson Hyperlegible: 400, 700   (UI chrome, --fu)
+       JetBrains Mono:        400..700   (coordinates/numerals, --fm)
+       Syne:                  400..800   (KANVAS text tool + --fd display)
+     Loaded via a real <link> (not @import, which blocks rendering) with
+     preconnect hints so the DNS/TLS handshake to Google's font servers
+     starts immediately instead of after the CSS is parsed. Matches the
+     strategy and form used in KADsuite.html.
+
+     Three things this file was getting wrong, found by auditing what the
+     page actually renders rather than what the URL asked for:
+       · Italic was requested (Atkinson 1,400) and used nowhere — a whole
+         extra face downloaded for nothing. Dropped.
+       · Literata was requested and used nowhere; its only reference was a
+         --fs custom property that nothing read. Dropped.
+       · JetBrains Mono and Syne are VARIABLE fonts, so a weight RANGE is
+         one file, not several. JetBrains was requested as three discrete
+         instances (400;500;600) while the DOM also renders it at 700, and
+         Syne was requested at 700;800 while KANVAS draws it on canvas at
+         the default 400 — both meaning the browser faux-bolded/thinned
+         faces it never had. A range fixes the rendering and cuts requests.
+     Atkinson is a STATIC family with only 400/700 on Google Fonts, so the
+     font-weight:500/600 rules that target --fu are synthesised by the
+     browser no matter what is requested here — a design note, not a bug
+     this URL can fix.
+
+     display=swap is deliberate: text paints in the fallback face straight
+     away and reflows when the webfont lands, which matters more here than
+     avoiding the swap, because the drafting chrome has to be readable the
+     instant the canvas is.
+     ══════════════════════════════════════════════════════════════════════ -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400..700&family=Syne:wght@400..800&display=swap">
+
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=Literata:ital,opsz,wght@0,16..30,400;0,16..30,500;0,16..30,600;0,16..30,700;1,16..30,400&family=Syne:wght@700;800&display=swap');
 
 
 /* ── THEME SYSTEM ─────────────────────────────────────────────────────────
@@ -132,11 +168,22 @@ body[data-theme="parchment"] #main-canvas { background: var(--void); }
   --t3: #6888a8;
   --fm:     'JetBrains Mono', monospace;
   --fd:       'Syne', sans-serif;
-  --fs:       'Literata', serif;
   --fu:       'Atkinson Hyperlegible', sans-serif;
   --sidebar-w:     272px;
   --toolbar-h:     48px;
   --status-h:      32px;
+  --tabbar-h:      32px;   /* mode-tab strip height. Was written as a bare 32px
+                              in five places (the #app grid rows x3, .tab-bar
+                              itself, and the mobile layer-panel offset), so
+                              changing the strip meant finding all five. */
+  /* Vertical rail the floating touch controls stack on. ESC sits at the top,
+     DELETE one slot below it, and the LOCK pill opposite ESC on the right.
+     These were four independent literals (60px, 114px, 60px, and a 72px hint
+     offset derived from them by hand) that silently had to agree. */
+  --fab-rail-top:  calc(var(--toolbar-h) + 60px + env(safe-area-inset-top, 0px));
+  --fab-size:      44px;
+  --fab-gap:       10px;
+  --lock-h:        36px;   /* LOCK pill height — the mobile hint clears it */
   --stb-w:         100px;  /* sidebar-toggle-btn width — single source of truth so
                                the tab-bar clearance and drawer clearance below
                                can never drift out of sync with the button again */
@@ -154,7 +201,7 @@ html, body { width:100%; height:100%; overflow:hidden; box-sizing:border-box; ba
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 /* ── LAYOUT ── */
-#app { position:fixed; inset:0; z-index:0; pointer-events:none; display:grid; grid-template-columns:var(--sidebar-w) 1fr; grid-template-rows:var(--toolbar-h) 32px 1fr 28px var(--status-h); width:100vw; height:100vh; overflow:hidden; background:var(--void); }
+#app { position:fixed; inset:0; z-index:0; pointer-events:none; display:grid; grid-template-columns:var(--sidebar-w) 1fr; grid-template-rows:var(--toolbar-h) var(--tabbar-h) 1fr 28px var(--status-h); width:100vw; height:100vh; overflow:hidden; background:var(--void); }
 
 /* ── KOMMAND LINE ─────────────────────────────────────────────────────────── */
 
@@ -306,94 +353,24 @@ html, body { width:100%; height:100%; overflow:hidden; box-sizing:border-box; ba
 
 /* ── KANVAS tab system ── */
 
-
-
-
-
-
-
-
 /* ── Model / KANVAS pane wrappers ── */
-
-
-
-
 
 /* ── KANVAS sidebar ── */
 
 
 /* ── KV tool buttons ── */
 
-
-
-
-
-
-
-
-
-
-/* ── Dimensioning standard buttons ── */
-
-
-
-
-/* ── Weld symbol controls ── */
-
-
-
-/* ── KV brush controls ── */
-
-
-
-
-
-
-/* ── KV color ── */
-
-
-
-
-
-
-/* ── KV page size ── */
-
-
-/* ── KV layers ── */
-
-
-
-
-
-/* ── KV export buttons ── */
-
-
-
-
-
-
-
-
 /* ── KANVAS canvas area ── */
 
 
 /* ── Sidebar reorganize: DELETE always at bottom ── */
-
-
 
 /* ── KANVAS mode accent ── */
 
 
 /* ── Print ── */
 
-
-
 /* ── UNIT TOGGLE TWO-TONE (cyan ↔ amber / KAD ↔ KAM) ──────── */
-
-
-
-
-
 
 /* KLOUD is the standalone hosted app — no suite landing layer.
    The body carries .drafting-mode permanently so all of KAD's
@@ -503,13 +480,12 @@ body.drafting-mode #app { pointer-events:auto; z-index:20; }
    selector scoping above — one file, two sidebars, no leakage. */
 body[data-layout="classic"] #sidebar { --sidebar-w: 184px; }
 body[data-layout="classic"] #sidebar .tool-grid { grid-template-columns:repeat(4,1fr); }
-body[data-layout="classic"] #sidebar .tool-btn { padding:7px 3px; gap:0; min-height:34px; }
+/* cursor:default because names live in the hover tooltip rather than under
+   the icon — the pointer should read as "this will tell you more". */
+body[data-layout="classic"] #sidebar .tool-btn { padding:7px 3px; gap:0; min-height:34px; cursor:default; }
 body[data-layout="classic"] #sidebar .tool-icon { width:20px; height:20px; }
 body[data-layout="classic"] #sidebar .tool-icon svg { width:18px; height:18px; }
 body[data-layout="classic"] #sidebar .tool-label { display:none; }
-/* Names live in the hover tooltip instead of under the icon, so the
-   pointer needs to read as "this is a thing that will tell you more". */
-body[data-layout="classic"] #sidebar .tool-btn { cursor:default; }
 /* The file column is the other place Classic can reclaim vertical space —
    its buttons are text-led and were sized for a fingertip. */
 body[data-layout="classic"] #sidebar .op-btn { padding:4px 8px; font-size:12px; }
@@ -569,9 +545,30 @@ button, .tb-menu-item, .tb-dd-item, .layer-row, .tab-item, .sb-item.sb-toggle {
 }
 
 /* Offset bar */
-#offset-bar { display:none; align-items:center; gap:6px; padding:5px 8px; background:var(--panel2); border-bottom:1px solid var(--border); flex-shrink:0; }
-#offset-bar.visible { display:flex; }
-#offset-bar label { font-family:var(--fu); font-size:12px; color:var(--t3); letter-spacing:0.08em; text-transform:uppercase; white-space:nowrap; }
+/* ── CONTEXTUAL TOOL BARS ──────────────────────────────────────────────
+   The strip that appears under the tool grid for whichever tool is held:
+   arc mode, fillet radius, chamfer distance, polygon sides, mirror axis,
+   measure readout, offset distance, rotation.
+   These are eight instances of one component. Two of them (#offset-bar and
+   #rotate-bar) had already been given real rules; the other six were still
+   carrying the same declarations as inline style="" attributes, copied by
+   hand. So a change to the bar chrome landed on two of eight — the shared
+   look was only holding because nobody had changed it yet. One component
+   now, with the per-bar differences (wrapping, input width) as modifiers.
+   Bars are shown/hidden by JS writing element.style.display, which still
+   wins over the class, so the toggle paths are untouched. */
+.ctx-bar { display:none; align-items:center; gap:6px; padding:5px 8px; background:var(--panel2); border-bottom:1px solid var(--border); flex-shrink:0; }
+.ctx-bar.visible { display:flex; }
+.ctx-bar.wrap { flex-wrap:wrap; }
+.ctx-bar label, .ctx-label { font-family:var(--fu); font-size:12px; color:var(--t3); letter-spacing:0.08em; text-transform:uppercase; white-space:nowrap; }
+.ctx-btn { background:var(--panel); border:1px solid var(--border); border-radius:3px; color:var(--t2); font-family:var(--fu); font-size:12px; padding:3px 7px; cursor:pointer; }
+.ctx-btn.on { background:var(--accent-glow); border-color:var(--accent); color:var(--accent); }
+.ctx-btn.go { background:rgba(0,212,255,0.1); border-color:var(--accent-dim); color:var(--accent); padding:3px 9px; margin-left:auto; }
+.ctx-num { background:var(--panel); border:1px solid var(--border-hi); border-radius:3px; color:var(--accent); font-family:var(--fm); font-size:13px; padding:3px 6px; width:60px; outline:none; text-align:right; }
+.ctx-num.narrow { width:52px; }
+.ctx-unit { font-family:var(--fm); font-size:12px; color:var(--t3); }
+.ctx-read { font-family:var(--fm); font-size:13px; min-width:80px; }
+#offset-bar label { white-space:nowrap; }
 #offset-dist-input { background:var(--panel); border:1px solid var(--border-hi); border-radius:3px; color:var(--accent); font-family:var(--fm); font-size:13px; padding:3px 6px; width:60px; outline:none; text-align:right; }
 #offset-dist-input:focus { border-color:var(--accent); }
 #offset-dist-unit { font-family:var(--fm); font-size:12px; color:var(--t3); }
@@ -831,9 +828,6 @@ button, .tb-menu-item, .tb-dd-item, .layer-row, .tab-item, .sb-item.sb-toggle {
 #kompass-r-box.swplocked #kompass-sweep-input { color: var(--accent); }
 #kompass-r-box.locked { border-color: var(--accent); box-shadow: 0 0 12px rgba(0,212,255,0.3), 0 2px 8px rgba(0,0,0,0.7); }
 #kompass-r-box.locked .dyn-field input { color: var(--accent); }
-.kompass-sweep-field span#kompass-sweep-read {
-  font-family: var(--fm); font-size: 12px; color: var(--t1); min-width: 34px;
-}
 
 /* ── CONTEXT MENU ── */
 #ctx-menu { position:fixed; display:none; flex-direction:column; background:var(--panel); border:1px solid var(--border-hi); border-radius:5px; box-shadow:0 10px 36px rgba(0,0,0,0.75),0 0 0 1px rgba(0,212,255,0.05); min-width:200px; z-index:500; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch; max-height:calc(100vh - 16px); padding:4px 0; }
@@ -1251,7 +1245,7 @@ button, .tb-menu-item, .tb-dd-item, .layer-row, .tab-item, .sb-item.sb-toggle {
   display: flex; align-items: stretch;
   background: var(--panel); border-bottom: 1px solid var(--border);
   padding: 0 8px; gap: 2px; flex-shrink: 0;
-  font-family: var(--fu); height: 32px;
+  font-family: var(--fu); height: var(--tabbar-h);
   grid-column: 1 / -1;
 }
 .tab-item {
@@ -1271,11 +1265,13 @@ button, .tb-menu-item, .tb-dd-item, .layer-row, .tab-item, .sb-item.sb-toggle {
 }
 
 /* ── LAYERS dropdown — tab bar, right of the mode tabs ──
-   The layer list previously lived only in the sidebar, which is closed by
-   default on mobile: the active layer was both unreadable and unreachable
-   without first opening the drawer and scrolling. Mounting the same list
-   here makes switching layers one tap from anywhere, on any pointer type,
-   and keeps the drawing layer permanently legible in the button label. */
+   The sole mount point for the layer list. It lived in the sidebar once,
+   which is closed by default on mobile, so the active layer was both
+   unreadable and unreachable without opening the drawer and scrolling.
+   It briefly lived in both places, which is worse: two lists to keep in
+   step. Here it is one tap from anywhere on any pointer type, it keeps the
+   drawing layer legible in the button label, and — because the sidebar no
+   longer carries a copy — the rail's width is set by the tool grid alone. */
 .tab-spacer { flex: 1; min-width: 8px; }
 #layer-dd-wrap { position: relative; display: flex; align-items: center; padding-right: 6px; flex-shrink: 0; }
 #layer-dd-btn {
@@ -1328,7 +1324,7 @@ button, .tb-menu-item, .tb-dd-item, .layer-row, .tab-item, .sb-item.sb-toggle {
    known offset rather than something that needs measuring. */
 .mobile-mode #layer-dd-panel {
   position: fixed;
-  top: calc(var(--toolbar-h) + 32px + 4px);
+  top: calc(var(--toolbar-h) + var(--tabbar-h) + 4px);
   right: max(8px, env(safe-area-inset-right, 0px));
   left: auto;
   min-width: 0;
@@ -1350,29 +1346,8 @@ body.kanvas-mode #model-pane  { display: none; }
   flex-shrink: 0;
 }
 
-/* ── KV tool buttons ── */
-.kv-tbtn.act { background: rgba(0,144,168,0.08); border-color: rgba(0,144,168,0.35); }
-.kv-tbtn.act .kv-ti svg { stroke: #0090a8; }
-.kv-tbtn.act .kv-tl { color: #0090a8; }
-
 /* ── Dimensioning standard buttons ── */
 .kv-dim-btn.act { background: rgba(0,212,255,0.12); border-color: rgba(0,212,255,0.3); color: var(--accent); }
-
-/* ── Weld symbol controls ── */
-
-/* ── KV brush controls ── */
-
-/* ── KV color ── */
-
-/* ── KV page size ── */
-
-/* ── KV layers ── */
-.kv-layer-item.active { color: #0090a8; background: rgba(0,144,168,0.05); }
-
-/* ── KV export buttons ── */
-.kv-export-btn.kvs { color: #0090a8; border-color: rgba(0,144,168,0.25); }
-.kv-export-btn.svg { color: var(--green); border-color: rgba(0,255,157,0.2); }
-.kv-export-btn.pdf { color: var(--t2); }
 
 /* ══════════════════════════════════════════════════════════════════════════
    KANVAS CONFORMANCE — the sheet should FEEL like the standalone app
@@ -1394,7 +1369,6 @@ body.kanvas-mode #model-pane  { display: none; }
 #kanvas-sidebar {
   --a1:  #40c0d8;
   --a2:  #0090a8;
-  --a3:  #006888;
   --a1g: rgba(0,144,168,0.22);
   --sunken:    rgba(0,0,0,0.30);
   --hover:     rgba(255,255,255,0.06);
@@ -1569,8 +1543,6 @@ body.kanvas-mode #model-pane  { display: none; }
   display: flex; align-items: center; justify-content: space-between;
   gap: 8px; padding: 3px 0; font-size: 11px; border: none; background: none;
 }
-#kanvas-sidebar .prop-k { color: var(--t3); }
-#kanvas-sidebar .prop-v { font-family: var(--fm); font-size: 10.5px; color: var(--t2); }
 
 /* The standalone's sidebar is 250px and scrolls as one column. */
 #kanvas-sidebar { width: 250px; overflow-y: auto; overflow-x: hidden; background: var(--glass); }
@@ -1610,7 +1582,9 @@ body.kanvas-mode { --accent: #0090a8; --accent-dim: #006888; --accent-glow: rgba
 
 /* ── Print ── */
 @media print {
-  #topbar, #sidebar, #status-bar { display: none !important; }
+  /* #statusbar, not #status-bar — the hyphenated form matched nothing, so
+     the status bar has always printed on every sheet. */
+  #topbar, #sidebar, #statusbar { display: none !important; }
   #kanvas-pane { display: flex !important; }
   body { background: white; }
 }
@@ -1749,36 +1723,13 @@ body[data-theme="parchment"] .tool-btn:hover .tool-icon svg { stroke:#2e2412; co
 
 /* Sidebar becomes a sliding drawer instead of a grid column */
 .mobile-mode #app { grid-template-columns: 0 1fr; }
-.mobile-mode #sidebar {
-  position: fixed;
-  top: var(--toolbar-h);
-  bottom: var(--status-h);
-  left: 0;
-  width: min(300px, 84vw);
-  z-index: 200;
-  transform: translateX(-100%);
-  transition: transform 0.22s ease;
-  box-shadow: 10px 0 30px rgba(0,0,0,0.45);
-  pointer-events: auto;
-  overflow-y: auto;
-  overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
-}
-.mobile-mode.sidebar-open #sidebar { transform: translateX(0); }
-
-/* Reserve a band at the top of the drawer equal to the toggle button's
-   own footprint (10px top offset + 44px height) so CLOSE never sits on
-   top of the drawer's own first row (was covering "LAYERS" + the active
-   layer row) — this holds regardless of what content a future section
-   puts first, since it's a blanket clearance rather than a per-row fix. */
-.mobile-mode.sidebar-open #sidebar { padding-top: 54px; }
-
-/* KANVAS's tool palette was a fixed --sidebar-w column with no mobile rule
-   at all, so on a phone it permanently ate a third of the sheet and there
-   was no way to dismiss it — while the identical palette in model space
-   slid away behind the ☰. Same drawer treatment, same geometry, same
-   scrim, same toggle: the two tabs now behave like one program. */
+/* ONE drawer definition for both sidebars, not two parallel copies.
+   They had already drifted: a safe-area padding fix landed on the model
+   sidebar only, so on a notched phone in landscape the KANVAS palette sat
+   under the cutout while the model palette cleared it. Anything that is
+   genuinely per-sidebar goes in its own rule below; everything about being
+   a drawer lives here and can only be changed once. */
+.mobile-mode #sidebar,
 .mobile-mode #kanvas-sidebar {
   position: fixed;
   top: var(--toolbar-h);
@@ -1794,8 +1745,23 @@ body[data-theme="parchment"] .tool-btn:hover .tool-icon svg { stroke:#2e2412; co
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
+  padding-left: env(safe-area-inset-left, 0px);
 }
+
+/* Reserve a band at the top of the drawer equal to the toggle button's own
+   footprint (10px offset + 44px height) so CLOSE never sits on top of the
+   drawer's first row. Deliberately a blanket clearance rather than a fix
+   aimed at whatever happens to be first — the row it originally covered
+   (the layer panel) has since moved out of the sidebar entirely, and the
+   clearance still does its job for whatever took its place. */
+.mobile-mode.sidebar-open #sidebar,
 .mobile-mode.sidebar-open #kanvas-sidebar { transform: translateX(0); padding-top: 54px; }
+
+/* KANVAS-only drawer trim. The palette used to be a fixed --sidebar-w
+   column with no mobile rule at all, so on a phone it ate a third of the
+   sheet with no way to dismiss it. It now shares the drawer rule above
+   with the model sidebar rather than keeping a parallel copy — only
+   genuinely KANVAS-specific tweaks belong below. */
 /* Larger tap targets in the KANVAS palette, matching the model tool grid. */
 .mobile-mode #kanvas-sidebar .tbtn { border-radius: 8px; }
 .mobile-mode #kanvas-sidebar .in-btn { padding: 9px 2px; }
@@ -1815,10 +1781,10 @@ body[data-theme="parchment"] .tool-btn:hover .tool-icon svg { stroke:#2e2412; co
 body.kanvas-mode #kv-sheetbar { display: flex; }
 /* The extra row exists only while the bar is on screen. */
 body.kanvas-mode #app {
-  grid-template-rows: var(--toolbar-h) 32px 30px 1fr 28px var(--status-h);
+  grid-template-rows: var(--toolbar-h) var(--tabbar-h) 30px 1fr 28px var(--status-h);
 }
 .mobile-mode.kanvas-mode #app {
-  grid-template-rows: var(--toolbar-h) 32px 36px 1fr 28px var(--status-h);
+  grid-template-rows: var(--toolbar-h) var(--tabbar-h) 36px 1fr 28px var(--status-h);
 }
 #kv-sheet-tabs {
   display: flex; flex-direction: row; gap: 4px; flex: 1;
@@ -1844,8 +1810,6 @@ body.kanvas-mode #app {
 .mobile-mode #kv-sheet-tabs { gap: 5px; }
 .mobile-mode .kv-sheet-tab { padding: 5px 11px; font-size: 11.5px; }
 .mobile-mode #kv-sheet-add { width: 34px; height: 30px; font-size: 17px; }
-.kv-sheet-actions button.del:hover { color: #ff6b6b; border-color: #ff6b6b; }
-.mobile-mode .kv-sheet-actions button { padding: 8px 2px; }
 
 .kv-orient-btn.act { color: var(--accent); border-color: var(--accent); background: var(--accent-glow); }
 .mobile-mode .kv-orient-btn { padding: 8px 2px; font-size: 10px; }
@@ -1986,27 +1950,30 @@ body.kanvas-mode #app {
    selection if nothing's being drawn. Top-left so it never fights the
    COMMIT button (bottom-right) for thumb space, and sits below the
    hamburger rather than on top of it. */
-#esc-fab {
+/* ESC and DELETE are the same button in two positions and two glyphs, so
+   the chrome is declared once. Position comes from the shared rail vars:
+   DELETE is exactly one slot below ESC, which is what the old literal
+   114px meant (60 + 44 + 10) and had to be recomputed by hand. */
+#esc-fab, #delete-fab {
   display: none;
   position: fixed;
-  top:  calc(var(--toolbar-h) + 60px + env(safe-area-inset-top, 0px));
   left: calc(10px + env(safe-area-inset-left, 0px));
   z-index: 210;
-  width: 44px; height: 44px;
+  width: var(--fab-size); height: var(--fab-size);
   border-radius: 50%;
   align-items: center;
   justify-content: center;
   background: var(--panel);
   border: 1px solid rgba(255,68,85,0.55);
   color: #ff4455;
-  font-family: var(--fu);
-  font-weight: 700;
-  font-size: 10px;
-  letter-spacing: 0.06em;
   box-shadow: 0 8px 20px rgba(0,0,0,0.5);
   cursor: pointer;
 }
-#esc-fab:active { transform: scale(0.94); }
+#esc-fab:active, #delete-fab:active { transform: scale(0.94); }
+#esc-fab {
+  top: var(--fab-rail-top);
+  font-family: var(--fu); font-weight: 700; font-size: 10px; letter-spacing: 0.06em;
+}
 .mobile-mode #esc-fab.show { display: flex; }
 
 /* ── FLOATING DELETE (touch) ──
@@ -2014,22 +1981,7 @@ body.kanvas-mode #app {
    deleting a selection isn't tied to a draw-tool-in-progress the way
    Escape and Commit are. Stacked directly under ESC in the same
    danger-red family, since it's the same class of action. */
-#delete-fab {
-  display: none;
-  position: fixed;
-  top:  calc(var(--toolbar-h) + 114px + env(safe-area-inset-top, 0px));
-  left: calc(10px + env(safe-area-inset-left, 0px));
-  z-index: 210;
-  width: 44px; height: 44px;
-  border-radius: 50%;
-  align-items: center;
-  justify-content: center;
-  background: var(--panel);
-  border: 1px solid rgba(255,68,85,0.55);
-  color: #ff4455;
-  box-shadow: 0 8px 20px rgba(0,0,0,0.5);
-  cursor: pointer;
-}
+#delete-fab { top: calc(var(--fab-rail-top) + var(--fab-size) + var(--fab-gap)); }
 #delete-fab svg { width: 19px; height: 19px; flex-shrink: 0; }
 #delete-fab:active { transform: scale(0.94); }
 .mobile-mode #delete-fab.show { display: flex; }
@@ -2041,12 +1993,12 @@ body.kanvas-mode #app {
 #angle-lock-toggle {
   display: none;
   position: fixed;
-  top:   calc(var(--toolbar-h) + 60px + env(safe-area-inset-top, 0px));
+  top:   var(--fab-rail-top);   /* same slot as ESC, opposite side */
   right: calc(10px + env(safe-area-inset-right, 0px));
   z-index: 210;
   align-items: center;
   gap: 6px;
-  height: 36px;
+  height: var(--lock-h);
   padding: 0 12px;
   border-radius: 18px;
   background: var(--panel);
@@ -2088,7 +2040,9 @@ body.kanvas-mode #app {
 .mobile-mode #hint {
   white-space: normal;
   text-align: center;
-  top: 72px;
+  /* Sits under the LOCK pill: rail top + pill height + gap, measured from
+     the canvas wrap, which starts one tab strip below the toolbar. */
+  top: calc(60px + var(--lock-h) + 8px - var(--tabbar-h));
   /* left:50% on an auto-width absolute box caps its available space at half
      the container, so max-width alone could never widen it past 50vw — it
      was still wrapping at 160px on a 320px screen. An explicit width opts
@@ -2130,9 +2084,6 @@ body.kanvas-mode #app {
   padding-left:  calc(8px + env(safe-area-inset-left, 0px));
   padding-right: calc(8px + env(safe-area-inset-right, 0px));
 }
-.mobile-mode #sidebar {
-  padding-left: env(safe-area-inset-left, 0px);
-}
 
 /* ── MOBILE TOPBAR REFLOW ──
    The far-right buttons (version badge, theme toggle, unit toggle) don't
@@ -2165,7 +2116,6 @@ body.kanvas-mode #app {
    perfectly well by their remaining glyphs — SHARE keeps its status dot,
    and the brand wordmark is already repeated in the document title. */
 @media (max-width: 400px) {
-  .mobile-mode .brand-sub { display: none; }
   .mobile-mode #kloud-share-btn { font-size: 0; padding: 0 8px; gap: 0; }
   .mobile-mode #kloud-share-btn .kloud-dot { margin: 0; }
   .mobile-mode #unit-toggle .unit-seg { padding: 0 6px; }
@@ -2524,20 +2474,20 @@ body.kanvas-mode #app {
   </div>
 
   <!-- Mirror axis bar -->
-  <div id="mirror-bar" style="display:none;align-items:center;gap:6px;padding:5px 8px;background:var(--panel2);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;">
-    <label style="font-family:var(--fu);font-size:12px;color:var(--t3);letter-spacing:0.08em;text-transform:uppercase;">AXIS</label>
-    <button id="mirror-btn-h" onclick="setMirrorAxis('h')" style="background:var(--accent-glow);border:1px solid var(--accent);border-radius:3px;color:var(--accent);font-family:var(--fu);font-size:12px;padding:3px 7px;cursor:pointer;">Horiz</button>
-    <button id="mirror-btn-v" onclick="setMirrorAxis('v')" style="background:var(--panel);border:1px solid var(--border);border-radius:3px;color:var(--t2);font-family:var(--fu);font-size:12px;padding:3px 7px;cursor:pointer;">Vert</button>
-    <button id="mirror-btn-l" onclick="setMirrorAxis('line')" style="background:var(--panel);border:1px solid var(--border);border-radius:3px;color:var(--t2);font-family:var(--fu);font-size:12px;padding:3px 7px;cursor:pointer;">2-Pt Line</button>
-    <button onclick="mirrorSelected()" style="background:rgba(0,212,255,0.1);border:1px solid var(--accent-dim);border-radius:3px;color:var(--accent);font-family:var(--fu);font-size:12px;padding:3px 9px;cursor:pointer;margin-left:auto;">Apply</button>
+  <div id="mirror-bar" class="ctx-bar wrap">
+    <label class="ctx-label">AXIS</label>
+    <button id="mirror-btn-h" onclick="setMirrorAxis('h')" class="ctx-btn on">Horiz</button>
+    <button id="mirror-btn-v" onclick="setMirrorAxis('v')" class="ctx-btn">Vert</button>
+    <button id="mirror-btn-line" onclick="setMirrorAxis('line')" class="ctx-btn">2-Pt Line</button>
+    <button onclick="mirrorSelected()" class="ctx-btn go">Apply</button>
   </div>
 
   <!-- Measure readout bar -->
-  <div id="measure-bar" style="display:none;align-items:center;gap:6px;padding:5px 8px;background:var(--panel2);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;">
-    <label style="font-family:var(--fu);font-size:12px;color:var(--t3);letter-spacing:0.08em;text-transform:uppercase;">DIST</label>
-    <span id="measure-dist" style="font-family:var(--fm);font-size:13px;color:var(--amber);min-width:80px;">—</span>
-    <label style="font-family:var(--fu);font-size:12px;color:var(--t3);letter-spacing:0.08em;text-transform:uppercase;">ANG</label>
-    <span id="measure-angle" style="font-family:var(--fm);font-size:13px;color:var(--green);min-width:50px;">—</span>
+  <div id="measure-bar" class="ctx-bar wrap">
+    <label class="ctx-label">DIST</label>
+    <span id="measure-dist" class="ctx-read" style="color:var(--amber);">—</span>
+    <label class="ctx-label">ANG</label>
+    <span id="measure-angle" class="ctx-read" style="color:var(--green);min-width:50px;">—</span>
   </div>
 
   <!-- Rotation controls (shown when rotate tool is active OR objects are selected) -->
@@ -2552,32 +2502,32 @@ body.kanvas-mode #app {
     <button class="rot-btn" onclick="flattenSelection()" title="Rotate to 0° horizontal">→0°</button>
   </div>
 
-  <div id="arc-bar" style="display:none;align-items:center;gap:6px;padding:5px 8px;background:var(--panel2);border-bottom:1px solid var(--border);flex-shrink:0;">
-    <label style="font-family:var(--fu);font-size:12px;color:var(--t3);letter-spacing:0.08em;text-transform:uppercase;">MODE</label>
-    <button id="arc-btn-3pt" onclick="setArcMode('3pt')" style="background:var(--accent-glow);border:1px solid var(--accent);border-radius:3px;color:var(--accent);font-family:var(--fu);font-size:12px;padding:3px 7px;cursor:pointer;">3-Point</button>
-    <button id="arc-btn-csr" onclick="setArcMode('csr')" style="background:var(--panel);border:1px solid var(--border);border-radius:3px;color:var(--t2);font-family:var(--fu);font-size:12px;padding:3px 7px;cursor:pointer;">Ctr+R</button>
+  <div id="arc-bar" class="ctx-bar">
+    <label class="ctx-label">MODE</label>
+    <button id="arc-btn-3pt" onclick="setArcMode('3pt')" class="ctx-btn on">3-Point</button>
+    <button id="arc-btn-csr" onclick="setArcMode('csr')" class="ctx-btn">Ctr+R</button>
   </div>
-  <div id="fillet-bar" style="display:none;align-items:center;gap:6px;padding:5px 8px;background:var(--panel2);border-bottom:1px solid var(--border);flex-shrink:0;">
-    <label style="font-family:var(--fu);font-size:12px;color:var(--t3);letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap;">RADIUS</label>
-    <input type="number" id="fillet-r-input" value="5" min="0.0001" step="0.5" style="background:var(--panel);border:1px solid var(--border-hi);border-radius:3px;color:var(--accent);font-family:var(--fm);font-size:13px;padding:3px 6px;width:60px;outline:none;text-align:right;"/>
-    <span id="fillet-r-unit" style="font-family:var(--fm);font-size:12px;color:var(--t3);">mm</span>
+  <div id="fillet-bar" class="ctx-bar">
+    <label class="ctx-label">RADIUS</label>
+    <input type="number" id="fillet-r-input" value="5" min="0.0001" step="0.5" class="ctx-num"/>
+    <span id="fillet-r-unit" class="ctx-unit">mm</span>
   </div>
-  <div id="chamfer-bar" style="display:none;align-items:center;gap:6px;padding:5px 8px;background:var(--panel2);border-bottom:1px solid var(--border);flex-shrink:0;">
-    <label style="font-family:var(--fu);font-size:12px;color:var(--t3);letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap;">DIST</label>
-    <input type="number" id="chamfer-d-input" value="5" min="0.0001" step="0.5" style="background:var(--panel);border:1px solid var(--border-hi);border-radius:3px;color:var(--accent);font-family:var(--fm);font-size:13px;padding:3px 6px;width:60px;outline:none;text-align:right;"/>
-    <span id="chamfer-d-unit" style="font-family:var(--fm);font-size:12px;color:var(--t3);">mm</span>
+  <div id="chamfer-bar" class="ctx-bar">
+    <label class="ctx-label">DIST</label>
+    <input type="number" id="chamfer-d-input" value="5" min="0.0001" step="0.5" class="ctx-num"/>
+    <span id="chamfer-d-unit" class="ctx-unit">mm</span>
   </div>
-  <div id="offset-bar">
+  <div id="offset-bar" class="ctx-bar">
     <label>DIST</label>
     <input type="number" id="offset-dist-input" value="10" min="0.0001" step="0.5"/>
     <span id="offset-dist-unit">mm</span>
   </div>
 
   <!-- Polygon sides input (only shown for polygon tool) -->
-  <div id="poly-bar" style="display:none;align-items:center;gap:6px;padding:5px 8px;background:var(--panel2);border-bottom:1px solid var(--border);flex-shrink:0;">
-    <label style="font-family:var(--fu);font-size:12px;color:var(--t3);letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap;">SIDES</label>
-    <input type="number" id="poly-sides-input" value="6" min="3" max="64" step="1" style="background:var(--panel);border:1px solid var(--border-hi);border-radius:3px;color:var(--accent);font-family:var(--fm);font-size:13px;padding:3px 6px;width:52px;outline:none;text-align:right;"/>
-    <label style="font-family:var(--fu);font-size:12px;color:var(--t3);text-transform:uppercase;">CIRC</label>
+  <div id="poly-bar" class="ctx-bar">
+    <label class="ctx-label">SIDES</label>
+    <input type="number" id="poly-sides-input" value="6" min="3" max="64" step="1" class="ctx-num narrow"/>
+    <label class="ctx-label">CIRC</label>
     <input type="checkbox" id="poly-inscribed" checked title="Inscribed (vertices on circle) vs circumscribed"/>
   </div>
   <div class="tool-grid-bottom">
@@ -2695,7 +2645,7 @@ body.kanvas-mode #app {
 <!-- ── KANVAS SIDEBAR ── -->
 <div id="kanvas-sidebar">
 
-  <!-- ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+  <!-- ══════════════════════════════════════════════════════════════════════
        Structure, order and chrome deliberately mirror KANVAS.html. The sheet
        and the standalone app are the same product, and until now they shared
        almost nothing visually. Tools first, then the contextual panel for the
@@ -2704,7 +2654,7 @@ body.kanvas-mode #app {
        Anything marked .kad-only is the intended divergence: welding, angle
        dimensioning and the paperspace viewport exist because this sheet sits
        inside a drafting program. Nothing else should differ.
-       ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ -->
+       ══════════════════════════════════════════════════════════════════════ -->
 
   <div class="sec">Tools <span class="sec-hint" id="kv-tool-hint">Freehand · Ink</span></div>
   <div class="tool-grid">
@@ -2982,54 +2932,54 @@ body.kanvas-mode #app {
     <select class="fld kv-page-sel" onchange="kvSetPageSize(this.value)">
 
     <optgroup label="ISO (metric)">
-      <option value="a4p">A4 Portrait â 210Ã297 mm</option>
-      <option value="a4l">A4 Landscape â 297Ã210 mm</option>
-      <option value="a3p" selected>A3 Portrait â 297Ã420 mm</option>
-      <option value="a3l">A3 Landscape â 420Ã297 mm</option>
-      <option value="a2p">A2 Portrait â 420Ã594 mm</option>
-      <option value="a2l">A2 Landscape â 594Ã420 mm</option>
-      <option value="a1p">A1 Portrait â 594Ã841 mm</option>
-      <option value="a1l">A1 Landscape â 841Ã594 mm</option>
-      <option value="a0p">A0 Portrait â 841Ã1189 mm</option>
-      <option value="a0l">A0 Landscape â 1189Ã841 mm</option>
+      <option value="a4p">A4 Portrait — 210×297 mm</option>
+      <option value="a4l">A4 Landscape — 297×210 mm</option>
+      <option value="a3p" selected>A3 Portrait — 297×420 mm</option>
+      <option value="a3l">A3 Landscape — 420×297 mm</option>
+      <option value="a2p">A2 Portrait — 420×594 mm</option>
+      <option value="a2l">A2 Landscape — 594×420 mm</option>
+      <option value="a1p">A1 Portrait — 594×841 mm</option>
+      <option value="a1l">A1 Landscape — 841×594 mm</option>
+      <option value="a0p">A0 Portrait — 841×1189 mm</option>
+      <option value="a0l">A0 Landscape — 1189×841 mm</option>
     </optgroup>
     <optgroup label="US OFFICE">
-      <option value="letter_l">Letter Landscape â 11Ã8.5"</option>
-      <option value="letter_p">Letter Portrait â 8.5Ã11"</option>
-      <option value="legal_l">Legal Landscape â 14Ã8.5"</option>
-      <option value="legal_p">Legal Portrait â 8.5Ã14"</option>
-      <option value="tabloid_l">Tabloid Landscape â 17Ã11"</option>
-      <option value="tabloid_p">Tabloid Portrait â 11Ã17"</option>
+      <option value="letter_l">Letter Landscape — 11×8.5"</option>
+      <option value="letter_p">Letter Portrait — 8.5×11"</option>
+      <option value="legal_l">Legal Landscape — 14×8.5"</option>
+      <option value="legal_p">Legal Portrait — 8.5×14"</option>
+      <option value="tabloid_l">Tabloid Landscape — 17×11"</option>
+      <option value="tabloid_p">Tabloid Portrait — 11×17"</option>
     </optgroup>
     <optgroup label="ANSI ENGINEERING">
-      <option value="ansi_a_l">ANSI A Landscape â 11Ã8.5"</option>
-      <option value="ansi_a_p">ANSI A Portrait â 8.5Ã11"</option>
-      <option value="ansi_b_l">ANSI B Landscape â 17Ã11"</option>
-      <option value="ansi_b_p">ANSI B Portrait â 11Ã17"</option>
-      <option value="ansi_c_l">ANSI C Landscape â 22Ã17"</option>
-      <option value="ansi_c_p">ANSI C Portrait â 17Ã22"</option>
-      <option value="ansi_d_l">ANSI D Landscape â 34Ã22"</option>
-      <option value="ansi_d_p">ANSI D Portrait â 22Ã34"</option>
-      <option value="ansi_e_l">ANSI E Landscape â 44Ã34"</option>
-      <option value="ansi_e_p">ANSI E Portrait â 34Ã44"</option>
+      <option value="ansi_a_l">ANSI A Landscape — 11×8.5"</option>
+      <option value="ansi_a_p">ANSI A Portrait — 8.5×11"</option>
+      <option value="ansi_b_l">ANSI B Landscape — 17×11"</option>
+      <option value="ansi_b_p">ANSI B Portrait — 11×17"</option>
+      <option value="ansi_c_l">ANSI C Landscape — 22×17"</option>
+      <option value="ansi_c_p">ANSI C Portrait — 17×22"</option>
+      <option value="ansi_d_l">ANSI D Landscape — 34×22"</option>
+      <option value="ansi_d_p">ANSI D Portrait — 22×34"</option>
+      <option value="ansi_e_l">ANSI E Landscape — 44×34"</option>
+      <option value="ansi_e_p">ANSI E Portrait — 34×44"</option>
     </optgroup>
     <optgroup label="ARCHITECTURAL">
-      <option value="arch_a_l">Arch A Landscape â 12Ã9"</option>
-      <option value="arch_a_p">Arch A Portrait â 9Ã12"</option>
-      <option value="arch_b_l">Arch B Landscape â 18Ã12"</option>
-      <option value="arch_b_p">Arch B Portrait â 12Ã18"</option>
-      <option value="arch_c_l">Arch C Landscape â 24Ã18"</option>
-      <option value="arch_c_p">Arch C Portrait â 18Ã24"</option>
-      <option value="arch_d_l">Arch D Landscape â 36Ã24"</option>
-      <option value="arch_d_p">Arch D Portrait â 24Ã36"</option>
-      <option value="arch_e1_l">Arch E1 Landscape â 42Ã30"</option>
-      <option value="arch_e1_p">Arch E1 Portrait â 30Ã42"</option>
-      <option value="arch_e_l">Arch E Landscape â 48Ã36"</option>
-      <option value="arch_e_p">Arch E Portrait â 36Ã48"</option>
+      <option value="arch_a_l">Arch A Landscape — 12×9"</option>
+      <option value="arch_a_p">Arch A Portrait — 9×12"</option>
+      <option value="arch_b_l">Arch B Landscape — 18×12"</option>
+      <option value="arch_b_p">Arch B Portrait — 12×18"</option>
+      <option value="arch_c_l">Arch C Landscape — 24×18"</option>
+      <option value="arch_c_p">Arch C Portrait — 18×24"</option>
+      <option value="arch_d_l">Arch D Landscape — 36×24"</option>
+      <option value="arch_d_p">Arch D Portrait — 24×36"</option>
+      <option value="arch_e1_l">Arch E1 Landscape — 42×30"</option>
+      <option value="arch_e1_p">Arch E1 Portrait — 30×42"</option>
+      <option value="arch_e_l">Arch E Landscape — 48×36"</option>
+      <option value="arch_e_p">Arch E Portrait — 36×48"</option>
     </optgroup>
     <optgroup label="STANDARD DETAIL">
-      <option value="aws_d1_l">AWS D1 Landscape â 34Ã22"</option>
-      <option value="aws_d1_p">AWS D1 Portrait â 22Ã34"</option>
+      <option value="aws_d1_l">AWS D1 Landscape — 34×22"</option>
+      <option value="aws_d1_p">AWS D1 Portrait — 22×34"</option>
     </optgroup>
     </select>
     <div class="orient-row">
@@ -3880,14 +3830,8 @@ let filletState={active:false,firstLine:null};
 
 function setArcMode(m){
   arcMode=m;
-  const btn3=document.getElementById('arc-btn-3pt');
-  const btnC=document.getElementById('arc-btn-csr');
-  btn3.style.background=m==='3pt'?'var(--accent-glow)':'var(--panel)';
-  btn3.style.borderColor=m==='3pt'?'var(--accent)':'var(--border)';
-  btn3.style.color=m==='3pt'?'var(--accent)':'var(--t2)';
-  btnC.style.background=m==='csr'?'var(--accent-glow)':'var(--panel)';
-  btnC.style.borderColor=m==='csr'?'var(--accent)':'var(--border)';
-  btnC.style.color=m==='csr'?'var(--accent)':'var(--t2)';
+  document.getElementById('arc-btn-3pt').classList.toggle('on', m==='3pt');
+  document.getElementById('arc-btn-csr').classList.toggle('on', m==='csr');
   arcState={active:false,phase:0,p1:null,p2:null};render();
 }
 
@@ -8902,8 +8846,6 @@ function drawNewToolPreviews(){
   }
 }
 
-
-
 // ── LAYER SYSTEM ─────────────────────────────────────────────────────────────
 // Linetype definitions
 const LINETYPES = {
@@ -9369,6 +9311,84 @@ function drawGrid(W,H) {
   ctx.moveTo(ox-6,oy); ctx.lineTo(ox+6,oy); ctx.moveTo(ox,oy-6); ctx.lineTo(ox,oy+6); ctx.stroke();
 }
 
+// ── VIEWPORT CULLING ───────────────────────────────────────────────────
+// drawEntities() used to walk every object in the drawing on every frame,
+// with only a layer-visibility test. Cost therefore scaled with the size of
+// the FILE rather than with what was on screen: measured 52ms per frame at
+// 20,000 entities (19fps) and 141ms at 50,000 (7fps) — and, critically,
+// zooming into a small detail of a big drawing cost exactly the same as
+// viewing the whole thing, because everything was still being submitted to
+// the canvas and rejected downstream.
+//
+// This is a bounding-box reject in world space, done before any path is
+// built. The per-object test is a handful of float compares — far cheaper
+// than the beginPath/stroke work it avoids — so the win grows with how much
+// of the drawing is off screen and costs almost nothing when it isn't.
+//
+// The margin matters: a bbox is the geometry's extent, but what gets PAINTED
+// is wider (line width, selection halo) and TEXT is stored as an anchor point
+// with its body extending away from it. Both are handled by padding the view
+// rect generously rather than by per-type special cases, because a cull that
+// is slightly too permissive costs one wasted draw call while one that is
+// slightly too aggressive silently drops geometry the user drew.
+function viewWorldRect() {
+  const W = canvas.clientWidth, H = canvas.clientHeight;
+  const a = screenToWorld(0, 0), b = screenToWorld(W, H);
+  // Screen Y is inverted relative to world Y, so normalise rather than assume.
+  const pad = 64 / Math.max(cam.zoom, 1e-6);   // ~64 screen px of slack
+  return { minx: Math.min(a.x, b.x) - pad, maxx: Math.max(a.x, b.x) + pad,
+           miny: Math.min(a.y, b.y) - pad, maxy: Math.max(a.y, b.y) + pad };
+}
+
+// Allocation-free on purpose. The obvious implementation reuses
+// SnapIndex.bbox(), but that returns a fresh object, and at 20,000 entities
+// that is 20,000 short-lived allocations EVERY FRAME — measured at +42% on
+// the very frames this is supposed to make cheaper, because the cull then
+// costs more than the draw it skips. Comparing coordinates in place keeps
+// the test to a few float compares and no GC pressure.
+//
+// TEXT is anchored rather than bounded — glyphs run right and up from (x,y)
+// and the stored height is cap height — so it gets a deliberately generous
+// box. A cull that is slightly too permissive wastes one draw call; one that
+// is slightly too aggressive silently drops geometry the user drew.
+function objInView(o, v) {
+  switch (o.type) {
+    case 'LINE':
+      return !((o.x1 < v.minx && o.x2 < v.minx) || (o.x1 > v.maxx && o.x2 > v.maxx) ||
+               (o.y1 < v.miny && o.y2 < v.miny) || (o.y1 > v.maxy && o.y2 > v.maxy));
+    case 'CIRCLE':
+    case 'ARC':
+      return !(o.cx + o.r < v.minx || o.cx - o.r > v.maxx ||
+               o.cy + o.r < v.miny || o.cy - o.r > v.maxy);
+    case 'POINT':
+      return !(o.x < v.minx || o.x > v.maxx || o.y < v.miny || o.y > v.maxy);
+    case 'TEXT': {
+      const h = o.height || 5;
+      const w = h * ((o.text ? o.text.length : 0) + 2);
+      return !(o.x + w < v.minx || o.x - h > v.maxx ||
+               o.y + h * 2 < v.miny || o.y - h > v.maxy);
+    }
+    case 'POLYLINE': {
+      const pts = o.pts;
+      if (!pts || !pts.length) return true;
+      // Single pass, early-out the moment any vertex lands inside. Fully
+      // off-screen polylines still walk their points, which is far cheaper
+      // than building and stroking the path would have been.
+      let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
+      for (let i = 0; i < pts.length; i++) {
+        const px = pts[i].x, py = pts[i].y;
+        if (px >= v.minx && px <= v.maxx && py >= v.miny && py <= v.maxy) return true;
+        if (px < minx) minx = px;  if (px > maxx) maxx = px;
+        if (py < miny) miny = py;  if (py > maxy) maxy = py;
+      }
+      // No vertex inside, but the path can still cross the view.
+      return !(maxx < v.minx || minx > v.maxx || maxy < v.miny || miny > v.maxy);
+    }
+    default:
+      return true;   // unknown type: never cull something we cannot bound
+  }
+}
+
 function drawEntities() {
   (function drawOrigin() {
     const o = worldToScreen(0, 0);
@@ -9394,11 +9414,17 @@ function drawEntities() {
   })();
 
   ctx.save();
+  const _view = viewWorldRect();
   for(const o of GeoMemory.objects){
     const sel = selectedIds.has(o.id);
     // Layer visibility
     const _lay = (typeof LAYERS !== 'undefined') && LAYERS[o.layer];
     if(_lay && !_lay.visible && !sel) continue;
+    // Off-screen reject — see viewWorldRect() above. Selected objects are
+    // never culled: their handles and halo are drawn relative to geometry
+    // that may sit just outside the view, and a selection that flickers
+    // out of existence when panned to the edge reads as a bug.
+    if(!sel && !objInView(o, _view)) continue;
     // Layer style
     // Committed geometry: dark mode keeps each layer's own color (SOLID
     // stays cyan). Light mode overrides just the cyan default-ink layers
@@ -9830,43 +9856,6 @@ function parseDXF(text) {
   return { lines, circles, arcs, scaleMM, rawInsUnits };
 }
 
-// Tessellate a CIRCLE into N line segments (stored as LINE entities)
-function tessellateCircle(cx, cy, r, layer, segments=72) {
-  const segs = [];
-  for (let i = 0; i < segments; i++) {
-    const a0 = (i / segments)     * 2 * Math.PI;
-    const a1 = ((i+1) / segments) * 2 * Math.PI;
-    segs.push({ type:'LINE', layer,
-      x1: parseFloat((cx + r*Math.cos(a0)).toFixed(6)),
-      y1: parseFloat((cy + r*Math.sin(a0)).toFixed(6)),
-      x2: parseFloat((cx + r*Math.cos(a1)).toFixed(6)),
-      y2: parseFloat((cy + r*Math.sin(a1)).toFixed(6)),
-    });
-  }
-  return segs;
-}
-
-// Tessellate an ARC into N line segments
-function tessellateArc(cx, cy, r, startDeg, endDeg, layer, segments=72) {
-  // DXF arcs go counter-clockwise from startDeg to endDeg
-  let startR = startDeg * Math.PI / 180;
-  let endR   = endDeg   * Math.PI / 180;
-  if (endR <= startR) endR += 2 * Math.PI; // handle wrap
-  const span = endR - startR;
-  const n = Math.max(1, Math.round(segments * span / (2 * Math.PI)));
-  const segs = [];
-  for (let i = 0; i < n; i++) {
-    const a0 = startR + (i / n)     * span;
-    const a1 = startR + ((i+1) / n) * span;
-    segs.push({ type:'LINE', layer,
-      x1: parseFloat((cx + r*Math.cos(a0)).toFixed(6)),
-      y1: parseFloat((cy + r*Math.sin(a0)).toFixed(6)),
-      x2: parseFloat((cx + r*Math.cos(a1)).toFixed(6)),
-      y2: parseFloat((cy + r*Math.sin(a1)).toFixed(6)),
-    });
-  }
-  return segs;
-}
 
 // ── DXF IMPORT DIALOG STATE ─────────────────────────────
 const dxfDialog = {
@@ -10142,12 +10131,17 @@ let mirrorLineState = { active: false, p1: null };
 
 function setMirrorAxis(axis) {
   mirrorAxis = axis;
+  // Selected state is the .ctx-btn.on class rather than nine inline style
+  // writes, so the bar's look lives entirely in the stylesheet. Inline
+  // writes here would also outrank any future rule, which is how the
+  // active-button styling silently stopped matching the rest of the app.
+  // The element ids must match these axis values exactly. "2-Pt Line" was
+  // id="mirror-btn-l" while this loop looked up "mirror-btn-line", so the
+  // guard below silently skipped it and that button never showed as
+  // selected — it has been renamed to match rather than special-cased.
   ['h','v','line'].forEach(a => {
     const btn = document.getElementById('mirror-btn-'+a);
-    if (!btn) return;
-    btn.style.background = a === axis ? 'var(--accent-glow)' : 'var(--panel)';
-    btn.style.borderColor = a === axis ? 'var(--accent)' : 'var(--border)';
-    btn.style.color = a === axis ? 'var(--accent)' : 'var(--t2)';
+    if (btn) btn.classList.toggle('on', a === axis);
   });
   mirrorLineState = { active: false, p1: null };
   render();
@@ -10769,8 +10763,6 @@ requestAnimationFrame(()=>{
   });
 });
 
-
-
 // ── CHAMFER ───────────────────────────────────────────────────────────────────
 let chamferState = {active:false, line1:null, line2:null};
 function getChamfer(){const d=parseFloat(document.getElementById('chamfer-d-input').value)||5;return parseFloat(fromDisplay(d).toFixed(6));}
@@ -10867,8 +10859,6 @@ function pasteSelected() {
   showToast('Pasted ' + _clipboard.length + ' object' + (_clipboard.length!==1?'s':''));
 }
 
-
-
 // ══════════════════════════════════════════════════════════════════════════════
 //  KANVAS — Paperspace tab for KAD
 //  NOT isolated from model space: kvRender reads GeoMemory.objects and
@@ -10925,8 +10915,6 @@ let _kvVpSeq = 1;
 let kvOutputMode = false;     // true while rendering for print/PDF/SVG
 let kvActiveVp = null;        // id of the selected window, for the handles
 let kvVpDrag = null;          // in-progress creation or move
-
-function kvVpList() { return KV_VIEWPORTS; }
 function kvVpById(id) { return KV_VIEWPORTS.find(v => v.id === id) || null; }
 
 // Model mm → page mm, through one viewport. The model point (mx,my) is pinned
@@ -12746,17 +12734,17 @@ function kvDrawKompassPreview() {
 }
 
 
-// ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-//  KANVAS CONFORMANCE â abilities, not just chrome
-//  ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ══════════════════════════════════════════════════════════════════════════════
+//  KANVAS CONFORMANCE — abilities, not just chrome
+//  ────────────────────────────────────────────────────────────────────────────
 //  The embedded sheet had ONE way to make a mark (a freehand brush) where the
 //  standalone has two independent axes: how the mark is SPECIFIED (the input)
 //  and what it is drawn WITH (the brush). That is why the two never felt like
-//  the same program â not the styling, the vocabulary.
+//  the same program — not the styling, the vocabulary.
 //
 //  These tables are ported from KANVAS.html unchanged, because a table entry
 //  that drifts is a table that has to be reconciled later.
-// ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ══════════════════════════════════════════════════════════════════════════════
 
 const KV_INPUTS = {
   freehand: { label:'Freehand', hint:'drag',              key:'b' },
@@ -12768,7 +12756,7 @@ const KV_INPUTS = {
 };
 
 // `fam` is the render routine; everything else tunes it. Grouping by family
-// rather than by name is deliberate â a brush that shares a family is a table
+// rather than by name is deliberate — a brush that shares a family is a table
 // entry, and only a genuinely new look costs code.
 const KV_BRUSHES = {
   technical:  { label:'Technical',  fam:'constant', width:1.0, alpha:1.00,
@@ -12792,7 +12780,7 @@ const KV_BRUSHES = {
 const KV_BRUSH_ORDER = ['technical','ink','calligraphy','pencil','charcoal',
                         'shade','marker','airbrush'];
 
-// A drafting sheet opens with a drafting pen, not an ink brush â this is the
+// A drafting sheet opens with a drafting pen, not an ink brush — this is the
 // one considered departure from the standalone's default, and it is a default
 // only: every brush is present and one tap away.
 let kvInput = 'freehand';
@@ -13003,7 +12991,7 @@ function kvPaintBrushSample(c, key, w, h) {
   c.restore();
 }
 
-// ââ SLIDER SYNC âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ── SLIDER SYNC ───────────────────────────────────────────────────────────────
 function kvNum(id, dflt) {
   const e = document.getElementById(id);
   return e ? (parseFloat(e.value) || 0) : dflt;
@@ -13064,7 +13052,7 @@ function kvSyncWeld() {
   kvScheduleDraw();
 }
 
-// ââ TOGGLES âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ── TOGGLES ───────────────────────────────────────────────────────────────────
 function kvTog(id, on) {
   const e = document.getElementById(id);
   if (e) e.classList.toggle('act', !!on);
@@ -13089,7 +13077,7 @@ function kvToggleViewportFrame() {
   kvScheduleDraw();
 }
 
-// The grid button carries its own state in its label, as in the standalone â
+// The grid button carries its own state in its label, as in the standalone —
 // "Grid off" is what it IS, not what tapping it does.
 function kvToggleGrid() {
   kvShowGrid = !kvShowGrid;
@@ -13114,7 +13102,7 @@ function kvOpenGridPrompt() {
   showToast('Grid ' + n + 'mm');
 }
 
-// ââ WELD CONTROLS (drafting divergence) âââââââââââââââââââââââââââââââââââââââ
+// ── WELD CONTROLS (drafting divergence) ───────────────────────────────────────
 function kvBuildWeldTypeSelect() {
   const sel = document.getElementById('kv-weld-type');
   if (!sel || typeof WELD_TYPES === 'undefined') return;
@@ -13129,7 +13117,7 @@ function kvSetWeldArrow(a) {
   kvScheduleDraw();
 }
 
-// ââ CURSOR ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ── CURSOR ────────────────────────────────────────────────────────────────────
 // Matches the standalone: freehand and erase hide the pointer in favour of the
 // size ring, constructed inputs get a crosshair, text gets a caret.
 function kvUpdateCursor() {
@@ -13143,7 +13131,7 @@ function kvUpdateCursor() {
     : 'crosshair';
 }
 
-// ââ KANVAS TOOL SETTER ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ── KANVAS TOOL SETTER ────────────────────────────────────────────────────────
 // Rewritten to the standalone's shape: a tool selects a contextual PANEL, and
 // DRAW additionally carries the input/brush pair. The old version toggled two
 // bare rows (kv-dim-row, kv-weld-row) that no longer exist.
@@ -14568,40 +14556,6 @@ function kvOpenKVS(event) {
   reader.readAsText(file);
 }
 
-function kvOpenKVS_legacy(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = e => {
-    // A .kvs arrives as its OWN sheet. It never overwrites work that is already
-    // open, so there is nothing to warn about and nothing to lose — the file
-    // lands beside your existing sheets and becomes the active tab.
-    //
-    // Validate before creating the tab, otherwise a bad file leaves an empty
-    // sheet behind as a souvenir.
-    let d = null;
-    try { d = JSON.parse(e.target.result); } catch (err) { d = null; }
-    if (!d || (d.format !== 'KVS' && d.source !== 'KAD KANVAS')) {
-      showToast('Not a valid .kvs file');
-      event.target.value = ''; return;
-    }
-    kvAddSheet();
-    const ok = kvDeserialize(d);
-    if (ok) {
-      const sh = KV_SHEETS[kvSheetIdx];
-      if (sh && !d.sheetName) {
-        sh.name = file.name.replace(/\.kvs$/i, '').slice(0, 32) || sh.name;
-        kvBuildSheetTabs();
-      }
-      showToast('Opened ' + file.name + ' as ' + (KV_SHEETS[kvSheetIdx]||{}).name);
-    } else {
-      kvDeleteSheetSilent();          // roll the empty tab back
-      showToast('Could not read ' + file.name);
-    }
-    event.target.value = '';
-  };
-  reader.readAsText(file);
-}
 
 // ── INTERCHANGE: .svg ─────────────────────────────────────────────────────────
 // The .kvs → .svg mapping, entity by entity. Every native record has an SVG
@@ -16447,8 +16401,19 @@ if ('launchQueue' in window) {
 
 </script>
 
-<!-- PeerJS — peer-to-peer collaboration for the self-hosted free tier -->
-<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<!-- PeerJS — peer-to-peer collaboration for the self-hosted free tier.
+     defer, because this is an opt-in feature that nobody has used yet at
+     load time. As a plain classic external script it blocked the parser
+     AND every inline script after it, so a slow (or unreachable) CDN
+     delayed the app's own boot code behind a network round-trip for a
+     library that
+     may never be called. kloudPeerAvailable() already guards every entry
+     point with a typeof check, so arriving late is a case the code
+     handles. NOTE: this is the file's only runtime CDN dependency and it
+     is at odds with the suite's no-CDN rule — worth vendoring or lazy
+     injecting on first KLOUD use. -->
+<link rel="preconnect" href="https://unpkg.com">
+<script defer src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 
 <!-- ═══════════════════════════════════════════════════════════════
      FIREBASE — server backend for paid tiers (Google Sign-In).
