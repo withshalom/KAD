@@ -2203,6 +2203,155 @@ body.kanvas-mode #app {
 .kloud-peers { font-family:var(--fm); font-size:11px; color:var(--t3); }
 .kloud-sep { height:1px; background:var(--border); }
 .kloud-note { font-family:var(--fu); font-size:11px; color:var(--t3); line-height:1.5; }
+
+/* ── PARTS DATA ────────────────────────────────────────────────────────────
+   Row height is 44px on coarse pointers throughout. A part row carries four
+   targets (open, select, delete, plus the row itself) and at desktop density
+   two of them are ~20px — a coin toss with a fingertip. Same reasoning KANVAS
+   applies to its menu rows. */
+.pd-panel { padding:6px 8px 8px; border-bottom:1px solid var(--border); }
+.pd-create {
+  width:100%; display:flex; align-items:center; justify-content:center; gap:6px;
+  height:30px; padding:0 8px; margin-bottom:6px; cursor:pointer;
+  background:var(--panel2); border:1px solid var(--border-hi); border-radius:4px;
+  color:var(--accent); font-family:var(--fu); font-size:12px; letter-spacing:0.04em;
+  transition:background 0.15s, border-color 0.15s;
+}
+.pd-create:hover { background:var(--hover); border-color:var(--accent); }
+.pd-create svg { width:13px; height:13px; flex-shrink:0; }
+.pd-summary {
+  font-family:var(--fm); font-size:10px; color:var(--t3);
+  letter-spacing:0.04em; padding:2px 2px 5px;
+}
+.pd-list { display:flex; flex-direction:column; gap:2px; max-height:220px; overflow-y:auto; }
+.pd-empty {
+  font-family:var(--fm); font-size:10px; color:var(--t3);
+  text-align:center; line-height:1.7; padding:12px 6px;
+}
+.pd-row {
+  display:flex; align-items:center; gap:6px; min-height:34px; padding:3px 4px;
+  border:1px solid var(--border); border-radius:4px; background:var(--panel2);
+}
+.pd-swatch { width:8px; height:8px; border-radius:2px; flex-shrink:0; }
+.pd-main { flex:1; min-width:0; cursor:pointer; }
+.pd-name {
+  font-family:var(--fu); font-size:12px; color:var(--t1);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.pd-meta {
+  font-family:var(--fm); font-size:9.5px; color:var(--t3); letter-spacing:0.03em;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.pd-btn {
+  flex-shrink:0; width:24px; height:24px; padding:0; cursor:pointer;
+  background:var(--panel); border:1px solid var(--border); border-radius:3px;
+  color:var(--t2); font-size:11px; line-height:1; transition:all 0.15s;
+}
+.pd-btn:hover { color:var(--accent); border-color:var(--accent); }
+.pd-del { color:#ff4455; border-color:rgba(255,68,85,0.25); }
+.pd-del:hover { background:rgba(255,68,85,0.10); border-color:#ff4455; color:#ff4455; }
+
+/* ── PART DATA MODAL ── */
+.pd-ov {
+  position:fixed; inset:0; z-index:998; display:none;
+  align-items:center; justify-content:center;
+  background:rgba(0,0,0,0.55); backdrop-filter:blur(3px);
+}
+.pd-ov.open { display:flex; }
+.pd-box {
+  display:flex; flex-direction:column;
+  width:min(560px, 94vw); max-height:min(86vh, 720px);
+  background:var(--panel); border:1px solid var(--border-hi); border-radius:8px;
+  box-shadow:0 18px 60px rgba(0,0,0,0.65); overflow:hidden;
+}
+.pd-head {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:11px 14px; border-bottom:1px solid var(--border);
+  font-family:var(--fu); font-size:14px; color:var(--t1); letter-spacing:0.06em;
+}
+.pd-x {
+  width:30px; height:30px; cursor:pointer; font-size:14px;
+  background:transparent; border:1px solid var(--border); border-radius:4px; color:var(--t2);
+}
+.pd-x:hover { color:var(--t1); border-color:var(--border-hi); }
+.pd-body { padding:14px; overflow-y:auto; flex:1; }
+.pd-frow { display:flex; flex-direction:column; gap:4px; margin-bottom:11px; flex:1; }
+.pd-frow2 { display:flex; gap:10px; }
+.pd-frow label {
+  font-family:var(--fm); font-size:9px; letter-spacing:0.16em;
+  text-transform:uppercase; color:var(--t3);
+}
+.pd-frow input {
+  height:36px; padding:0 10px; border-radius:5px; outline:none; width:100%;
+  background:var(--void); border:1px solid var(--border);
+  color:var(--t1); font-family:var(--fm); font-size:13px;
+}
+.pd-frow input:focus { border-color:var(--accent); }
+.pd-unit-wrap { position:relative; }
+.pd-unit {
+  position:absolute; right:10px; top:50%; transform:translateY(-50%);
+  font-family:var(--fm); font-size:10px; color:var(--t3); pointer-events:none;
+}
+.pd-sec-label {
+  font-family:var(--fm); font-size:9px; letter-spacing:0.16em;
+  text-transform:uppercase; color:var(--t3); margin:4px 0 8px;
+}
+.pd-gs { margin-bottom:12px; }
+.pd-gs-label {
+  font-family:var(--fm); font-size:9px; color:var(--accent);
+  letter-spacing:0.10em; margin-bottom:5px; opacity:0.8;
+}
+.pd-tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(148px,1fr)); gap:6px; }
+.pd-tile {
+  padding:8px 10px; border-radius:6px; cursor:pointer; text-align:left;
+  background:var(--panel2); border:1px solid var(--border);
+  transition:background 0.14s, border-color 0.14s;
+}
+.pd-tile:hover { background:var(--hover); border-color:var(--border-hi); }
+.pd-tile.sel { background:var(--accent-glow,rgba(0,212,255,0.14)); border-color:var(--accent); }
+.pd-tile-spec { font-family:var(--fu); font-size:12px; font-weight:700; color:var(--t1); margin-bottom:2px; }
+.pd-tile-name { font-family:var(--fu); font-size:11px; color:var(--t2); }
+.pd-tile-det  { font-family:var(--fm); font-size:9px; color:var(--t3); margin-top:2px; }
+.pd-foot {
+  display:flex; justify-content:flex-end; gap:8px;
+  padding:11px 14px; border-top:1px solid var(--border);
+}
+.pd-cancel, .pd-ok {
+  height:36px; padding:0 18px; cursor:pointer; border-radius:5px;
+  font-family:var(--fu); font-size:12px; letter-spacing:0.05em;
+}
+.pd-cancel { background:var(--panel2); border:1px solid var(--border); color:var(--t2); }
+.pd-cancel:hover { color:var(--t1); border-color:var(--border-hi); }
+.pd-ok { background:var(--accent); border:1px solid var(--accent); color:var(--void); font-weight:700; }
+.pd-ok:hover { filter:brightness(1.1); }
+
+/* Coarse pointer: every target reaches 44px. Not gated on width — a stylus on
+   a large tablet is still a coarse pointer. */
+@media (pointer:coarse) {
+  .pd-row     { min-height:44px; }
+  .pd-btn     { width:34px; height:34px; font-size:13px; }
+  .pd-create  { height:40px; font-size:13px; }
+  .pd-frow input { height:44px; font-size:15px; }  /* >=16px avoids iOS focus zoom on 15px+ */
+  .pd-tile    { padding:11px 12px; }
+  .pd-cancel, .pd-ok { height:44px; }
+  .pd-x       { width:38px; height:38px; }
+  .pd-list    { max-height:none; }
+}
+/* Phone: the modal stops pretending to be a dialog and takes the screen, with
+   the action row pinned clear of the home indicator. */
+@media (max-width:560px) {
+  .pd-box {
+    width:100vw; max-height:100vh; height:100vh;
+    border-radius:0; border:none;
+  }
+  .pd-frow2 { flex-direction:column; gap:0; }
+  .pd-tiles { grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); }
+  .pd-foot {
+    padding-bottom:calc(11px + env(safe-area-inset-bottom, 0px));
+  }
+  .pd-cancel, .pd-ok { flex:1; }
+}
+
 </style>
 </head>
 <body class="drafting-mode">
@@ -2593,6 +2742,22 @@ body.kanvas-mode #app {
     </div>
   </div>
 
+  <!-- ── PARTS DATA ──────────────────────────────────────────────────────
+       The manufacturing handoff lives in the drawing, not in KAM: the person
+       who knows a gusset is 6mm A572 is the one drawing it, not the one
+       nesting it. Sits above Properties because it is authored, not read. -->
+  <div class="section-head">Parts Data</div>
+  <div class="pd-panel">
+    <button class="pd-create" onclick="createPartFromSelection()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+      Create Part from Selection
+    </button>
+    <div class="pd-summary" id="parts-summary">0 parts</div>
+    <div class="pd-list" id="parts-list">
+      <div class="pd-empty">No parts defined.<br>Select geometry, then Create Part.</div>
+    </div>
+  </div>
+
   <div class="section-head">Properties</div>
   <div class="props-panel">
     <div class="prop-row"><span class="prop-key">Objects</span><span class="prop-val accent" id="prop-objects">0</span></div>
@@ -2934,8 +3099,8 @@ body.kanvas-mode #app {
     <optgroup label="ISO (metric)">
       <option value="a4p">A4 Portrait — 210×297 mm</option>
       <option value="a4l">A4 Landscape — 297×210 mm</option>
-      <option value="a3p" selected>A3 Portrait — 297×420 mm</option>
-      <option value="a3l">A3 Landscape — 420×297 mm</option>
+      <option value="a3p">A3 Portrait — 297×420 mm</option>
+      <option value="a3l" selected>A3 Landscape — 420×297 mm</option>
       <option value="a2p">A2 Portrait — 420×594 mm</option>
       <option value="a2l">A2 Landscape — 594×420 mm</option>
       <option value="a1p">A1 Portrait — 594×841 mm</option>
@@ -3208,6 +3373,46 @@ body.kanvas-mode #app {
 <div id="toast"></div>
 
 <!-- Shape Prompt Modal — Rectangle and Circle dimension input -->
+
+<!-- ── PART DATA MODAL ───────────────────────────────────────────────────────
+     Grade needs a sentence to disambiguate (A572 Gr.50 and A588 Gr.50 have the
+     same yield and very different corrosion behaviour), and a sentence does not
+     fit in a <select>. Tiles, as KAM does it, so the two programs teach the
+     same vocabulary. Full-height on a phone — see .mobile-mode rules. -->
+<div id="part-data-modal" class="pd-ov">
+  <div class="pd-box">
+    <div class="pd-head">
+      <span>Part Data</span>
+      <button class="pd-x" onclick="closePartDataModal()" aria-label="Close">&#10005;</button>
+    </div>
+    <div class="pd-body">
+      <div class="pd-frow">
+        <label for="pd-f-name">Name</label>
+        <input id="pd-f-name" type="text" maxlength="64" autocomplete="off">
+      </div>
+      <div class="pd-frow2">
+        <div class="pd-frow">
+          <label for="pd-f-thick">Thickness</label>
+          <div class="pd-unit-wrap">
+            <input id="pd-f-thick" type="number" min="0.01" step="0.001" inputmode="decimal">
+            <span class="pd-unit" id="pd-thick-unit">mm</span>
+          </div>
+        </div>
+        <div class="pd-frow">
+          <label for="pd-f-qty">Quantity</label>
+          <input id="pd-f-qty" type="number" min="1" step="1" inputmode="numeric">
+        </div>
+      </div>
+      <div class="pd-sec-label">Material Grade</div>
+      <div id="pd-grades" class="pd-grades"></div>
+    </div>
+    <div class="pd-foot">
+      <button class="pd-cancel" onclick="closePartDataModal()">Cancel</button>
+      <button class="pd-ok" onclick="commitPartData()">Apply</button>
+    </div>
+  </div>
+</div>
+
 <div id="shape-prompt-modal" style="position:fixed; inset:0; background:rgba(0,0,0,0.5); display:none; z-index:998; align-items:center; justify-content:center; backdrop-filter:blur(2px);">
   <div style="background:var(--panel); border:1px solid var(--border-hi); border-radius:8px; padding:24px; box-shadow:0 20px 60px rgba(0,0,0,0.8); min-width:280px; font-family:var(--fu);">
     
@@ -3397,10 +3602,14 @@ body.kanvas-mode #app {
   </div>
 </div>
 
-<!-- VECTOR IMPORT DIALOG (.svg / .kvs) — asks the two questions that cannot
-     be guessed: which space the file belongs in, and what ratio it was drawn
-     at. A page millimetre is not a model millimetre unless the drawing says
-     1:1, and getting that wrong is silent. -->
+<!-- VECTOR IMPORT DIALOG (.svg / .kvs) — asks the questions that cannot be
+     guessed: which space the file belongs in, and how its numbers relate to
+     the space it is landing in. Model space asks a drawn-at ratio, because a
+     page millimetre is not a model millimetre unless the drawing says 1:1.
+     A canvas-less .kvs landing in KANVAS asks a different pair of questions
+     instead — what page to put it on, since it has none of its own, and how
+     its KREATE coordinates should sit on that page. Getting either wrong is
+     silent, so neither is ever assumed. -->
 <div id="vec-import-overlay">
   <div id="dxf-import-dialog">
     <div class="dlg-head">
@@ -3411,24 +3620,98 @@ body.kanvas-mode #app {
       <div id="vec-import-info" style="font-size:12px;color:var(--t2);margin-bottom:12px;"></div>
 
       <label style="display:block;font-size:10px;letter-spacing:0.14em;color:var(--t3);margin-bottom:4px;">DESTINATION</label>
-      <select id="vec-dest-sel" class="fld" style="width:100%;margin-bottom:12px;">
+      <select id="vec-dest-sel" class="fld" style="width:100%;margin-bottom:12px;" onchange="vecSyncDestUI()">
         <option value="model">Model space &mdash; real-world geometry</option>
-        <option value="kanvas">KANVAS &mdash; open as a new sheet</option>
+        <option value="kanvas">KANVAS &mdash; open as sheets</option>
+        <option value="both">Both &mdash; KREATE to model, sheets to tabs</option>
       </select>
 
-      <label style="display:block;font-size:10px;letter-spacing:0.14em;color:var(--t3);margin-bottom:4px;">DRAWN AT SCALE</label>
-      <select id="vec-scale-sel" class="fld" style="width:100%;" onchange="vecSyncScaleUI()">
-        <option value="1">1:1 &mdash; actual size</option>
-        <option value="2">1:2</option>
-        <option value="5">1:5</option>
-        <option value="10">1:10</option>
-        <option value="20">1:20</option>
-        <option value="50">1:50</option>
-        <option value="100">1:100</option>
-        <option value="0.5">2:1 &mdash; drawn double size</option>
-        <option value="0.2">5:1</option>
-        <option value="custom">Custom multiplier&hellip;</option>
-      </select>
+      <!-- Only a canvas-less document reaches this: an ordinary sheet already
+           carries its own page and needs neither question. -->
+      <div id="vec-paper-wrap" style="display:none;margin-bottom:12px;">
+        <label style="display:block;font-size:10px;letter-spacing:0.14em;color:var(--t3);margin-bottom:4px;">PAPER SIZE</label>
+        <select id="vec-paper-sel" class="fld" style="width:100%;">
+          <optgroup label="ISO (metric)">
+            <option value="a4p">A4 Portrait — 210×297 mm</option>
+            <option value="a4l">A4 Landscape — 297×210 mm</option>
+            <option value="a3p">A3 Portrait — 297×420 mm</option>
+            <option value="a3l" selected>A3 Landscape — 420×297 mm</option>
+            <option value="a2p">A2 Portrait — 420×594 mm</option>
+            <option value="a2l">A2 Landscape — 594×420 mm</option>
+            <option value="a1p">A1 Portrait — 594×841 mm</option>
+            <option value="a1l">A1 Landscape — 841×594 mm</option>
+            <option value="a0p">A0 Portrait — 841×1189 mm</option>
+            <option value="a0l">A0 Landscape — 1189×841 mm</option>
+          </optgroup>
+          <optgroup label="US OFFICE">
+            <option value="letter_l">Letter Landscape — 11×8.5"</option>
+            <option value="letter_p">Letter Portrait — 8.5×11"</option>
+            <option value="legal_l">Legal Landscape — 14×8.5"</option>
+            <option value="legal_p">Legal Portrait — 8.5×14"</option>
+            <option value="tabloid_l">Tabloid Landscape — 17×11"</option>
+            <option value="tabloid_p">Tabloid Portrait — 11×17"</option>
+          </optgroup>
+          <optgroup label="ANSI ENGINEERING">
+            <option value="ansi_a_l">ANSI A Landscape — 11×8.5"</option>
+            <option value="ansi_a_p">ANSI A Portrait — 8.5×11"</option>
+            <option value="ansi_b_l">ANSI B Landscape — 17×11"</option>
+            <option value="ansi_b_p">ANSI B Portrait — 11×17"</option>
+            <option value="ansi_c_l">ANSI C Landscape — 22×17"</option>
+            <option value="ansi_c_p">ANSI C Portrait — 17×22"</option>
+            <option value="ansi_d_l">ANSI D Landscape — 34×22"</option>
+            <option value="ansi_d_p">ANSI D Portrait — 22×34"</option>
+            <option value="ansi_e_l">ANSI E Landscape — 44×34"</option>
+            <option value="ansi_e_p">ANSI E Portrait — 34×44"</option>
+          </optgroup>
+          <optgroup label="ARCHITECTURAL">
+            <option value="arch_a_l">Arch A Landscape — 12×9"</option>
+            <option value="arch_a_p">Arch A Portrait — 9×12"</option>
+            <option value="arch_b_l">Arch B Landscape — 18×12"</option>
+            <option value="arch_b_p">Arch B Portrait — 12×18"</option>
+            <option value="arch_c_l">Arch C Landscape — 24×18"</option>
+            <option value="arch_c_p">Arch C Portrait — 18×24"</option>
+            <option value="arch_d_l">Arch D Landscape — 36×24"</option>
+            <option value="arch_d_p">Arch D Portrait — 24×36"</option>
+            <option value="arch_e1_l">Arch E1 Landscape — 42×30"</option>
+            <option value="arch_e1_p">Arch E1 Portrait — 30×42"</option>
+            <option value="arch_e_l">Arch E Landscape — 48×36"</option>
+            <option value="arch_e_p">Arch E Portrait — 36×48"</option>
+          </optgroup>
+          <optgroup label="STANDARD DETAIL">
+            <option value="aws_d1_l">AWS D1 Landscape — 34×22"</option>
+            <option value="aws_d1_p">AWS D1 Portrait — 22×34"</option>
+          </optgroup>
+        </select>
+      </div>
+
+      <div id="vec-scale-wrap">
+        <label style="display:block;font-size:10px;letter-spacing:0.14em;color:var(--t3);margin-bottom:4px;">DRAWN AT SCALE</label>
+        <select id="vec-scale-sel" class="fld" style="width:100%;" onchange="vecSyncScaleUI()">
+          <option value="1">1:1 &mdash; actual size</option>
+          <option value="2">1:2</option>
+          <option value="5">1:5</option>
+          <option value="10">1:10</option>
+          <option value="20">1:20</option>
+          <option value="50">1:50</option>
+          <option value="100">1:100</option>
+          <option value="0.5">2:1 &mdash; drawn double size</option>
+          <option value="0.2">5:1</option>
+          <option value="custom">Custom multiplier&hellip;</option>
+        </select>
+      </div>
+
+      <!-- The sheet-side counterpart of the scale question. A ratio ("drawn at
+           1:50") describes a relationship to the real world that a page does
+           not have; a sheet only needs to know how the art should sit on it. -->
+      <div id="vec-fit-wrap" style="display:none;">
+        <label style="display:block;font-size:10px;letter-spacing:0.14em;color:var(--t3);margin-bottom:4px;">FIT</label>
+        <select id="vec-fit-sel" class="fld" style="width:100%;" onchange="vecSyncScaleUI()">
+          <option value="1">Actual size &mdash; 1:1, no scaling</option>
+          <option value="fit" selected>Fit to Page &mdash; scaled and centred to the trim</option>
+          <option value="custom">Custom multiplier&hellip;</option>
+        </select>
+      </div>
+
       <div id="vec-custom-wrap" style="display:none;align-items:center;gap:8px;margin-top:8px;">
         <span style="font-size:11px;color:var(--t3);">&times;</span>
         <input id="vec-scale-custom" class="fld" type="number" step="0.0001" value="1"
@@ -10250,7 +10533,380 @@ function updateMeasureDisplay(p1, p2) {
 // .kad→.dxf nor the .kvs→.svg mapping changes; this only makes the native
 // format richer than either interchange target, which is the point of a
 // native format.
-const KAD_DOC_VERSION = '2.0';
+// ══════════════════════════════════════════════════════════════════════════════
+//  PARTS DATA  —  the KAD → KAM manufacturing handoff
+//  ────────────────────────────────────────────────────────────────────────────
+//  A Part is a named group of entities carrying the three facts a fabricator
+//  needs and a drawing alone cannot express: what it is made of, how thick, and
+//  how many. Geometry answers "what shape"; this answers "what to cut it from".
+//
+//  Design notes that are load-bearing, not preference:
+//
+//  1. THICKNESS IS STORED IN MILLIMETRES, ALWAYS.
+//     KAM's existing material record returns `unit: unitMode` — thickness in
+//     whatever units happened to be on screen — while its setter ignores the
+//     unit field entirely. Save a job in inches, reopen it in mm, and 0.375
+//     silently becomes 0.375mm. Storing one canonical unit and converting only
+//     at the display edge makes that class of bug impossible rather than
+//     merely unlikely.
+//
+//  2. PARTS PRESERVE FIELDS KAD DOES NOT UNDERSTAND.
+//     KAM parts also carry `instances` (nest placements) and `sourceFile`.
+//     KAD has no use for either, but a .kad opened and re-saved between two
+//     KAM sessions must not silently discard a completed nest. Unknown keys
+//     ride along untouched — that is what makes the round trip lossless in
+//     both directions instead of only KAD → KAM.
+//
+//  3. GRADES ARE MATCHED BY `id`, NOT BY SPEC STRING.
+//     Spec text is display copy and will be reworded. The id is the contract.
+//     An unrecognised id is surfaced loudly rather than being quietly coerced
+//     to mild steel, because "the drawing said A572 and the plate was A36" is
+//     a scrap-the-job error, not a formatting nit.
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Bumped whenever a grade's id changes meaning. Written into every .kad so a
+// future reader can tell "grade unknown to me" from "grade written by a newer
+// catalogue than mine".
+const MATERIAL_CATALOG_VERSION = '1';
+
+// Mirrors KAM_MATERIALS exactly. Duplicated rather than shared because the
+// single-file constraint forbids an import — so the ids, and this comment
+// pointing at the other copy, are the sync contract. Changing one without the
+// other breaks the handoff silently.
+const KAD_MATERIALS = [
+  {id:'a1011-csb',  spec:'A1011 CS-B',    name:'Commercial Sheet',    group:'Carbon Steel - Sheet', yield:30,  density:0.284},
+  {id:'a1011-ss36', spec:'A1011 SS Gr.36', name:'Structural Sheet 36', group:'Carbon Steel - Sheet', yield:36,  density:0.284},
+  {id:'a1011-ss50', spec:'A1011 SS Gr.50', name:'HSLA Sheet 50',       group:'Carbon Steel - Sheet', yield:50,  density:0.284},
+  {id:'a1011-ss65', spec:'A1011 SS Gr.65', name:'HSLA Sheet 65',       group:'Carbon Steel - Sheet', yield:65,  density:0.284},
+  {id:'a653-33',    spec:'A653 CS/Gr.33',  name:'Galvanized Sheet',    group:'Carbon Steel - Sheet', yield:33,  density:0.291},
+  {id:'a36',        spec:'A36',            name:'Mild Structural Steel',group:'Carbon Steel - Plate', yield:36,  density:0.284},
+  {id:'a572-50',    spec:'A572 Gr.50',     name:'HSLA Plate 50',       group:'Carbon Steel - Plate', yield:50,  density:0.284},
+  {id:'a572-65',    spec:'A572 Gr.65',     name:'HSLA Plate 65',       group:'Carbon Steel - Plate', yield:65,  density:0.284},
+  {id:'a588',       spec:'A588 Gr.50',     name:'Weathering Steel',    group:'Carbon Steel - Plate', yield:50,  density:0.284},
+  {id:'a514',       spec:'A514',           name:'High-Yield Q&T',      group:'Carbon Steel - Plate', yield:100, density:0.284},
+  {id:'ss304',      spec:'304 / 304L',     name:'Austenitic SS',       group:'Stainless Steel',      yield:30,  density:0.289},
+  {id:'ss316',      spec:'316 / 316L',     name:'Marine Grade SS',     group:'Stainless Steel',      yield:30,  density:0.290},
+  {id:'ss409',      spec:'409',            name:'Ferritic SS',         group:'Stainless Steel',      yield:30,  density:0.280},
+  {id:'ss430',      spec:'430',            name:'Decorative SS',       group:'Stainless Steel',      yield:35,  density:0.280},
+  {id:'al3003',     spec:'3003-H14',       name:'Commercial Aluminum', group:'Aluminum',             yield:17,  density:0.099},
+  {id:'al5052h32',  spec:'5052-H32',       name:'Marine Aluminum',     group:'Aluminum',             yield:28,  density:0.097},
+  {id:'al5052h34',  spec:'5052-H34',       name:'Marine Alum. H34',    group:'Aluminum',             yield:31,  density:0.097},
+  {id:'al6061',     spec:'6061-T6',        name:'Structural Aluminum', group:'Aluminum',             yield:40,  density:0.098},
+  {id:'al7075',     spec:'7075-T6',        name:'Aircraft Aluminum',   group:'Aluminum',             yield:73,  density:0.101},
+];
+
+function kadMaterialById(id) {
+  for (let i = 0; i < KAD_MATERIALS.length; i++) if (KAD_MATERIALS[i].id === id) return KAD_MATERIALS[i];
+  return null;
+}
+
+// Display label for a grade id, including the unknown-grade case. Never
+// silently substitutes: an id this build does not know reads as unknown.
+function kadGradeLabel(id) {
+  const m = kadMaterialById(id);
+  return m ? m.spec : (id ? id + ' (unknown)' : '—');
+}
+
+const PART_COLORS = [
+  '#00d4ff','#00ff9d','#ffaa00','#cc88ff','#ff6688',
+  '#44ddbb','#ffcc44','#88aaff','#ff8844','#44ffcc',
+];
+
+const PartLibrary = {
+  parts: [],       // { partId, name, entityIds[], gradeId, thicknessMM, qty, color, ...passthrough }
+  _nextColor: 0,
+
+  nextColor() {
+    const c = PART_COLORS[this._nextColor % PART_COLORS.length];
+    this._nextColor++;
+    return c;
+  },
+
+  getPart(partId) { return this.parts.find(p => p.partId === partId) || null; },
+
+  getPartForEntity(entityId) {
+    return this.parts.find(p => p.entityIds.indexOf(entityId) !== -1) || null;
+  },
+
+  // Entities may belong to at most one part. Claiming one already spoken for
+  // would leave the previous part quietly short of geometry, so the caller is
+  // told what was skipped instead.
+  addPart(name, entityIds, opts) {
+    opts = opts || {};
+    const taken = [], free = [];
+    for (const id of entityIds) {
+      (this.getPartForEntity(id) ? taken : free).push(id);
+    }
+    if (!free.length) return { part: null, taken };
+
+    const part = {
+      partId:      'part_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+      name:        name || ('Part ' + (this.parts.length + 1)),
+      entityIds:   free.slice(),
+      gradeId:     opts.gradeId || 'a36',
+      thicknessMM: typeof opts.thicknessMM === 'number' ? opts.thicknessMM : 6.35,
+      qty:         Math.max(1, parseInt(opts.qty, 10) || 1),
+      color:       this.nextColor(),
+    };
+    this.parts.push(part);
+    for (const id of free) {
+      const o = GeoMemory.objects.find(x => x.id === id);
+      if (o) o.partId = part.partId;
+    }
+    return { part, taken };
+  },
+
+  // Removes the part record only. Geometry is NOT deleted: in KAD a part is an
+  // annotation over a drawing, and un-grouping must never destroy draughting
+  // work. KAM's own removePart deletes geometry because there a part IS the
+  // thing being cut — the asymmetry is intentional.
+  removePart(partId) {
+    const part = this.getPart(partId);
+    if (!part) return false;
+    for (const id of part.entityIds) {
+      const o = GeoMemory.objects.find(x => x.id === id);
+      if (o) delete o.partId;
+    }
+    this.parts = this.parts.filter(p => p.partId !== partId);
+    return true;
+  },
+
+  setField(partId, field, value) {
+    const part = this.getPart(partId);
+    if (!part) return;
+    if (field === 'qty')              part.qty = Math.max(1, parseInt(value, 10) || 1);
+    else if (field === 'thicknessMM') part.thicknessMM = Math.max(0.01, parseFloat(value) || 0.01);
+    else if (field === 'name')        part.name = String(value || '').slice(0, 64) || part.name;
+    else if (field === 'gradeId')     part.gradeId = String(value || 'a36');
+  },
+
+  selectPart(partId) {
+    const part = this.getPart(partId);
+    if (!part) return;
+    selectedIds.clear();
+    for (const id of part.entityIds) selectedIds.add(id);
+    render();
+  },
+
+  // Drops entity references whose geometry has since been deleted, and any
+  // part left with nothing. Without this a part erased from the drawing would
+  // still be exported to KAM and cut as an empty contour.
+  prune() {
+    let changed = 0;
+    for (const p of this.parts) {
+      const before = p.entityIds.length;
+      p.entityIds = p.entityIds.filter(id => GeoMemory.objects.some(o => o.id === id));
+      changed += before - p.entityIds.length;
+    }
+    const emptied = this.parts.filter(p => !p.entityIds.length).length;
+    this.parts = this.parts.filter(p => p.entityIds.length);
+    return { orphaned: changed, emptied };
+  },
+
+  totalQty() { return this.parts.reduce((a, p) => a + (p.qty || 1), 0); },
+
+  // Distinct (grade, thickness) combinations. A nest runs on ONE plate of ONE
+  // material, so this count is exactly the number of plates the job needs —
+  // KAM uses it to decide whether it can nest in a single pass.
+  materialGroups() {
+    const seen = new Map();
+    for (const p of this.parts) {
+      const key = p.gradeId + '@' + p.thicknessMM;
+      if (!seen.has(key)) seen.set(key, { gradeId: p.gradeId, thicknessMM: p.thicknessMM, parts: [], qty: 0 });
+      const g = seen.get(key);
+      g.parts.push(p.partId);
+      g.qty += p.qty || 1;
+    }
+    return Array.from(seen.values());
+  },
+
+  serialize() {
+    // Spread first so passthrough keys survive, then overwrite the fields this
+    // build owns — order matters; reversing it would let a stale passthrough
+    // copy of `qty` win over the edited value.
+    return this.parts.map(p => Object.assign({}, p, {
+      partId:      p.partId,
+      name:        p.name,
+      entityIds:   p.entityIds.slice(),
+      gradeId:     p.gradeId,
+      thicknessMM: p.thicknessMM,
+      qty:         p.qty,
+      color:       p.color,
+    }));
+  },
+
+  deserialize(arr) {
+    if (!Array.isArray(arr)) { this.parts = []; return { loaded: 0, unknownGrades: [] }; }
+    const unknown = new Set();
+    this.parts = arr.map((p, i) => {
+      const gradeId = p.gradeId || 'a36';
+      if (!kadMaterialById(gradeId)) unknown.add(gradeId);
+      return Object.assign({}, p, {
+        partId:      p.partId || ('part_r' + i + '_' + Math.random().toString(36).slice(2, 7)),
+        name:        p.name || ('Part ' + (i + 1)),
+        entityIds:   Array.isArray(p.entityIds) ? p.entityIds.slice() : [],
+        gradeId:     gradeId,
+        thicknessMM: typeof p.thicknessMM === 'number' ? p.thicknessMM : 6.35,
+        qty:         Math.max(1, parseInt(p.qty, 10) || 1),
+        color:       p.color || PART_COLORS[i % PART_COLORS.length],
+      });
+    });
+    this._nextColor = this.parts.length % PART_COLORS.length;
+    for (const part of this.parts) {
+      for (const id of part.entityIds) {
+        const o = GeoMemory.objects.find(x => x.id === id);
+        if (o) o.partId = part.partId;
+      }
+    }
+    return { loaded: this.parts.length, unknownGrades: Array.from(unknown) };
+  },
+
+  clear() { this.parts = []; this._nextColor = 0; },
+};
+
+// ── PARTS UI ─────────────────────────────────────────────────────────────────
+
+function pdEsc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// Thickness rendered in the user's current units, with enough precision for
+// inch plate (0.135" is a real gauge) without printing noise in mm.
+function pdThickLabel(mm) {
+  const v = toDisplay(mm);
+  return (unitMode === 'in' ? v.toFixed(3) : v.toFixed(2).replace(/\.?0+$/, '')) + ' ' + unitMode;
+}
+
+function updatePartsPanel() {
+  const list = document.getElementById('parts-list');
+  if (!list) return;
+
+  if (!PartLibrary.parts.length) {
+    list.innerHTML = '<div class="pd-empty">No parts defined.<br>Select geometry, then Create Part.</div>';
+  } else {
+    list.innerHTML = PartLibrary.parts.map(p =>
+      '<div class="pd-row" data-part-id="' + p.partId + '">' +
+        '<div class="pd-swatch" style="background:' + p.color + '"></div>' +
+        '<div class="pd-main" onclick="openPartDataModal(\'' + p.partId + '\')">' +
+          '<div class="pd-name">' + pdEsc(p.name) + '</div>' +
+          '<div class="pd-meta">' + pdEsc(kadGradeLabel(p.gradeId)) + ' · ' + pdThickLabel(p.thicknessMM) + ' · ×' + p.qty + '</div>' +
+        '</div>' +
+        '<button class="pd-btn" title="Select this part\u2019s geometry" onclick="PartLibrary.selectPart(\'' + p.partId + '\')">\u25ce</button>' +
+        '<button class="pd-btn pd-del" title="Remove part (geometry is kept)" onclick="deletePartData(\'' + p.partId + '\')">\u2715</button>' +
+      '</div>'
+    ).join('');
+  }
+
+  const sum = document.getElementById('parts-summary');
+  if (sum) {
+    const g = PartLibrary.materialGroups().length;
+    sum.textContent = PartLibrary.parts.length
+      ? PartLibrary.parts.length + ' part' + (PartLibrary.parts.length === 1 ? '' : 's') +
+        ' \u00b7 ' + PartLibrary.totalQty() + ' off \u00b7 ' + g + ' plate' + (g === 1 ? '' : 's')
+      : '0 parts';
+  }
+}
+
+function createPartFromSelection() {
+  if (!selectedIds.size) { showToast('Select geometry first, then Create Part'); return; }
+  const ids = Array.from(selectedIds);
+  const res = PartLibrary.addPart('Part ' + (PartLibrary.parts.length + 1), ids, {});
+  if (!res.part) { showToast('That geometry already belongs to a part'); return; }
+  markModelDirty();
+  updatePartsPanel(); render();
+  if (res.taken.length) {
+    showToast('Created part \u00b7 ' + res.taken.length + ' entit' + (res.taken.length === 1 ? 'y' : 'ies') + ' skipped (already in a part)');
+  }
+  openPartDataModal(res.part.partId);
+}
+
+function deletePartData(partId) {
+  const p = PartLibrary.getPart(partId);
+  if (!p) return;
+  if (!confirm('Remove part "' + p.name + '"?\n\nThe drawing geometry is kept \u2014 only the material record is removed.')) return;
+  PartLibrary.removePart(partId);
+  markModelDirty();
+  updatePartsPanel(); render();
+}
+
+// ── PART DATA MODAL ──────────────────────────────────────────────────────────
+
+let _pdEditing = null;
+
+function openPartDataModal(partId) {
+  const part = PartLibrary.getPart(partId);
+  if (!part) return;
+  _pdEditing = partId;
+
+  const ov = document.getElementById('part-data-modal');
+  if (!ov) return;
+
+  document.getElementById('pd-f-name').value = part.name;
+  document.getElementById('pd-f-qty').value  = part.qty;
+  document.getElementById('pd-f-thick').value =
+    unitMode === 'in' ? toDisplay(part.thicknessMM).toFixed(3) : +toDisplay(part.thicknessMM).toFixed(3);
+  document.getElementById('pd-thick-unit').textContent = unitMode;
+
+  renderGradePicker(part.gradeId);
+  ov.classList.add('open');
+}
+
+function renderGradePicker(activeId) {
+  const box = document.getElementById('pd-grades');
+  if (!box) return;
+  const groups = {};
+  for (const m of KAD_MATERIALS) (groups[m.group] = groups[m.group] || []).push(m);
+
+  let h = '';
+  // An id written by a newer catalogue still has to be selectable, or opening
+  // and saving the file would downgrade the grade without telling anyone.
+  if (activeId && !kadMaterialById(activeId)) {
+    h += '<div class="pd-gs"><div class="pd-gs-label">Unrecognised</div><div class="pd-tiles">' +
+         '<div class="pd-tile sel" data-gid="' + pdEsc(activeId) + '">' +
+         '<div class="pd-tile-spec">' + pdEsc(activeId) + '</div>' +
+         '<div class="pd-tile-name">Not in this catalogue \u2014 kept as written</div></div></div></div>';
+  }
+  for (const g of Object.keys(groups)) {
+    h += '<div class="pd-gs"><div class="pd-gs-label">' + pdEsc(g) + '</div><div class="pd-tiles">';
+    for (const m of groups[g]) {
+      h += '<div class="pd-tile' + (m.id === activeId ? ' sel' : '') + '" data-gid="' + m.id + '">' +
+             '<div class="pd-tile-spec">' + pdEsc(m.spec) + '</div>' +
+             '<div class="pd-tile-name">' + pdEsc(m.name) + '</div>' +
+             '<div class="pd-tile-det">' + m.yield + ' ksi \u00b7 ' + m.density + ' lb/in\u00b3</div>' +
+           '</div>';
+    }
+    h += '</div></div>';
+  }
+  box.innerHTML = h;
+  box.onclick = e => {
+    const t = e.target.closest('.pd-tile');
+    if (!t) return;
+    box.querySelectorAll('.pd-tile').forEach(x => x.classList.remove('sel'));
+    t.classList.add('sel');
+  };
+}
+
+function commitPartData() {
+  if (!_pdEditing) { closePartDataModal(); return; }
+  const sel = document.querySelector('#pd-grades .pd-tile.sel');
+  PartLibrary.setField(_pdEditing, 'name',    document.getElementById('pd-f-name').value);
+  PartLibrary.setField(_pdEditing, 'qty',     document.getElementById('pd-f-qty').value);
+  // The field is in display units; the store is always mm.
+  PartLibrary.setField(_pdEditing, 'thicknessMM', fromDisplay(parseFloat(document.getElementById('pd-f-thick').value) || 0));
+  if (sel) PartLibrary.setField(_pdEditing, 'gradeId', sel.dataset.gid);
+  markModelDirty();
+  closePartDataModal();
+  updatePartsPanel(); render();
+}
+
+function closePartDataModal() {
+  const ov = document.getElementById('part-data-modal');
+  if (ov) ov.classList.remove('open');
+  _pdEditing = null;
+}
+
+
+const KAD_DOC_VERSION = '2.1';   // 2.1 adds the top-level parts block
 const KAD_MIME = 'application/octet-stream';   // keeps the OS from appending .json
 
 function serializeDocument() {
@@ -10270,6 +10926,15 @@ function serializeDocument() {
     // Whole-drawing KANVAS state: every sheet. .kvs is the single-sheet
     // export; .kad is the only thing that carries the complete program.
     kanvas: kvSheetsPayload(),
+    // Manufacturing handoff. Sits beside `model` rather than inside it because
+    // a part is an annotation OVER geometry, not geometry — and because KAM
+    // reads this block without needing to understand KAD's model container.
+    // Absent in files written before v2.1; readers must treat missing as empty.
+    parts: {
+      catalogVersion: MATERIAL_CATALOG_VERSION,
+      thicknessUnit:  'mm',   // declared, not implied — see PARTS DATA notes
+      items:          PartLibrary.serialize(),
+    },
   }, null, 2);
 }
 
@@ -10289,7 +10954,9 @@ function deserializeDocument(text) {
   // than rejecting drawings made before the container existed.
   if (!d.format && Array.isArray(d.objects)) {
     const ok = GeoMemory.deserialize(text);
-    if (ok) { buildLayerPanel(); render(); }
+    // A v0 file carries no parts. Leaving the previous document's parts in
+    // place would attach them to entity ids that now mean something else.
+    if (ok) { PartLibrary.clear(); updatePartsPanel(); buildLayerPanel(); render(); }
     return ok;
   }
   if (d.format !== 'KAD') return false;
@@ -10308,6 +10975,21 @@ function deserializeDocument(text) {
 
   if (d.kanvas) kvRestoreSheets(d.kanvas);
   if (d.displayUnits && d.displayUnits !== unitMode) toggleUnits();
+
+  // Parts. A file predating v2.1 has no block at all, which is not an error —
+  // it is a drawing with no manufacturing data yet.
+  const pres = PartLibrary.deserialize((d.parts && d.parts.items) || []);
+  if (pres.unknownGrades.length) {
+    // Loud on purpose. A grade this build cannot resolve is preserved
+    // verbatim rather than coerced, but the operator has to know the picker
+    // will not describe it — cutting A572 as A36 scraps the plate.
+    showToast('Opened \u00b7 ' + pres.unknownGrades.length + ' unrecognised grade' +
+              (pres.unknownGrades.length === 1 ? '' : 's') + ': ' + pres.unknownGrades.join(', '));
+  }
+  // Geometry may have been replaced wholesale above; drop part references that
+  // no longer resolve rather than exporting empty contours to KAM.
+  PartLibrary.prune();
+  updatePartsPanel();
 
   buildLayerPanel();
   setActiveLayer(activeLayer);
@@ -11318,7 +12000,14 @@ const KV_PAGE_SIZES = {
   aws_d1_l:{key:'aws_d1_l',w:863.6,h:558.8,label:'AWS D1 Landscape',dim:'34×22 in',unit:'in',orient:'l',pair:'aws_d1_p',family:'AWS D1'},
   aws_d1_p:{key:'aws_d1_p',w:558.8,h:863.6,label:'AWS D1 Portrait',dim:'22×34 in',unit:'in',orient:'p',pair:'aws_d1_l',family:'AWS D1'},
 };
-let KV_PAGE = {...KV_PAGE_SIZES.a3p};   // clone — see kvSetPageSize
+// A3 LANDSCAPE is the boot trim. Mechanical and architectural sheets are
+// drawn landscape almost without exception — the title block sits along the
+// bottom-right of a wide sheet, plans and elevations are wider than they are
+// tall, and a printed drawing is read across. Portrait is the exception here,
+// not the rule, so it is the one that costs a click. KANVAS proper defaults to
+// A4 portrait on purpose and that is left alone: it is an illustration tool,
+// where a page is more often a page.
+let KV_PAGE = {...KV_PAGE_SIZES.a3l};   // clone — see kvSetPageSize
 
 // Scale: how many pixels per mm in KANVAS (separate from KAD cam.zoom)
 let kvZoom = 2.5;
@@ -11387,6 +12076,11 @@ const KVM = {
   // pressure gesture. Mixing the two would mean every stroke-only routine
   // (pressure taper, brush rendering) grows a branch it doesn't need.
   paths:   [],
+  // Objects a foreign .kvs carried that this build has no store for — KANVAS
+  // rasters, chiefly. Never rendered, never hit-tested, always written back
+  // out. A file that quietly loses marks on open and then saves over itself
+  // is worse than one that refuses to open at all.
+  foreign: [],
   layers:  [{name:'Annotations',color:'#000000',visible:true},
             {name:'Dimensions', color:'#00d4ff',visible:true},
             {name:'Weld Symbols',color:'#ffaa00',visible:true},
@@ -14123,7 +14817,11 @@ function kvSheetPayload(withRef) {
     sheetName: (KV_SHEETS[kvSheetIdx] && KV_SHEETS[kvSheetIdx].name) || 'Sheet 1',
     // Identified by its own key, not by identity against the preset table —
     // KV_PAGE is a clone, so identity comparison would always have missed.
-    page: { name: KV_PAGE.key || 'a3p', w: KV_PAGE.w, h: KV_PAGE.h, orient: KV_PAGE.orient || 'p' },
+    // A page with no key is a custom trim. Its orientation is read off the
+    // dimensions rather than assumed — the old 'p' fallback labelled a wide
+    // custom sheet portrait, which the reader then believed.
+    page: { name: KV_PAGE.key || 'a3l', w: KV_PAGE.w, h: KV_PAGE.h,
+            orient: KV_PAGE.orient || (KV_PAGE.w >= KV_PAGE.h ? 'l' : 'p') },
     // rot is part of the viewport, not decoration — omitting it would drop the
     // sheet's rotation on save and reopen the drawing with the underlay turned
     // away from the annotations that point at it.
@@ -14140,6 +14838,15 @@ function kvSheetPayload(withRef) {
     welds:       KVM.welds,
     paths:       KVM.paths,
   };
+  // Written only when it holds something, so an ordinary KAD sheet is byte-for
+  // -byte what it always was and no diff appears where no work happened.
+  if (KVM.foreign && KVM.foreign.length) p.foreign = KVM.foreign;
+  // Additive compatibility keys. KAD still reads `page`; these let KANVAS name
+  // the trim exactly instead of inferring it from millimetres, which is how an
+  // ANSI B sheet used to come back as the nearest ISO size.
+  p.space  = 'paper';
+  const _kp = kvPaperKeyForKanvas(KV_PAGE);
+  if (_kp) { p.paper = _kp; p.orient = KV_PAGE.orient || 'p'; }
   if (withRef) p.modelRef = { role:'kad-reference', locked:true, units:unitMode, objects:GeoMemory.objects };
   return p;
 }
@@ -14153,6 +14860,7 @@ function kvSheetsPayload() {
     sheets: KV_SHEETS.map(s => ({
       name: s.name, page: s.page, view: s.view, dimStd: s.dimStd,
       strokes: s.mem.strokes, dims: s.mem.dims, welds: s.mem.welds, paths: s.mem.paths,
+      foreign: s.mem.foreign || [],
       layers: s.mem.layers, activeLayer: s.mem.activeLayer, nextId: s.mem.nextId
     })),
     grid: kvShowGrid, snap: kvSnapEnabled,
@@ -14160,13 +14868,339 @@ function kvSheetsPayload() {
   };
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+//  .kvs INTEROP — READING KANVAS 2.x AND KREATE
+//  ────────────────────────────────────────────────────────────────────────────
+//  Two programs write .kvs now, and they disagree about shape on purpose:
+//
+//    KAD 1.0     one SHEET. strokes[] / dims[] / welds[] / paths[] — four
+//                parallel stores, because each has its own renderer, its own
+//                hit test and its own undo semantics here.
+//    KANVAS 2.x  the whole DOCUMENT. One objects[] list where every mark
+//                carries a `type`, plus a `kreate` space and a `sheets` array.
+//
+//  KANVAS already folds KAD's four arrays into its one on read. This is the
+//  other direction, and it is the direction that was failing silently: a 2.x
+//  file passed the `format === 'KVS'` check, found no `strokes`, and opened as
+//  a blank sheet with no error at all. Nothing below changes what KAD WRITES —
+//  a .kvs saved here is still 1.0, four arrays, page millimetres, modelRef.
+//  The reader widened; the native notation did not move.
+//
+//  KREATE ≡ MODEL SPACE, STRUCTURALLY. KREATE is singular, infinite, untrimmed,
+//  one per document — the same shape as model space. It is NOT the same
+//  semantics: model space is committed to real-world millimetres and KREATE is
+//  not. So KREATE geometry arriving here is offered to model space, but through
+//  the scale question in the import dialog like any other page-space vector.
+//  The structure maps; the units are asked for. Skipping that question is how a
+//  1:50 detail arrives fifty times too small and looks plausible.
+//
+//  THE CANVAS IS OPTIONAL, AND THAT IS NOT A SECOND FORMAT. A KANVAS document
+//  with `sheets: []` is a canvas-less one: free-form art in KREATE with no page
+//  under it. It arrives as a .kvs like everything else, because the format
+//  already says whether a canvas is there — so the extension never has to, and
+//  can never disagree with the contents. A canvas-less file has exactly one
+//  place to go on this side: model space, through the scale question. There
+//  are no sheets in it to become tabs.
+// ══════════════════════════════════════════════════════════════════════════════
+
+// KANVAS names a trim and its orientation separately ('a4' + 'p'); KAD folds
+// both into one key ('a4p', 'letter_p'). Sizes KANVAS has and KAD does not —
+// squares, screen pixel sizes — resolve to a custom page at their true
+// dimensions rather than snapping to the nearest ISO sheet, which would resize
+// the work without saying so.
+const KANVAS_PAPERS = {
+  a6:[105,148], a5:[148,210], a4:[210,297], a3:[297,420], a2:[420,594],
+  a1:[594,841], a0:[841,1189],
+  letter:[215.9,279.4], legal:[215.9,355.6], tabloid:[279.4,431.8],
+  ansi_c:[431.8,558.8], ansi_d:[558.8,863.6], ansi_e:[863.6,1117.6],
+  arch_a:[228.6,304.8], arch_b:[304.8,457.2], arch_c:[457.2,609.6],
+  arch_d:[609.6,914.4], arch_e1:[762,1066.8], arch_e:[914.4,1219.2],
+  sq200:[200,200], sq300:[300,300], p5x7:[127,177.8], p8x10:[203.2,254],
+  p11x14:[279.4,355.6], p16x20:[406.4,508],
+  hd:[1920,1080], uhd:[3840,2160], sq1080:[1080,1080]
+};
+
+// Returns a `page` object in the shape kvDeserialize already consumes, so the
+// 2.x path feeds the existing page logic instead of duplicating it.
+function kvPageFromPaper(paperKey, orient) {
+  const o = (orient === 'l') ? 'l' : 'p';
+  if (!paperKey) return null;
+  // Direct key first — KAD spells them 'a4p' and 'letter_p', so try both joins.
+  const direct = KV_PAGE_SIZES[paperKey + o] || KV_PAGE_SIZES[paperKey + '_' + o];
+  if (direct) return { name: direct.key, w: direct.w, h: direct.h, orient: o };
+  const dim = KANVAS_PAPERS[paperKey];
+  if (!dim) return null;
+  const w = (o === 'l') ? Math.max(dim[0], dim[1]) : Math.min(dim[0], dim[1]);
+  const h = (o === 'l') ? Math.min(dim[0], dim[1]) : Math.max(dim[0], dim[1]);
+  // Size match against KAD's own table, so an A3 whose key join missed still
+  // lands on the A3 preset rather than an orphan custom size.
+  for (const k in KV_PAGE_SIZES) {
+    const p = KV_PAGE_SIZES[k];
+    if (Math.abs(p.w - w) < 0.6 && Math.abs(p.h - h) < 0.6)
+      return { name: k, w: p.w, h: p.h, orient: o };
+  }
+  return { name: null, w, h, orient: o };
+}
+
+// What IS this file? Asked once, before anything trusts a field.
+//   'doc'    KANVAS 2.x whole document — a kreate space and/or sheets[]
+//   'space'  a single space — KAD 1.0's four arrays, or a 2.x objects[] list
+//   null     not a .kvs
+function kvKvsShape(d) {
+  if (!d || typeof d !== 'object') return null;
+  const looksKvs = d.format === 'KVS' || d.source === 'KAD KANVAS';
+  // `sheets: []` is a document, not an absent one. Reading it as anything else
+  // is what the canvas-less file exists to be read as.
+  if (Array.isArray(d.sheets) || (d.kreate && typeof d.kreate === 'object'))
+    return looksKvs ? 'doc' : null;
+  if (Array.isArray(d.objects)) return looksKvs ? 'space' : null;
+  // .vad and early .kvs files carry the arrays without always carrying format.
+  if (Array.isArray(d.strokes) || Array.isArray(d.dims) || Array.isArray(d.paths))
+    return 'space';
+  return looksKvs ? 'space' : null;   // well-formed but empty
+}
+
+// A document that carries no sheets at all — KREATE and nothing else. It has
+// no paperspace representation here, so the KANVAS destination is not offered
+// for one and the model-space route is the only one that can take it.
+function kvIsCanvasless(d) {
+  return kvKvsShape(d) === 'doc' && !(Array.isArray(d.sheets) && d.sheets.length);
+}
+
+function kvParseKvs(text) {
+  try { return (typeof text === 'string') ? JSON.parse(text) : text; }
+  catch (e) { return null; }
+}
+
+// ── ARCS ──────────────────────────────────────────────────────────────────────
+// KAD's stroke renderer walks `pts`; KANVAS 2.x stores a true arc and derives
+// its outline at draw time. Folding one into the other carries BOTH: the centre
+// parameters stay on the record so radius survives a round trip and a radial
+// dimension still has something real to measure, and a tessellation rides
+// alongside so the renderer has a path to walk. That pairing is not new — the
+// Kompass tool has written arcs this way since it landed.
+function kvArcTess(cx, cy, r, a0, a1, ccw, full) {
+  let sweep;
+  if (full) sweep = Math.PI * 2;
+  else {
+    sweep = a1 - a0;
+    if (ccw  && sweep < 0) sweep += Math.PI * 2;
+    if (!ccw && sweep > 0) sweep -= Math.PI * 2;
+    if (Math.abs(sweep) < 1e-9) sweep = Math.PI * 2;
+  }
+  return kvKompassTessellate(cx, cy, r, a0, sweep, !!full);
+}
+
+// Cubic Beziers to a polyline. Only ever used for the model-space import, where
+// GeoMemory has no curve primitive; the paths[] store keeps its real control
+// points and is never flattened.
+function kvFlattenBeziers(beziers, segsPer) {
+  const N = segsPer || 16;
+  const pts = [];
+  for (const b of (beziers || [])) {
+    for (let i = 0; i <= N; i++) {
+      const t = i / N, u = 1 - t;
+      const x = u*u*u*b.x0 + 3*u*u*t*b.cx1 + 3*u*t*t*b.cx2 + t*t*t*b.x3;
+      const y = u*u*u*b.y0 + 3*u*u*t*b.cy1 + 3*u*t*t*b.cy2 + t*t*t*b.y3;
+      if (pts.length && Math.abs(pts[pts.length-1].x - x) < 1e-9
+                     && Math.abs(pts[pts.length-1].y - y) < 1e-9) continue;
+      pts.push({ x, y });
+    }
+  }
+  return pts;
+}
+
+// KANVAS style names differ from KAD's by one word each. Translated here, in
+// one place, rather than at every reader that touches a folded record.
+function kvStyleIn(o) {
+  const s = {};
+  s.color = o.color || (typeof B !== 'undefined' ? B.color : '#000000');
+  s.size  = (o.width != null) ? o.width : (o.size != null ? o.size : 4);
+  s.alpha = (o.opacity != null) ? o.opacity : (o.alpha != null ? o.alpha : 0.9);
+  s.layer = o.layer || KVM.activeLayer;
+  return s;
+}
+
+// A 2.x object that KAD draws as ink. `kvType` records what it arrived as, so
+// nothing has to guess on the way back out.
+function kvAsBrush(o, mode, pts) {
+  return Object.assign({}, o, kvStyleIn(o), {
+    id: o.id, type: 'brush', mode: mode || o.mode || 'curve',
+    kvType: o.type, pts: pts || o.pts || []
+  });
+}
+
+// ── THE FOLD ──────────────────────────────────────────────────────────────────
+// One 2.x objects[] list becomes KAD's four stores. This is the exact inverse
+// of the normalise step KANVAS runs on a KAD sheet, and it is deliberately
+// total: every object lands somewhere. What KAD cannot draw goes to `foreign`
+// rather than being dropped, because a file that loses marks on open and then
+// saves over itself is worse than one that refuses to open.
+function kvFoldObjects(objects) {
+  const out = { strokes: [], dims: [], welds: [], paths: [], foreign: [], skipped: 0 };
+  for (const o of (objects || [])) {
+    if (!o || typeof o !== 'object') { out.skipped++; continue; }
+    switch (o.type) {
+
+      // KANVAS dispatches on type:'dim' and keeps the flavour in `kind`.
+      // KAD dispatches on the flavour, so it moves back into `type` — the
+      // mirror of the override KANVAS applies on the way in.
+      case 'dim': {
+        const d = Object.assign({}, o);
+        d.type = (o.kind === 'radial') ? 'radial'
+               : (o.kind === 'angle')  ? 'angle' : 'linear';
+        delete d.kind;
+        out.dims.push(d);
+        break;
+      }
+
+      // Welds have no tool in KANVAS; they travel through it untouched and
+      // arrive back intact. Only the dispatch tag comes off.
+      case 'weld': {
+        const w = Object.assign({}, o);
+        delete w.type;
+        out.welds.push(w);
+        break;
+      }
+
+      // Identical segment shape on both sides — a straight carry-through.
+      case 'path':
+        out.paths.push(Object.assign({}, o, { type: 'path' }));
+        break;
+
+      case 'text':
+        out.strokes.push(Object.assign({}, o, kvStyleIn(o), { type: 'text' }));
+        break;
+
+      case 'erase':
+        out.strokes.push(Object.assign({}, o, { type: 'erase', layer: o.layer || '__erase__' }));
+        break;
+
+      case 'stroke':
+        out.strokes.push(kvAsBrush(o, o.mode === 'line' ? 'line' : 'curve'));
+        break;
+
+      case 'line':
+        out.strokes.push(kvAsBrush(o, 'line',
+          [{ x: o.x1, y: o.y1 }, { x: o.x2, y: o.y2 }]));
+        break;
+
+      case 'arc': {
+        const pts = kvArcTess(o.cx, o.cy, o.r, o.a0, o.a1, !!o.ccw, !!o.full);
+        // arc:true is what kvsToGeometry and the radial dimension read, so the
+        // true circle survives even though the renderer only sees the outline.
+        out.strokes.push(Object.assign(kvAsBrush(o, 'line', pts), { arc: true }));
+        break;
+      }
+
+      case 'rect': {
+        const { x, y, w, h } = o;
+        if (!(w > 0) || !(h > 0)) { out.skipped++; break; }
+        out.strokes.push(kvAsBrush(o, 'line', [
+          { x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }, { x, y }
+        ]));
+        break;
+      }
+
+      case 'ellipse': {
+        if (!(o.rx > 0) || !(o.ry > 0)) { out.skipped++; break; }
+        const segs = Math.max(48, Math.min(360,
+          Math.ceil(Math.PI * (o.rx + o.ry) / 0.35)));
+        const pts = [];
+        for (let i = 0; i <= segs; i++) {
+          const a = (i / segs) * Math.PI * 2;
+          pts.push({ x: o.cx + Math.cos(a) * o.rx, y: o.cy + Math.sin(a) * o.ry });
+        }
+        out.strokes.push(kvAsBrush(o, 'line', pts));
+        break;
+      }
+
+      case 'poly': {
+        const pts = (o.pts || []).map(p => ({ x: p.x, y: p.y }));
+        if (pts.length < 2) { out.skipped++; break; }
+        if (o.closed && pts.length > 2) pts.push({ x: pts[0].x, y: pts[0].y });
+        out.strokes.push(kvAsBrush(o, 'line', pts));
+        break;
+      }
+
+      // Rasters have no store on this side. Quarantined rather than lost: they
+      // are written back out untouched, so a sheet can make the trip to KAD and
+      // home again with its reference photos still attached.
+      case 'image':
+        out.foreign.push(o);
+        break;
+
+      default:
+        if (Array.isArray(o.pts) && o.pts.length >= 2) out.strokes.push(kvAsBrush(o, 'curve'));
+        else out.foreign.push(o);
+    }
+  }
+  return out;
+}
+
+// One space — 2.x or 1.0 — as a payload kvDeserialize can read without knowing
+// which it was. Returns null when the thing handed in is not a space at all.
+function kvUnfoldSpace(src, opts) {
+  if (!src || typeof src !== 'object') return null;
+  const o = opts || {};
+  const p = Object.assign({}, src);
+
+  if (Array.isArray(src.objects)) {
+    const f = kvFoldObjects(src.objects);
+    p.strokes = f.strokes; p.dims = f.dims; p.welds = f.welds; p.paths = f.paths;
+    p.foreign = (src.foreign || []).concat(f.foreign);
+    delete p.objects;
+  } else {
+    p.strokes = Array.isArray(src.strokes) ? src.strokes : [];
+    p.dims    = Array.isArray(src.dims)    ? src.dims    : [];
+    p.welds   = Array.isArray(src.welds)   ? src.welds   : [];
+    p.paths   = Array.isArray(src.paths)   ? src.paths   : [];
+    p.foreign = Array.isArray(src.foreign) ? src.foreign : [];
+  }
+
+  // A 2.x sheet names its trim and orientation separately; KREATE has neither.
+  if (!p.page && src.paper) p.page = kvPageFromPaper(src.paper, src.orient);
+  if (!p.page && o.page) p.page = o.page;
+
+  // KANVAS carries KAD's viewport through opaquely rather than dropping it, so
+  // a sheet that made the round trip keeps the drawing scale it left with.
+  if (!p.viewport && src.viewport) p.viewport = src.viewport;
+  if (!p.sheetName && (src.name || o.name)) p.sheetName = src.name || o.name;
+  if (!p.format) p.format = 'KVS';
+  return p;
+}
+
+// KAD page key to KANVAS trim key — 'a3l' becomes 'a3'. Written into every
+// .kvs KAD saves so the other side names the trim outright instead of matching
+// millimetres, which is how an ANSI B sheet used to come home as tabloid.
+function kvPaperKeyForKanvas(page) {
+  if (!page) return null;
+  const k = page.key || '';
+  const stem = k.replace(/_?[pl]$/, '');
+  if (KANVAS_PAPERS[stem]) return stem;
+  const w = Math.min(page.w, page.h), h = Math.max(page.w, page.h);
+  for (const n in KANVAS_PAPERS) {
+    const d = KANVAS_PAPERS[n];
+    if (Math.abs(d[0] - w) < 0.6 && Math.abs(d[1] - h) < 0.6) return n;
+  }
+  return null;
+}
+
 // Applies one sheet's worth of data to whatever tab is currently active.
 // Deliberately does NOT touch KV_SHEETS: opening a .kvs fills one tab, it
 // never restructures the drawing.
 function kvDeserialize(text) {
-  let d;
-  try { d = (typeof text === 'string') ? JSON.parse(text) : text; } catch (e) { return false; }
-  if (!d || (d.format !== 'KVS' && d.source !== 'KAD KANVAS')) return false;  // .vad files still load
+  let d = kvParseKvs(text);
+  const shape = kvKvsShape(d);          // .vad and 2.x both resolve here
+  if (!shape) return false;
+  // A whole KANVAS document is not one sheet. Pretending otherwise is exactly
+  // what used to open a 2.x file as a blank page: the format check passed, the
+  // strokes lookup found nothing, and the failure was silent. The contract of
+  // this function is one space, so a document is declined and kvAdoptKVS —
+  // which knows how to unpack tabs — takes it instead.
+  if (shape === 'doc') return false;
+  d = kvUnfoldSpace(d);
+  if (!d) return false;
 
   kvEnsureSheets();
 
@@ -14190,9 +15224,12 @@ function kvDeserialize(text) {
   KVM.dims    = Array.isArray(d.dims)    ? d.dims    : [];
   KVM.welds   = Array.isArray(d.welds)   ? d.welds   : [];
   KVM.paths   = Array.isArray(d.paths)   ? d.paths   : [];
+  KVM.foreign = Array.isArray(d.foreign) ? d.foreign : [];
   KVM.activeLayer = d.activeLayer || (KVM.layers[0] && KVM.layers[0].name) || 'Annotations';
   // Never trust a stored nextId: a file edited elsewhere could collide ids.
-  const maxId = [...KVM.strokes, ...KVM.dims, ...KVM.welds, ...KVM.paths]
+  // Quarantined objects are counted too — they keep their ids, and a new mark
+  // reusing one would collide the moment the file went back to KANVAS.
+  const maxId = [...KVM.strokes, ...KVM.dims, ...KVM.welds, ...KVM.paths, ...KVM.foreign]
     .reduce((m,o) => Math.max(m, o.id || 0), 0);
   KVM.nextId = Math.max(d.nextId || 1, maxId + 1);
 
@@ -14246,9 +15283,10 @@ function kvRestoreSheets(k) {
   for (const sh of k.sheets) {
     KV_SHEETS.push({
       id:_kvSheetSeq, name: kvUniqueSheetName(sh.name || ('Sheet ' + _kvSheetSeq)),
-      page: sh.page ? {...sh.page} : {...KV_PAGE_SIZES.a3p},
+      page: sh.page ? {...sh.page} : {...KV_PAGE_SIZES.a3l},
       view: {...(sh.view || KV_VIEW)}, dimStd: sh.dimStd || kvDimStd, cam: null,
       mem: { strokes:sh.strokes||[], dims:sh.dims||[], welds:sh.welds||[], paths:sh.paths||[],
+             foreign:sh.foreign||[],
              layers:sh.layers||kvBlankMemory().layers,
              activeLayer:sh.activeLayer||'Annotations', nextId:sh.nextId||1 },
       hist: { past:[], future:[], last:null, timer:null }
@@ -14276,60 +15314,239 @@ function kvRestoreSheets(k) {
 //  almost always means "another sheet"; opening it from the drafting space
 //  almost always means "trace this into the model". Almost is not always, so
 //  the dialog opens with the current space preselected and lets it be changed.
+//
+//  A canvas-less document choosing KANVAS is the one case in this dialog
+//  where "sheet" doesn't already mean something: KREATE numbers were never
+//  committed to a page, so landing them on one is a placement decision, not a
+//  formality. That decision gets its own pair of questions — what paper, and
+//  whether the content is placed at its own coordinates or fit to the trim —
+//  answered by kvAdoptKreateAsSheet rather than by kvsToGeometry below, which
+//  only ever writes into the model.
 // ══════════════════════════════════════════════════════════════════════════════
 
 let vecImport = { text:null, name:'', kind:null, parsed:null };
 
+// A canvas-less document opening as a sheet asks a different question than
+// everything else in this dialog: not a ratio to the real world, but how its
+// KREATE coordinates should sit on a page it does not have. That is the one
+// case this dialog switches from the scale select to the fit select.
+function vecFitMode() {
+  const dest = (document.getElementById('vec-dest-sel')||{}).value || 'model';
+  return dest === 'kanvas' && vecImport.canvasless;
+}
+
 function vecScaleFactor() {
-  const sel = document.getElementById('vec-scale-sel');
+  const sel = document.getElementById(vecFitMode() ? 'vec-fit-sel' : 'vec-scale-sel');
   if (!sel) return 1;
   if (sel.value === 'custom') {
     const n = parseFloat((document.getElementById('vec-scale-custom')||{}).value);
     return (isFinite(n) && n > 0) ? n : 1;
   }
+  if (sel.value === 'fit') return vecFitPlan().F;
   return parseFloat(sel.value) || 1;
 }
 
+// Bounding box of a canvas-less document's KREATE content, in its own units.
+// Walks the object shapes directly rather than folding first: only the extent
+// is needed here, and folding would build tessellations this throws away on
+// the next line.
+function kvKreateContentBounds(text) {
+  const d = kvParseKvs(text);
+  const objs = (d && d.kreate && Array.isArray(d.kreate.objects)) ? d.kreate.objects : [];
+  let minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
+  const grow = (x, y) => {
+    if (!isFinite(x) || !isFinite(y)) return;
+    if (x<minX) minX=x; if (x>maxX) maxX=x; if (y<minY) minY=y; if (y>maxY) maxY=y;
+  };
+  for (const o of objs) {
+    if (!o) continue;
+    if (Array.isArray(o.pts)) for (const p of o.pts) grow(p.x, p.y);
+    if (o.type === 'arc' && isFinite(o.r)) { grow(o.cx-o.r,o.cy-o.r); grow(o.cx+o.r,o.cy+o.r); }
+    if (o.type === 'rect')    { grow(o.x,o.y); grow(o.x+o.w, o.y+o.h); }
+    if (o.type === 'ellipse') { grow(o.cx-o.rx,o.cy-o.ry); grow(o.cx+o.rx,o.cy+o.ry); }
+    if (o.type === 'line')    { grow(o.x1,o.y1); grow(o.x2,o.y2); }
+    if (o.type === 'text')    grow(o.x, o.y);
+    if (o.type === 'image')   { grow(o.x,o.y); grow(o.x+o.w,o.y+o.h); }
+    if (Array.isArray(o.beziers)) for (const b of o.beziers) {
+      grow(b.x0,b.y0); grow(b.cx1,b.cy1); grow(b.cx2,b.cy2); grow(b.x3,b.y3);
+    }
+  }
+  if (!isFinite(minX)) return null;
+  return { x:minX, y:minY, w:maxX-minX, h:maxY-minY };
+}
+
+// The margin Fit to Page leaves on the smaller side, so content does not
+// touch the trim edge. Not configurable — it is a small, fixed courtesy, not
+// a decision worth its own control in a dialog already asking two questions.
+const VEC_FIT_MARGIN = 0.96;
+
+// Resolves the sheet-side destination's scale AND placement in one place, so
+// nothing downstream has to know how "Fit to Page" was computed — only what
+// factor and offset came out of it. Actual size and Custom behave like every
+// other scale in this app: the numbers multiply, nothing moves. Fit is the
+// one mode that also centres, because centring is what "fit" means.
+function vecFitPlan() {
+  const paperKey = (document.getElementById('vec-paper-sel')||{}).value || 'a3l';
+  const page = KV_PAGE_SIZES[paperKey] || KV_PAGE_SIZES.a3l;
+  const sel  = document.getElementById('vec-fit-sel');
+  const mode = sel ? sel.value : 'fit';
+
+  if (mode === 'custom') {
+    const n = parseFloat((document.getElementById('vec-scale-custom')||{}).value);
+    return { page, F: (isFinite(n) && n > 0) ? n : 1, ox:0, oy:0, fit:false };
+  }
+  if (mode !== 'fit') return { page, F:1, ox:0, oy:0, fit:false };
+
+  const bounds = kvKreateContentBounds(vecImport.text);
+  if (!bounds || bounds.w < 1e-6 || bounds.h < 1e-6)
+    return { page, F:1, ox:0, oy:0, fit:false };   // nothing to fit against — behave as actual size
+  const F = Math.min(page.w / bounds.w, page.h / bounds.h) * VEC_FIT_MARGIN;
+  const cx = bounds.x + bounds.w/2, cy = bounds.y + bounds.h/2;
+  return { page, F, ox: page.w/2 - cx*F, oy: page.h/2 - cy*F, fit:true };
+}
+
+// Applies a uniform scale and offset to every geometry field a folded space
+// might carry. Broad and mechanical on purpose: KREATE cannot hold dimension
+// or weld objects in ordinary use — both tools redirect to KANVAS the moment
+// KREATE is active — so strokes and paths are the realistic targets. Dims and
+// welds are moved too, defensively, for whatever reaches this from a hand-
+// edited file; their DISPLAYED values are not recomputed, which is a separate
+// concern this does not attempt to solve.
+function kvScaleFoldedSpace(folded, F, ox, oy) {
+  if (Math.abs(F - 1) < 1e-12 && Math.abs(ox) < 1e-9 && Math.abs(oy) < 1e-9) return folded;
+  const mv = p => ({ x: p.x*F + ox, y: p.y*F + oy });
+  for (const arr of [folded.strokes, folded.dims, folded.welds]) {
+    for (const o of arr) {
+      if (Array.isArray(o.pts)) o.pts = o.pts.map(mv);
+      if (isFinite(o.cx) && isFinite(o.cy)) { const c = mv({x:o.cx,y:o.cy}); o.cx=c.x; o.cy=c.y; }
+      if (isFinite(o.r))  o.r *= F;
+      if (isFinite(o.x1) && isFinite(o.y1)) { const a = mv({x:o.x1,y:o.y1}); o.x1=a.x; o.y1=a.y; }
+      if (isFinite(o.x2) && isFinite(o.y2)) { const b = mv({x:o.x2,y:o.y2}); o.x2=b.x; o.y2=b.y; }
+      if (isFinite(o.x)  && isFinite(o.y) && !isFinite(o.x1)) { const a = mv({x:o.x,y:o.y}); o.x=a.x; o.y=a.y; }
+      if (isFinite(o.w))  o.w  *= F;
+      if (isFinite(o.h))  o.h  *= F;
+      if (isFinite(o.rx)) o.rx *= F;
+      if (isFinite(o.ry)) o.ry *= F;
+      if (isFinite(o.size))  o.size  *= F;
+      if (isFinite(o.width)) o.width *= F;
+    }
+  }
+  for (const p of folded.paths) {
+    if (!Array.isArray(p.beziers)) continue;
+    p.beziers = p.beziers.map(b => ({
+      x0:b.x0*F+ox, y0:b.y0*F+oy, cx1:b.cx1*F+ox, cy1:b.cy1*F+oy,
+      cx2:b.cx2*F+ox, cy2:b.cy2*F+oy, x3:b.x3*F+ox, y3:b.y3*F+oy,
+    }));
+  }
+  return folded;
+}
+
 function openVecImport(text, name, kind) {
-  vecImport = { text, name, kind, parsed:null };
+  // The shape decides which destinations are even coherent, so it is read once
+  // here and carried, rather than re-parsed at each place that asks.
+  let shape = null, nSheets = 0, nKreate = 0, canvasless = false;
+  if (kind === 'kvs') {
+    const d = kvParseKvs(text);
+    shape = kvKvsShape(d);
+    canvasless = kvIsCanvasless(d);
+    if (shape === 'doc') {
+      nSheets = (d.sheets || []).length;
+      nKreate = (d.kreate && Array.isArray(d.kreate.objects)) ? d.kreate.objects.length : 0;
+    }
+  }
+  vecImport = { text, name, kind, parsed:null, shape, nSheets, nKreate, canvasless };
+
   const dest = document.getElementById('vec-dest-sel');
-  if (dest) dest.value = (typeof kvActive !== 'undefined' && kvActive) ? 'kanvas' : 'model';
-  // A .svg has no sheet representation here, so KANVAS is not on offer for one.
   if (dest) {
-    const kvOpt = dest.querySelector('option[value="kanvas"]');
-    if (kvOpt) kvOpt.disabled = (kind !== 'kvs');
-    if (kind !== 'kvs') dest.value = 'model';
+    const kvOpt   = dest.querySelector('option[value="kanvas"]');
+    const bothOpt = dest.querySelector('option[value="both"]');
+    // A .svg has no sheet representation here, so KANVAS is not on offer for
+    // one. A canvas-less document CAN take the KANVAS route now — it is what
+    // raises the paper-size and fit questions below — so it is no longer
+    // disabled, only defaulted away from.
+    if (kvOpt)   kvOpt.disabled   = (kind !== 'kvs');
+    if (bothOpt) bothOpt.disabled = !(shape === 'doc' && nSheets && nKreate);
+    dest.value = (kind !== 'kvs') ? 'model'
+               : (shape === 'doc' && nSheets && nKreate) ? 'both'
+               : canvasless ? 'model'
+               : ((typeof kvActive !== 'undefined' && kvActive) ? 'kanvas' : 'model');
   }
   const info = document.getElementById('vec-import-info');
   let count = 0;
   try { count = vecCountEntities(text, kind); } catch(e) { count = 0; }
-  if (info) info.textContent = name + ' \u00b7 ' + kind.toUpperCase() +
-      ' \u00b7 ' + count + ' object' + (count===1?'':'s');
+  if (info) {
+    // A document says what it is made of. "412 objects" over five sheets and a
+    // KREATE space tells you nothing about where any of it is going to land.
+    const label = kind.toUpperCase();
+    let line = name + ' \u00b7 ' + label + ' \u00b7 ' + count + ' object' + (count===1?'':'s');
+    if (shape === 'doc')
+      // A canvas-less file says so outright. "0 sheets" reads like a broken
+      // file; "no canvas" reads like the deliberate state it is.
+      line += !canvasless
+        ? (' \u00b7 ' + nSheets + ' sheet' + (nSheets===1?'':'s') +
+           (nKreate ? ' + KREATE (' + nKreate + ')' : ' \u00b7 no KREATE content'))
+        : (' \u00b7 no canvas \u00b7 KREATE only');
+    info.textContent = line;
+  }
   const ov = document.getElementById('vec-import-overlay');
   if (ov) ov.classList.add('open');
-  vecSyncScaleUI();
+  vecSyncDestUI();
 }
 function closeVecImport() {
   const ov = document.getElementById('vec-import-overlay');
   if (ov) ov.classList.remove('open');
 }
+
+// Which of the three question-blocks below DESTINATION actually apply. An
+// ordinary sheet import needs none of them — it carries its own page and is
+// already page millimetres, exactly as it always was. A canvas-less document
+// choosing KANVAS is the one case with no page to inherit, so it alone gets
+// the paper-size and fit questions instead of the ratio question.
+function vecSyncDestUI() {
+  const fitMode = vecFitMode();
+  const dest = (document.getElementById('vec-dest-sel')||{}).value || 'model';
+  const needsRatio = (dest === 'model' || dest === 'both');
+  const pw = document.getElementById('vec-paper-wrap');
+  const sw = document.getElementById('vec-scale-wrap');
+  const fw = document.getElementById('vec-fit-wrap');
+  if (pw) pw.style.display = fitMode ? 'block' : 'none';
+  if (sw) sw.style.display = needsRatio ? 'block' : 'none';
+  if (fw) fw.style.display = fitMode ? 'block' : 'none';
+  vecSyncScaleUI();
+}
+
 function vecSyncScaleUI() {
-  const sel = document.getElementById('vec-scale-sel');
+  const fitMode = vecFitMode();
+  const sel = document.getElementById(fitMode ? 'vec-fit-sel' : 'vec-scale-sel');
   const cw  = document.getElementById('vec-custom-wrap');
   if (sel && cw) cw.style.display = (sel.value === 'custom') ? 'flex' : 'none';
   const note = document.getElementById('vec-scale-note');
-  if (note) {
-    const f = vecScaleFactor();
-    note.textContent = (Math.abs(f-1) < 1e-9)
-      ? 'Actual size — one page millimetre becomes one model millimetre.'
-      : ('One page millimetre becomes ' + (+f.toFixed(4)) + ' model millimetres.');
+  if (!note) return;
+  if (fitMode) {
+    note.textContent = (sel && sel.value === 'fit')
+      ? 'Scaled uniformly to fit the chosen page, centred with a small margin.'
+      : ('\u00d7' + (+vecScaleFactor().toFixed(4)) +
+         ' \u2014 placed at its own coordinates; may run off the page.');
+    return;
   }
+  const f = vecScaleFactor();
+  note.textContent = (Math.abs(f-1) < 1e-9)
+    ? 'Actual size — one page millimetre becomes one model millimetre.'
+    : ('One page millimetre becomes ' + (+f.toFixed(4)) + ' model millimetres.');
 }
 
 function vecCountEntities(text, kind) {
   if (kind === 'kvs') {
-    const d = JSON.parse(text);
-    return (d.strokes||[]).length;
+    const d = kvParseKvs(text);
+    const shape = kvKvsShape(d);
+    if (!shape) return 0;
+    const n = sp => Array.isArray(sp.objects) ? sp.objects.length
+      : (sp.strokes||[]).length + (sp.dims||[]).length +
+        (sp.welds||[]).length  + (sp.paths||[]).length;
+    if (shape !== 'doc') return n(d);
+    let t = (d.kreate ? n(d.kreate) : 0);
+    for (const s of (d.sheets || [])) t += n(s);
+    return t;
   }
   return (text.match(/<(line|polyline|polygon|circle|rect|path|ellipse)\b/gi) || []).length;
 }
@@ -14447,18 +15664,55 @@ function svgArcToCenter(x1, y1, x2, y2, rx, ry, large, sweep, PX, PY, F) {
 }
 
 // ── .kvs → model geometry ──
-function kvsToGeometry(text, F, layer) {
-  const d = JSON.parse(text);
+// Takes either shape. From a KANVAS 2.x document the default source is KREATE,
+// because KREATE is the model-space analogue: singular, infinite, untrimmed.
+// Sheets are page space and only come across when the caller says so, since a
+// sheet's millimetres are page millimetres and mixing the two is the mistake
+// the scale question exists to prevent.
+function kvsToGeometry(text, F, layer, opts) {
+  const d = kvParseKvs(text);
+  const shape = kvKvsShape(d);
+  if (!shape) throw new Error('not a readable .kvs');
+  const o = opts || {};
+
+  let spaces;
+  if (shape === 'doc') {
+    spaces = [];
+    if (d.kreate) spaces.push(d.kreate);
+    if (o.includeSheets) for (const s of (d.sheets || [])) spaces.push(s);
+    // A document with no KREATE content and no explicit ask still has to give
+    // model space something, or a sheets-only file imports as nothing at all.
+    if (!spaces.length) spaces = (d.sheets || []);
+  } else spaces = [d];
+
   let added = 0, skipped = 0;
-  for (const st of (d.strokes || [])) {
-    if (st.arc && isFinite(st.r) && st.r > 0) {
-      if (st.full) GeoMemory.addCircle(st.cx*F, st.cy*F, st.r*F, layer);
-      else GeoMemory.addArc(st.cx*F, st.cy*F, st.r*F, st.a0, st.a1, !!st.ccw, layer);
-      added++;
-    } else if (st.pts && st.pts.length >= 2) {
-      GeoMemory.addPolyline(st.pts.map(p => ({x:p.x*F, y:p.y*F})), !!st.closed, layer);
-      added++;
-    } else skipped++;
+  for (const sp of spaces) {
+    const m = kvUnfoldSpace(sp);
+    if (!m) { skipped++; continue; }
+    for (const st of m.strokes) {
+      // Erasers are a compositing operation, not a shape, and text is not
+      // geometry. Both used to arrive as stray polylines or as silent misses.
+      if (st.type === 'erase' || st.type === 'text') { skipped++; continue; }
+      if (st.arc && isFinite(st.r) && st.r > 0) {
+        if (st.full) GeoMemory.addCircle(st.cx*F, st.cy*F, st.r*F, layer);
+        else GeoMemory.addArc(st.cx*F, st.cy*F, st.r*F, st.a0, st.a1, !!st.ccw, layer);
+        added++;
+      } else if (st.pts && st.pts.length >= 2) {
+        GeoMemory.addPolyline(st.pts.map(p => ({x:p.x*F, y:p.y*F})), !!st.closed, layer);
+        added++;
+      } else skipped++;
+    }
+    // Bezier paths flatten on the way into the model, because GeoMemory has no
+    // curve primitive. The paths[] store keeps its true control points — only
+    // this crossing is approximate, and only in this direction.
+    for (const p of m.paths) {
+      const pts = kvFlattenBeziers(p.beziers);
+      if (pts.length >= 2) {
+        GeoMemory.addPolyline(pts.map(q => ({x:q.x*F, y:q.y*F})), !!p.closed, layer);
+        added++;
+      } else skipped++;
+    }
+    skipped += (m.foreign || []).length;
   }
   return { added, skipped };
 }
@@ -14466,11 +15720,15 @@ function kvsToGeometry(text, F, layer) {
 function commitVecImport() {
   const dest = (document.getElementById('vec-dest-sel')||{}).value || 'model';
   const F = vecScaleFactor();
-  const { text, name, kind } = vecImport;
+  const { text, name, kind, canvasless } = vecImport;
+  const plan = canvasless ? vecFitPlan() : null;   // read before the dialog closes
   closeVecImport();
   if (!text) return;
 
   if (dest === 'kanvas') {
+    // A canvas-less document has no page to hand to the sheet reader — it has
+    // to be built one, on the paper and fit chosen above.
+    if (canvasless) { kvAdoptKreateAsSheet(text, name, plan); return; }
     // Hand straight to the sheet reader — a .kvs arriving as a sheet needs no
     // scaling at all, because a sheet is already page millimetres.
     kvAdoptKVS(text, name);
@@ -14480,7 +15738,13 @@ function commitVecImport() {
   const layer = (typeof activeLayer !== 'undefined' && activeLayer) ? activeLayer : 'Layer_0';
   let res;
   try {
-    res = (kind === 'kvs') ? kvsToGeometry(text, F, layer) : svgToGeometry(text, F, layer);
+    // Both: the sheets go to tabs unscaled, then KREATE goes to the model at
+    // the ratio given. One file, two spaces, each treated as what it is.
+    if (dest === 'both') {
+      kvAdoptKVS(text, name);
+      res = kvsToGeometry(text, F, layer);
+    }
+    else res = (kind === 'kvs') ? kvsToGeometry(text, F, layer) : svgToGeometry(text, F, layer);
   } catch (e) { showToast('Import failed: ' + e.message); return; }
   if (res.error) { showToast(res.error); return; }
   if (!res.added) { showToast('Nothing importable found in ' + name); return; }
@@ -14515,12 +15779,13 @@ function kvSaveKVS() {
 // route here when the destination is KANVAS, instead of the two paths growing
 // separate ideas of what a valid file is.
 function kvAdoptKVS(text, fileName) {
-  let d = null;
-  try { d = JSON.parse(text); } catch (err) { d = null; }
-  if (!d || (d.format !== 'KVS' && d.source !== 'KAD KANVAS')) {
-    showToast('Not a valid .kvs file'); return false;
-  }
+  const d = kvParseKvs(text);
+  const shape = kvKvsShape(d);
+  if (!shape) { showToast('Not a valid .kvs file'); return false; }
   if (!kvActive && typeof kadSwitchTab === 'function') kadSwitchTab('kanvas');
+  // A KANVAS 2.x document holds many sheets and a KREATE space. It becomes
+  // many tabs, not one.
+  if (shape === 'doc') return kvAdoptKvsDoc(d, fileName);
   // The filename is the title chosen at save time, so it names the sheet.
   // Falls back to the name stored inside the file, then to a numbered sheet.
   kvAdoptName = kvNameFromFile(fileName) || (d.sheetName || '');
@@ -14543,6 +15808,89 @@ function kvAdoptKVS(text, fileName) {
     kvAdoptName = null;      // cleared even if deserialize threw
   }
   return ok;
+}
+
+// A KANVAS 2.x document, unpacked. Each sheet becomes its own tab, named from
+// the file when the file only has one and from the sheet when it has several —
+// a five-sheet import called "villa-a, villa-a, villa-a…" helps nobody.
+//
+// KREATE is deliberately NOT turned into a sheet. It is the model-space
+// analogue, and a sheet is page space; folding one into the other would put
+// unscaled art on a trimmed page and call it a drawing. It is reported instead,
+// so the space is visibly declined rather than quietly dropped, and the import
+// dialog's model-space route is where it actually goes.
+function kvAdoptKvsDoc(d, fileName) {
+  const sheets = Array.isArray(d.sheets) ? d.sheets : [];
+  const kre    = d.kreate && Array.isArray(d.kreate.objects) ? d.kreate.objects.length : 0;
+  if (!sheets.length) {
+    // Not a failure and not an empty file — a canvas-less document, which has
+    // nothing that could become a sheet. Model space is where its one space
+    // belongs, and the toast points there rather than just refusing.
+    showToast(kre ? ('No canvas in ' + fileName + ' \u00b7 ' + kre +
+                     ' object' + (kre===1?'':'s') + ' in KREATE \u00b7 import to model space')
+                  : ('Nothing to open in ' + fileName));
+    return false;
+  }
+  const base = kvNameFromFile(fileName) || '';
+  let opened = 0;
+  for (let i = 0; i < sheets.length; i++) {
+    const s    = sheets[i];
+    const want = (sheets.length === 1) ? (base || s.name) : (s.name || base);
+    kvAdoptName = want || '';
+    kvAddSheet();
+    let ok = false;
+    try {
+      ok = kvDeserialize(kvUnfoldSpace(s, { name: want }));
+      if (ok) {
+        const sh = KV_SHEETS[kvSheetIdx];
+        if (sh) sh.name = kvUniqueSheetName(want || sh.name, kvSheetIdx);
+        opened++;
+      } else kvDeleteSheetSilent();
+    } finally { kvAdoptName = null; }
+  }
+  kvBuildSheetTabs();
+  kvZoomFit();
+  kvScheduleDraw();
+  showToast('Opened ' + opened + ' sheet' + (opened === 1 ? '' : 's') + ' from ' + fileName +
+            (kre ? ' \u00b7 KREATE space needs model-space import' : ''));
+  return opened > 0;
+}
+
+// The KANVAS-fit counterpart of kvAdoptKvsDoc. A canvas-less document has no
+// page of its own, so opening it as a sheet means building one: the paper
+// size and placement chosen in the import dialog, folded down exactly as any
+// other KANVAS content would be, then dropped into a fresh sheet directly —
+// there is no existing page-space payload here for kvDeserialize to read, so
+// this does not go through it.
+function kvAdoptKreateAsSheet(text, fileName, plan) {
+  const d = kvParseKvs(text);
+  if (!d || !d.kreate) { showToast('Nothing to open in ' + fileName); return false; }
+  plan = plan || vecFitPlan();
+
+  const folded = kvFoldObjects(d.kreate.objects || []);
+  kvScaleFoldedSpace(folded, plan.F, plan.ox, plan.oy);
+
+  if (!kvActive && typeof kadSwitchTab === 'function') kadSwitchTab('kanvas');
+  kvAddSheet(plan.page.key);        // lands live on the chosen paper, blank
+  KVM.strokes = folded.strokes; KVM.dims  = folded.dims;
+  KVM.welds   = folded.welds;   KVM.paths = folded.paths;
+  KVM.foreign = folded.foreign;
+  const maxId = [...KVM.strokes, ...KVM.dims, ...KVM.welds, ...KVM.paths, ...KVM.foreign]
+    .reduce((m,o) => Math.max(m, o.id || 0), 0);
+  KVM.nextId = maxId + 1;
+
+  const sh = KV_SHEETS[kvSheetIdx];
+  if (sh) sh.name = kvUniqueSheetName(kvNameFromFile(fileName) || sh.name, kvSheetIdx);
+
+  kvCommitSheetState();
+  kvBuildSheetTabs();
+  kvBuildLayerList();
+  kvRebuildEraseCanvas();
+  kvZoomFit();
+  kvScheduleDraw();
+  showToast('Opened ' + (KV_SHEETS[kvSheetIdx]||{}).name + ' \u00b7 ' + plan.page.label +
+            (plan.fit ? ' \u00b7 fit to page' : ''));
+  return true;
 }
 
 // Legacy entry point, kept because older markup and the KO kommand reference
@@ -15068,7 +16416,7 @@ let kvAdoptName = null;
 
 function kvBlankMemory() {
   return {
-    strokes: [], dims: [], welds: [], paths: [],
+    strokes: [], dims: [], welds: [], paths: [], foreign: [],
     layers: [{name:'Annotations',color:'#ff3cac',visible:true},
              {name:'Dimensions', color:'#00d4ff',visible:true},
              {name:'Weld Symbols',color:'#ffaa00',visible:true},
@@ -15087,6 +16435,7 @@ function kvCommitSheetState() {
   s.dimStd = kvDimStd;
   s.cam    = {zoom:kvZoom, panX:kvPanX, panY:kvPanY};
   s.mem    = { strokes:KVM.strokes, dims:KVM.dims, welds:KVM.welds, paths:KVM.paths,
+               foreign:KVM.foreign,
                layers:KVM.layers, activeLayer:KVM.activeLayer, nextId:KVM.nextId };
   s.hist   = History.kanvas;
 }
@@ -15104,6 +16453,7 @@ function kvApplySheetState(i) {
   kvDimStd = s.dimStd;
   KVM.strokes = s.mem.strokes; KVM.dims = s.mem.dims; KVM.welds = s.mem.welds;
   KVM.paths   = s.mem.paths || (s.mem.paths = []);
+  KVM.foreign = s.mem.foreign || (s.mem.foreign = []);
   KVM.layers  = s.mem.layers;  KVM.activeLayer = s.mem.activeLayer; KVM.nextId = s.mem.nextId;
   History.kanvas = s.hist;     // each sheet keeps its own undo timeline
   if (s.cam) { kvZoom = s.cam.zoom; kvPanX = s.cam.panX; kvPanY = s.cam.panY; }
@@ -15191,7 +16541,7 @@ function kvEnsureSheets() {
 function kvAddSheet(pageKey) {
   kvEnsureSheets();
   kvCommitSheetState();
-  const preset = KV_PAGE_SIZES[pageKey] || KV_PAGE_SIZES[KV_PAGE.key] || KV_PAGE_SIZES.a3p;
+  const preset = KV_PAGE_SIZES[pageKey] || KV_PAGE_SIZES[KV_PAGE.key] || KV_PAGE_SIZES.a3l;
   KV_SHEETS.push({
     id:_kvSheetSeq, name:kvUniqueSheetName('Sheet ' + kvNextSheetNumber()),
     page:{...preset}, view:{scale:KV_VIEW.scale, ox:20, oy:20, show:true, rot:0}, dimStd:kvDimStd,
@@ -15304,7 +16654,7 @@ function kvBuildSheetTabs() {
 }
 
 function kvSetPageSize(key) {
-  const preset = KV_PAGE_SIZES[key] || KV_PAGE_SIZES.a3p;
+  const preset = KV_PAGE_SIZES[key] || KV_PAGE_SIZES.a3l;
   KV_PAGE = {...preset};          // clone: never hand out the table's own object
   kvSyncPageUI();
   kvZoomFit();
@@ -15338,22 +16688,109 @@ function kvRotatePoint(p, cw, W0, H0) {
             : { x: H0 - p.y, y: p.x };
 }
 
+// One record, turned. Deliberately mirrors KANVAS's transformSheetContent so
+// the two programs turn a sheet the same way by construction rather than by
+// coincidence — the quarter-turn map was already identical, but the set of
+// FIELDS each program remembered to map was not.
+//
+// Everything here is a rotation, so no length changes: r stays r. What does
+// change is anything that names an axis. rx/ry swap, because the long axis of
+// an ellipse is now the other one. a0/a1 shift by the turn, because an arc's
+// sweep is measured from an axis that just moved. A rect is mapped by its
+// corners and re-normalised, since the turn inverts the winding and w/h must
+// stay positive.
+// For a folded KANVAS shape, pts is DERIVED data — the tessellation of the
+// parametric fields — and KANVAS proves that on the way home by regenerating
+// the outline and comparing it index for index. Rotating pts element-wise
+// keeps the geometry but moves which corner comes first, so the comparison
+// failed and every rect and ellipse came back from a turned sheet as a
+// polygon. Regenerating instead keeps pts canonical, which is the invariant
+// the check is actually asserting. Must stay byte-compatible with
+// foldedOutline() in KANVAS; the two are one contract written twice.
+function kvRebuildOutline(o) {
+  switch (o.kvType) {
+    case 'rect': {
+      if (!(o.w > 0) || !(o.h > 0)) return null;
+      return [{x:o.x, y:o.y}, {x:o.x+o.w, y:o.y}, {x:o.x+o.w, y:o.y+o.h},
+              {x:o.x, y:o.y+o.h}, {x:o.x, y:o.y}];
+    }
+    case 'ellipse': {
+      if (!(o.rx > 0) || !(o.ry > 0)) return null;
+      const segs = Math.max(48, Math.min(360, Math.ceil(Math.PI * (o.rx + o.ry) / 0.35)));
+      const p = [];
+      for (let i = 0; i <= segs; i++) {
+        const a = (i / segs) * Math.PI * 2;
+        p.push({ x: o.cx + Math.cos(a)*o.rx, y: o.cy + Math.sin(a)*o.ry });
+      }
+      return p;
+    }
+    case 'line':
+      return [{x:o.x1, y:o.y1}, {x:o.x2, y:o.y2}];
+    case 'arc':
+      if (!isFinite(o.r) || !(o.r > 0)) return null;
+      return kvArcTess(o.cx, o.cy, o.r, o.a0, o.a1, !!o.ccw, !!o.full);
+    default:
+      return null;   // stroke and poly ARE their points; nothing to regenerate
+  }
+}
+
+function kvRotateRecord(o, R, cw) {
+  const dA = cw ? -Math.PI/2 : Math.PI/2;
+  const move = t => { const r = R(t); t.x = r.x; t.y = r.y; };
+
+  if (o.pts) for (const p of o.pts) move(p);
+
+  // beziers is the outer contour; holes are the rest. Separate arrays exactly
+  // so each is mapped once — the same shape KANVAS stores them in.
+  for (const contour of [o.beziers].concat(o.holes || [])) {
+    if (!contour) continue;
+    for (const b of contour) {
+      const a  = R({x:b.x0, y:b.y0}),  c1 = R({x:b.cx1,y:b.cy1});
+      const c2 = R({x:b.cx2,y:b.cy2}), d  = R({x:b.x3, y:b.y3});
+      b.x0=a.x;   b.y0=a.y;   b.cx1=c1.x; b.cy1=c1.y;
+      b.cx2=c2.x; b.cy2=c2.y; b.x3=d.x;   b.y3=d.y;
+    }
+  }
+
+  if (o.cx != null && o.cy != null) { const c = R({x:o.cx, y:o.cy}); o.cx=c.x; o.cy=c.y; }
+  if (o.x1 != null && o.y1 != null) {
+    const a = R({x:o.x1,y:o.y1}); o.x1=a.x; o.y1=a.y;
+    if (o.x2 != null && o.y2 != null) { const b = R({x:o.x2,y:o.y2}); o.x2=b.x; o.y2=b.y; }
+  }
+
+  // A folded KANVAS rect keeps its x/y/w/h alongside the tessellation; leaving
+  // those stale is what made a rect come home from a turned sheet as a polygon.
+  if (o.kvType === 'rect' && o.w != null && o.h != null) {
+    const c1 = R({x:o.x, y:o.y}), c2 = R({x:o.x + o.w, y:o.y + o.h});
+    o.x = Math.min(c1.x, c2.x); o.y = Math.min(c1.y, c2.y);
+    o.w = Math.abs(c2.x - c1.x); o.h = Math.abs(c2.y - c1.y);
+  } else if (o.x != null && o.y != null && o.x1 == null) {
+    move(o);
+  }
+
+  if (o.rx != null && o.ry != null) { const t = o.rx; o.rx = o.ry; o.ry = t; }
+  if (o.a0 != null) o.a0 += dA;
+  if (o.a1 != null) o.a1 += dA;
+
+  for (const k of ['p1','p2','center','vertex','pa','pb']) if (o[k]) move(o[k]);
+
+  // Text turns with the paper too — otherwise "everything rotates together"
+  // would quietly exclude the one thing you read.
+  if (o.type === 'text') o.rot = (((o.rot || 0) + (cw ? -90 : 90)) % 360 + 360) % 360;
+
+  // Last, and only for shapes whose points are derived: re-derive them, so the
+  // record leaves this function with pts and parameters still agreeing.
+  if (o.kvType) { const rebuilt = kvRebuildOutline(o); if (rebuilt) o.pts = rebuilt; }
+}
+
 function kvRotateSheet(cw) {
   const W0 = KV_PAGE.w, H0 = KV_PAGE.h;
   const R  = p => kvRotatePoint(p, cw, W0, H0);
-  const move = o => { const r = R(o); o.x = r.x; o.y = r.y; };
 
-  for (const s of KVM.strokes) {
-    if (s.pts) for (const p of s.pts) move(p);
-    if (s.x != null && s.y != null) move(s);
-    // Text turns with the paper too — otherwise "everything rotates together"
-    // would quietly exclude the one thing you read.
-    if (s.type === 'text') s.rot = (((s.rot || 0) + (cw ? -90 : 90)) % 360 + 360) % 360;
-  }
-  for (const d of KVM.dims)
-    for (const k of ['p1','p2','center','vertex','pa','pb']) if (d[k]) move(d[k]);
-  for (const w of KVM.welds)
-    for (const k of ['p1','p2']) if (w[k]) move(w[k]);
+  // All four stores, not three. paths[] was being skipped entirely, so a
+  // bezier path stayed exactly where it was while the sheet turned around it.
+  for (const arr of [KVM.strokes, KVM.dims, KVM.welds, KVM.paths])
+    for (const o of arr) kvRotateRecord(o, R, cw);
 
   // The viewport is an affine map, so rotating it is the same map applied to
   // its origin plus a quarter turn on its own rotation — no need to touch the
@@ -16382,13 +17819,13 @@ if ('launchQueue' in window) {
         input.files = dt.files;
         input.dispatchEvent(new Event('change'));
       } else if (/\.kvs$/i.test(file.name)) {
-        // Same contract as the file picker: a .kvs becomes its own sheet.
+        // Same contract as the file picker, and now the same reader. kvAdoptKVS
+        // creates its own sheets, so a launched KANVAS document arrives as the
+        // several tabs it actually is rather than one tab holding the first —
+        // and it toasts its own result, success or not.
         kadSwitchTab('kanvas');
         kvEnsureSheets();
-        kvAddSheet();
-        const ok = kvDeserialize(text);
-        if (!ok) kvDeleteSheetSilent();
-        showToast(ok ? `Opened ${file.name} as a new sheet` : `Could not open ${file.name}`);
+        if (!kvAdoptKVS(text, file.name)) showToast(`Could not open ${file.name}`);
       } else {
         // Full-document load — same container path as the file picker, so a
         // launched .kad restores both spaces rather than geometry alone.
@@ -16747,6 +18184,10 @@ function kloudGoogleSignIn(){
 
 // Invitation link = authentication link: opening it auto-joins the space
 window.addEventListener('load', ()=>{
+  // Parts panel starts empty but must still render its own empty state and
+  // summary rather than relying on the static markup, so the two can never
+  // disagree once a document is opened.
+  try { updatePartsPanel(); } catch(e) {}
   try {
     const hash=(location.hash||'').replace('#','');
     if(hash && hash.length>4 && !hash.includes('/')){
