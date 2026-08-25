@@ -579,12 +579,6 @@ button, .tb-menu-item, .tb-dd-item, .layer-row, .tab-item, .sb-item.sb-toggle {
 .op-btn:hover { background:var(--hover); border-color:var(--border-hi); color:var(--t1); }
 .op-btn.dxf { color:var(--green); border-color:var(--green-dim); }
 .op-btn.dxf:hover { background:rgba(0,255,157,0.06); border-color:var(--green); }
-/* DWG is amber, not green: unlike .dxf it is not self-contained. It depends
-   on a side-loaded WASM build of LibreDWG that a given deployment may or may
-   not have shipped, so it deliberately does not read as a first-class
-   always-available operation next to the pure-JS DXF pair. */
-.op-btn.dwg { color:var(--amber); border-color:rgba(255,170,0,0.35); }
-.op-btn.dwg:hover { background:rgba(255,170,0,0.06); border-color:var(--amber); }
 .op-btn svg { width:12px; height:12px; flex-shrink:0; }
 /* Both file inputs are click-proxied from .op-btn above and must never
    render. #load-dxf was missing from this rule, so a native "Choose File"
@@ -592,10 +586,8 @@ button, .tb-menu-item, .tb-dd-item, .layer-row, .tab-item, .sb-item.sb-toggle {
    unshrinkable intrinsic width, it also silently set the FLOOR for the
    whole sidebar column (~266px). That floor is why narrowing --sidebar-w
    for Classic had no visible effect: the grid track shrank, the sidebar
-   overflowed it. #vec-file-input is hidden inline at its own markup.
-   #load-dwg is in this list for the same reason — a new unhidden file input
-   in .file-ops would re-create that sidebar-width floor exactly. */
-#load-kad, #load-dxf, #load-dwg { display:none; }
+   overflowed it. #vec-file-input is hidden inline at its own markup. */
+#load-kad, #load-dxf { display:none; }
 
 /* Coord input panel */
 #coord-panel { flex-shrink:0; border-bottom:1px solid var(--border); }
@@ -2383,7 +2375,6 @@ body.kanvas-mode #app {
         <div class="tb-dd-sep"></div>
         <div class="tb-dd-item" onclick="exportDXF();closeMenus()">Export .dxf<span class="dd-key">Ctrl+E</span></div>
         <div class="tb-dd-item" onclick="document.getElementById('load-dxf').click();closeMenus()">Import .dxf<span class="dd-key"></span></div>
-        <div class="tb-dd-item" onclick="document.getElementById('load-dwg').click();closeMenus()">Import .dwg<span class="dd-key"></span></div>
         <div class="tb-dd-item" onclick="document.getElementById('vec-file-input').click();closeMenus()">Import .svg / .kvs<span class="dd-key"></span></div>
       </div>
     </div>
@@ -2726,16 +2717,6 @@ body.kanvas-mode #app {
       Import .dxf
     </button>
     <input type="file" id="load-dxf" accept=".dxf,.DXF" onchange="importDXF(event)">
-    <!-- DWG — import only, and only when the LibreDWG WASM side module is
-         present next to this page. The button always renders; if the module
-         is missing importDWG() says so plainly rather than failing silently.
-         See DWG-SUPPORT.md for the build. -->
-    <button class="op-btn dwg" onclick="document.getElementById('load-dwg').click()"
-            title="Import an AutoCAD .dwg — requires the LibreDWG WASM module (kad-dwg.js / kad-dwg.wasm)">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-      Import .dwg
-    </button>
-    <input type="file" id="load-dwg" accept=".dwg,.DWG" onchange="importDWG(event)">
   </div>
 
   <!-- Coordinate Input Help -->
@@ -3750,7 +3731,7 @@ body.kanvas-mode #app {
 <div id="dxf-import-overlay">
   <div id="dxf-import-dialog">
     <div class="dlg-head">
-      <span class="dlg-title" id="dlg-title">Import DXF</span>
+      <span class="dlg-title">Import DXF</span>
       <button class="dlg-close" onclick="closeDxfDialog()">✕</button>
     </div>
     <div class="dlg-body">
@@ -3761,12 +3742,6 @@ body.kanvas-mode #app {
         <div class="fi-row">Lines<span id="dlg-line-count">—</span></div>
         <div class="fi-row">Circles<span id="dlg-circle-count">—</span></div>
         <div class="fi-row">Arcs<span id="dlg-arc-count">—</span></div>
-        <!-- Only the DWG path can populate this: parseDXF() silently steps
-             over what it does not handle and keeps no count, whereas the
-             LibreDWG bridge walks a typed object table and knows exactly
-             what it declined. Hidden whenever the count is unavailable or
-             zero, so the DXF dialog is unchanged. -->
-        <div class="fi-row" id="dlg-skipped-row" style="display:none;">Unsupported entities<span id="dlg-skipped-count" class="warn">—</span></div>
         <div class="fi-row" style="margin-top:4px;">$INSUNITS in file<span id="dlg-insunits">—</span></div>
       </div>
 
@@ -10113,12 +10088,7 @@ function parseDXF(text) {
       for (let vi = 0; vi < verts.length - 1; vi++) {
         lines.push({ type:'LINE', layer, x1:verts[vi].x, y1:verts[vi].y, x2:verts[vi+1].x, y2:verts[vi+1].y });
       }
-      // >2, not >1: a two-vertex closed polyline's "closing" segment is the
-      // same segment run backwards, which lands in GeoMemory as a second,
-      // coincident LINE — a phantom entity that trim/offset/OSNAP then have
-      // to arbitrate between. Three vertices is the minimum that can enclose
-      // anything, so it is the minimum that gets a closing run.
-      if (closed && verts.length > 2) {
+      if (closed && verts.length > 1) {
         const last = verts[verts.length-1], first = verts[0];
         lines.push({ type:'LINE', layer, x1:last.x, y1:last.y, x2:first.x, y2:first.y });
       }
@@ -10156,12 +10126,7 @@ function parseDXF(text) {
       for (let vi = 0; vi < verts.length - 1; vi++) {
         lines.push({ type:'LINE', layer, x1:verts[vi].x, y1:verts[vi].y, x2:verts[vi+1].x, y2:verts[vi+1].y });
       }
-      // >2, not >1: a two-vertex closed polyline's "closing" segment is the
-      // same segment run backwards, which lands in GeoMemory as a second,
-      // coincident LINE — a phantom entity that trim/offset/OSNAP then have
-      // to arbitrate between. Three vertices is the minimum that can enclose
-      // anything, so it is the minimum that gets a closing run.
-      if (closed && verts.length > 2) {
+      if (closed && verts.length > 1) {
         const last = verts[verts.length-1], first = verts[0];
         lines.push({ type:'LINE', layer, x1:last.x, y1:last.y, x2:first.x, y2:first.y });
       }
@@ -10177,9 +10142,8 @@ function parseDXF(text) {
 
 // ── DXF IMPORT DIALOG STATE ─────────────────────────────
 const dxfDialog = {
-  parsed:    null,   // parseDXF()-shaped result — from DXF text or the DWG bridge
+  parsed:    null,   // result of parseDXF()
   filename:  '',
-  source:    'dxf',  // 'dxf' | 'dwg' — which input opened this, so close() clears it
   unitSel:   'mm',   // 'mm' | 'in' | 'auto'
   mergeSel:  'merge',// 'merge' | 'replace'
 };
@@ -10199,78 +10163,7 @@ function selectDlgMerge(m) {
 function closeDxfDialog() {
   document.getElementById('dxf-import-overlay').classList.remove('open');
   document.getElementById('load-dxf').value = '';
-  // The DWG input is click-proxied through the same dialog, so it has to be
-  // cleared here too — otherwise re-picking the same .dwg fires no change
-  // event and the second import silently does nothing.
-  const dwgIn = document.getElementById('load-dwg');
-  if (dwgIn) dwgIn.value = '';
   dxfDialog.parsed = null;
-  dxfDialog.source = 'dxf';
-}
-
-// Populates and opens the shared import dialog. Both the DXF text parser and
-// the DWG WASM bridge land here with the SAME object shape, which is the
-// whole point: unit selection, layer creation, merge/replace and the commit
-// path stay written once. commitDxfImport() needs no knowledge of which
-// format produced `parsed`.
-//
-// `parsed` contract (also what kadDwgNormalize() must emit):
-//   lines[]   { type:'LINE',   layer, x1, y1, x2, y2 }
-//   circles[] { type:'CIRCLE', layer, cx, cy, r }
-//   arcs[]    { type:'ARC',    layer, cx, cy, r, startA, endA }  DEGREES, CCW
-//   rawInsUnits  int, DXF $INSUNITS enumeration (DWG uses the same table)
-//   skipped      optional int, entities the reader declined
-// Coordinates are RAW file units — scaling is the commit step's job.
-//
-// Returns true if the dialog opened, false if the caller should reset its input.
-function openImportDialog(parsed, filename, kind) {
-  const { lines, circles, arcs } = parsed;
-  const totalSegs = lines.length + circles.length * 72 +
-    arcs.reduce((n,a)=>{ let s=a.endA-a.startA; if(s<=0)s+=360; return n+Math.max(1,Math.round(72*s/360)); }, 0);
-
-  if (totalSegs === 0) { showToast('No supported geometry in file'); return false; }
-
-  // Stash parsed result and populate dialog
-  dxfDialog.parsed   = parsed;
-  dxfDialog.filename = filename;
-  dxfDialog.source   = (kind === 'dwg') ? 'dwg' : 'dxf';
-
-  document.getElementById('dlg-title').textContent        = (kind === 'dwg') ? 'Import DWG' : 'Import DXF';
-  document.getElementById('dlg-filename').textContent     = filename;
-  document.getElementById('dlg-entity-count').textContent = totalSegs + ' segments';
-  document.getElementById('dlg-line-count').textContent   = lines.length;
-  document.getElementById('dlg-circle-count').textContent = circles.length + (circles.length ? ' (→'+circles.length*72+' segs)' : '');
-  document.getElementById('dlg-arc-count').textContent    = arcs.length;
-
-  // Only shown when the reader actually counted what it declined.
-  const skipRow = document.getElementById('dlg-skipped-row');
-  const skipN   = (typeof parsed.skipped === 'number' && parsed.skipped > 0) ? parsed.skipped : 0;
-  if (skipRow) {
-    skipRow.style.display = skipN ? 'flex' : 'none';
-    if (skipN) document.getElementById('dlg-skipped-count').textContent = skipN;
-  }
-
-  // Report what $INSUNITS said
-  const insunitsLabel = {
-    0:'0 — Unitless', 1:'1 — Inches', 4:'4 — Millimeters', 2:'2 — Feet',
-    5:'5 — Centimeters', 6:'6 — Meters',
-  };
-  const rawUnits = (parsed.rawInsUnits != null ? parsed.rawInsUnits : 0);
-  const insEl = document.getElementById('dlg-insunits');
-  insEl.textContent = (insunitsLabel[rawUnits] != null ? insunitsLabel[rawUnits] : `${rawUnits} — see DXF spec`);
-  // Colour-code: 0 = ambiguous, 1 = inches (common gotcha), 4 = mm fine
-  insEl.className = rawUnits===0 ? 'warn' : rawUnits===4 ? 'ok' : '';
-
-  // Auto-suggest unit based on $INSUNITS: if inches or unitless, highlight that
-  if (rawUnits === 1) selectDlgUnit('auto');     // file says inches — auto will use 25.4
-  else if (rawUnits === 0) selectDlgUnit('in');  // unitless — default to inches as common case for US fab files
-  else selectDlgUnit('auto');                    // file has explicit metric or other — trust it
-
-  // Default merge mode based on whether canvas is empty
-  selectDlgMerge(GeoMemory.objects.length === 0 ? 'replace' : 'merge');
-
-  document.getElementById('dxf-import-overlay').classList.add('open');
-  return true;
 }
 
 function importDXF(event) {
@@ -10285,7 +10178,42 @@ function importDXF(event) {
 
     if (parsed.error) { showToast('DXF error: ' + parsed.error); event.target.value=''; return; }
 
-    if (!openImportDialog(parsed, file.name, 'dxf')) event.target.value = '';
+    const { lines, circles, arcs } = parsed;
+    const totalSegs = lines.length + circles.length * 72 +
+      arcs.reduce((n,a)=>{ let s=a.endA-a.startA; if(s<=0)s+=360; return n+Math.max(1,Math.round(72*s/360)); }, 0);
+
+    if (totalSegs === 0) { showToast('No supported geometry in file'); event.target.value=''; return; }
+
+    // Stash parsed result and populate dialog
+    dxfDialog.parsed   = parsed;
+    dxfDialog.filename = file.name;
+
+    document.getElementById('dlg-filename').textContent     = file.name;
+    document.getElementById('dlg-entity-count').textContent = totalSegs + ' segments';
+    document.getElementById('dlg-line-count').textContent   = lines.length;
+    document.getElementById('dlg-circle-count').textContent = circles.length + (circles.length ? ' (→'+circles.length*72+' segs)' : '');
+    document.getElementById('dlg-arc-count').textContent    = arcs.length;
+
+    // Report what $INSUNITS said
+    const insunitsLabel = {
+      0:'0 — Unitless', 1:'1 — Inches', 4:'4 — Millimeters', 2:'2 — Feet',
+      5:'5 — Centimeters', 6:'6 — Meters',
+    };
+    const rawUnits = (parsed.rawInsUnits != null ? parsed.rawInsUnits : 0);
+    const insEl = document.getElementById('dlg-insunits');
+    insEl.textContent = (insunitsLabel[rawUnits] != null ? insunitsLabel[rawUnits] : `${rawUnits} — see DXF spec`);
+    // Colour-code: 0 = ambiguous, 1 = inches (common gotcha), 4 = mm fine
+    insEl.className = rawUnits===0 ? 'warn' : rawUnits===4 ? 'ok' : '';
+
+    // Auto-suggest unit based on $INSUNITS: if inches or unitless, highlight that
+    if (rawUnits === 1) selectDlgUnit('auto');     // file says inches — auto will use 25.4
+    else if (rawUnits === 0) selectDlgUnit('in');  // unitless — default to inches as common case for US fab files
+    else selectDlgUnit('auto');                    // file has explicit metric or other — trust it
+
+    // Default merge mode based on whether canvas is empty
+    selectDlgMerge(GeoMemory.objects.length === 0 ? 'replace' : 'merge');
+
+    document.getElementById('dxf-import-overlay').classList.add('open');
   };
   reader.onerror = () => { showToast('Could not read file'); event.target.value=''; };
   reader.readAsText(file);
@@ -10353,195 +10281,6 @@ function commitDxfImport() {
     ? (S===25.4 ? 'inches (file header)' : S===1 ? 'mm (file header)' : `×${S} (file header)`)
     : unitSel;
   showToast(`Imported ${lines.length+circles.length+arcs.length} entities · ${unitLabel} · ${mergeSel}`);
-}
-
-// ── DWG IMPORT (LibreDWG / WASM side module) ────────────
-// DXF is plain text, so parseDXF() is pure JS and ships inside this file.
-// DWG is a compiled binary format with no practical JS reader, so it is
-// handled by LibreDWG (GPLv3+, compatible with this file's AGPL-3.0+)
-// cross-compiled to WebAssembly and loaded as a SIDE MODULE — two extra
-// files next to this page, not a rewrite of anything here.
-//
-// Deliberately NOT a static script tag for kad-dwg.js in the head. KAD.html is
-// distributed as a single file that must open from a file:// path, a USB
-// stick, or any host that never built the WASM — a static tag 404s on every
-// one of those loads, on every page view, for a feature most sessions never
-// touch. The script is injected on first use instead, which also means the
-// WASM instantiation cost is only paid by someone who actually opened a DWG.
-// (This is the same lazy-inject treatment the PeerJS script-tag note further
-// down asks for and has not received yet.)
-//
-// Build instructions and the C bridge live in DWG-SUPPORT.md.
-const KAD_DWG = {
-  loaderSrc: 'kad-dwg.js',    // Emscripten glue, MODULARIZE=1
-  wasmSrc:   'kad-dwg.wasm',  // compiled LibreDWG + bridge
-  factory:   'KadDwgModule',  // -s EXPORT_NAME
-  scriptP:   null,            // in-flight glue-script load
-  moduleP:   null,            // in-flight/settled module instantiation
-};
-
-// Injects the glue script once. Rejects with a message worth showing a user.
-function kadDwgLoadScript() {
-  if (typeof window[KAD_DWG.factory] === 'function') return Promise.resolve();
-  if (KAD_DWG.scriptP) return KAD_DWG.scriptP;
-
-  KAD_DWG.scriptP = new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src   = KAD_DWG.loaderSrc;
-    s.async = true;
-    s.onload = () => {
-      if (typeof window[KAD_DWG.factory] === 'function') resolve();
-      else reject(new Error(KAD_DWG.loaderSrc + ' loaded but defined no ' + KAD_DWG.factory + '()'));
-    };
-    s.onerror = () => reject(new Error(KAD_DWG.loaderSrc + ' not found beside this page'));
-    document.head.appendChild(s);
-  });
-  // Clear the cached promise on failure so a later attempt (after the files
-  // are actually deployed) can retry instead of replaying the old rejection
-  // forever. The .catch() here only marks the rejection handled; the promise
-  // returned to the caller still rejects.
-  KAD_DWG.scriptP.catch(() => { KAD_DWG.scriptP = null; });
-  return KAD_DWG.scriptP;
-}
-
-// Instantiates the module once. Returns the Emscripten Module object.
-function kadDwgModule() {
-  if (KAD_DWG.moduleP) return KAD_DWG.moduleP;
-  KAD_DWG.moduleP = kadDwgLoadScript().then(() => window[KAD_DWG.factory]({
-    // Without this the glue resolves the .wasm relative to the document,
-    // which breaks the moment KAD is served from a nested path.
-    locateFile: (path) => /\.wasm$/.test(path) ? KAD_DWG.wasmSrc : path,
-  }));
-  KAD_DWG.moduleP.catch(() => { KAD_DWG.moduleP = null; });
-  return KAD_DWG.moduleP;
-}
-
-// True once a DWG has been successfully opened this session — used to decide
-// whether it is worth routing an OS file-launch through the DWG path.
-function kadDwgAvailable() { return typeof window[KAD_DWG.factory] === 'function'; }
-
-// Coerces whatever the C bridge emitted into exactly the shape
-// openImportDialog()/commitDxfImport() already consume.
-//
-// The strictness lives HERE rather than in C on purpose: the bridge's job is
-// to walk LibreDWG's object table and dump what it finds, and every rule that
-// tightens up afterwards is one that can be changed and tested without an
-// Emscripten toolchain in the loop. It also means a bridge that emits
-// LibreDWG's own field names (radians, `radius`, `points`) works unmodified.
-function kadDwgNormalize(raw) {
-  const out = { lines: [], circles: [], arcs: [], scaleMM: 1, rawInsUnits: 0, skipped: 0 };
-  if (!raw || typeof raw !== 'object') { out.error = 'reader returned no data'; return out; }
-  if (raw.error) { out.error = String(raw.error); return out; }
-
-  const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
-  const lay = (e) => (e && typeof e.layer === 'string' && e.layer.trim()) ? e.layer.trim() : 'Layer_0';
-
-  // DWG stores the same INSUNITS enumeration DXF does, so the existing
-  // DXF_INSUNITS_TO_MM table is correct here and the dialog's unit logic,
-  // including the "auto" branch in commitDxfImport(), needs no special case.
-  const ins = Number.isFinite(raw.insunits) ? raw.insunits
-            : Number.isFinite(raw.rawInsUnits) ? raw.rawInsUnits : 0;
-  out.rawInsUnits = ins;
-  out.scaleMM     = (DXF_INSUNITS_TO_MM[ins] != null ? DXF_INSUNITS_TO_MM[ins] : 1);
-  out.skipped     = Number.isFinite(raw.skipped) ? raw.skipped : 0;
-
-  for (const l of (raw.lines || [])) {
-    out.lines.push({ type:'LINE', layer:lay(l),
-      x1:num(l.x1), y1:num(l.y1), x2:num(l.x2), y2:num(l.y2) });
-  }
-
-  for (const c of (raw.circles || [])) {
-    const r = num(c.r != null ? c.r : c.radius);
-    if (!(r > 0)) continue;   // a zero/negative radius is not a circle KAD can draw
-    out.circles.push({ type:'CIRCLE', layer:lay(c), cx:num(c.cx), cy:num(c.cy), r });
-  }
-
-  for (const a of (raw.arcs || [])) {
-    const r = num(a.r != null ? a.r : a.radius);
-    if (!(r > 0)) continue;
-    // Angle units are settled by FIELD NAME, never by magnitude. DWG stores
-    // arc angles in radians; DXF groups 50/51 are degrees. A 3° arc and a
-    // 3 rad arc are both entirely plausible numbers, so sniffing the value
-    // would be a coin flip on real drawings. `startA`/`endA` therefore mean
-    // degrees (KAD/DXF convention) and `start_angle`/`end_angle` mean radians
-    // (LibreDWG's own field names) — the bridge picks one and says so.
-    let sA, eA;
-    if (a.startA != null || a.endA != null) { sA = num(a.startA); eA = num(a.endA); }
-    else { sA = num(a.start_angle) * 180/Math.PI; eA = num(a.end_angle) * 180/Math.PI; }
-    out.arcs.push({ type:'ARC', layer:lay(a), cx:num(a.cx), cy:num(a.cy), r, startA:sA, endA:eA });
-  }
-
-  // Polylines arrive as vertex lists and are flattened to segments using the
-  // same rule parseDXF() applies to LWPOLYLINE, so a closed rectangle behaves
-  // identically whether it arrived as DXF or DWG. Bulges are not represented
-  // yet — an arc-bulge segment flattens to its chord, which is a real fidelity
-  // loss worth revisiting once import is in the field.
-  for (const p of (raw.polylines || [])) {
-    const src = p.verts || p.points || [];
-    const verts = src.map(v => Array.isArray(v)
-      ? { x:num(v[0]), y:num(v[1]) }
-      : { x:num(v.x),  y:num(v.y)  });
-    const L = lay(p);
-    for (let i = 0; i < verts.length - 1; i++) {
-      out.lines.push({ type:'LINE', layer:L,
-        x1:verts[i].x, y1:verts[i].y, x2:verts[i+1].x, y2:verts[i+1].y });
-    }
-    if (p.closed && verts.length > 2) {
-      const last = verts[verts.length-1], first = verts[0];
-      out.lines.push({ type:'LINE', layer:L, x1:last.x, y1:last.y, x2:first.x, y2:first.y });
-    }
-  }
-
-  return out;
-}
-
-async function importDWG(event) {
-  const input = event.target;
-  const file  = input.files && input.files[0];
-  if (!file) return;
-  const reset = () => { input.value = ''; };
-
-  let Module;
-  try {
-    showToast('Loading DWG reader…');
-    Module = await kadDwgModule();
-  } catch (err) {
-    // The common case by far: this deployment never shipped the WASM build.
-    // Say that, rather than surfacing an Emscripten stack trace.
-    showToast('DWG support not installed — ' + err.message);
-    reset(); return;
-  }
-
-  let raw = null, ptr = 0, jsonPtr = 0;
-  try {
-    const buf = new Uint8Array(await file.arrayBuffer());
-    ptr = Module._malloc(buf.length);
-    if (!ptr) throw new Error('could not allocate ' + buf.length + ' bytes');
-    // HEAPU8 is read AFTER _malloc on purpose: with ALLOW_MEMORY_GROWTH the
-    // allocation can reallocate the WASM memory and detach every previously
-    // captured typed-array view. Hoisting this into a variable above the
-    // malloc is the classic way to corrupt the copy.
-    Module.HEAPU8.set(buf, ptr);
-
-    jsonPtr = Module.ccall('kad_dwg_to_json', 'number', ['number','number'], [ptr, buf.length]);
-    if (!jsonPtr) throw new Error('reader returned no result');
-    // ccall with return type 'string' would convert this for us but then drop
-    // the pointer, leaking the bridge's malloc on every import. Convert and
-    // free explicitly instead.
-    raw = JSON.parse(Module.UTF8ToString(jsonPtr));
-  } catch (err) {
-    showToast('DWG read error: ' + err.message);
-    reset(); return;
-  } finally {
-    // Both frees are safe here: UTF8ToString and JSON.parse have already
-    // copied everything into JS-owned memory by this point.
-    if (jsonPtr) { try { Module._kad_free(jsonPtr); } catch (e) {} }
-    if (ptr)     { try { Module._free(ptr);        } catch (e) {} }
-  }
-
-  const parsed = kadDwgNormalize(raw);
-  if (parsed.error) { showToast('DWG error: ' + parsed.error); reset(); return; }
-  if (!openImportDialog(parsed, file.name, 'dwg')) reset();
 }
 
 // ── DXF EXPORT ──────────────────────────────────────────
@@ -18064,23 +17803,11 @@ if ('launchQueue' in window) {
     if (!launchParams.files || !launchParams.files.length) return;
     const fileHandle = launchParams.files[0];
     const file = await fileHandle.getFile();
-    // .dwg is binary; decoding it as UTF-8 produces a large replacement-char
-    // string that nothing downstream reads. Only text formats get read here.
-    const isDwg = /\.dwg$/i.test(file.name);
-    const text = isDwg ? '' : await file.text();
+    const text = await file.text();
 
     requestAnimationFrame(() => requestAnimationFrame(() => {
       openDraftingMode();
-      if (isDwg) {
-        // Same reasoning as the .dxf branch below: hand the launched file to
-        // the real input element so importDWG() runs exactly as it does for a
-        // manual pick, including the module-missing message.
-        const input = document.getElementById('load-dwg');
-        const dt = new DataTransfer();
-        dt.items.add(file);
-        input.files = dt.files;
-        input.dispatchEvent(new Event('change'));
-      } else if (file.name.toLowerCase().endsWith('.dxf')) {
+      if (file.name.toLowerCase().endsWith('.dxf')) {
         // Feed the launched file through the real DXF input element so
         // the existing importDXF() pipeline runs exactly as it does for
         // a manual upload — including its unit-selection dialog. This
