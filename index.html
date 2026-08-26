@@ -30,11 +30,18 @@
 
   KADsuite™ trademarks are not covered by the AGPL-3.0 license.
   Native builds are separate proprietary products.
+
+  Optional DWG import (kad-dwg.js / kad-dwg.wasm — not included in this
+  file, loaded lazily if present; see the DWG IMPORT block below) links
+  LibreDWG, GPL-3.0-or-later. AGPL-3.0 carries every GPL-3.0 obligation
+  plus Section 13's network-copyleft clause, so it is a strict superset;
+  distributing the combined work under this file's AGPL-3.0-or-later
+  license satisfies both licenses at once. See DWG-SUPPORT.md.
 -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="copyright" content="Copyright (C) 2026 KADsuite / withshalom. Licensed under AGPL-3.0-or-later. KADsuite™, KAD™, KAM™, KUBIC™, KARVE™, KONSTRUCT™, KULTIVATE™, KODE™, KANVAS™, KONNECTOR™, KAMPUS™, KLOUD™, KID™, and KODEX™ are trademarks of withshalom / KADsuite. Forks must remain open source under AGPL. Trademarks not licensed by AGPL.">
+<meta name="copyright" content="Copyright (C) 2026 KADsuite / withshalom. Licensed under AGPL-3.0-or-later. Optional DWG import incorporates LibreDWG (GPL-3.0-or-later); combined work is AGPL-3.0-or-later. KADsuite™, KAD™, KAM™, KUBIC™, KARVE™, KONSTRUCT™, KULTIVATE™, KODE™, KANVAS™, KONNECTOR™, KAMPUS™, KLOUD™, KID™, and KODEX™ are trademarks of withshalom / KADsuite. Forks must remain open source under AGPL. Trademarks not licensed by AGPL.">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>KAD — Kernel-Aided Design</title>
 <link rel="manifest" href="/manifest.json">
@@ -585,6 +592,11 @@ button, .tb-menu-item, .tb-dd-item, .layer-row, .tab-item, .sb-item.sb-toggle {
    always-available operation next to the pure-JS DXF pair. */
 .op-btn.dwg { color:var(--amber); border-color:rgba(255,170,0,0.35); }
 .op-btn.dwg:hover { background:rgba(255,170,0,0.06); border-color:var(--amber); }
+/* NC1 (DSTV steel-fabrication export) is pure JS like DXF — no side module,
+   no external dependency — so it gets the accent treatment rather than amber:
+   it is a first-class, always-available operation the moment this file loads. */
+.op-btn.nc1 { color:var(--accent); border-color:var(--accent); }
+.op-btn.nc1:hover { background:rgba(0,212,255,0.08); }
 .op-btn svg { width:12px; height:12px; flex-shrink:0; }
 /* Both file inputs are click-proxied from .op-btn above and must never
    render. #load-dxf was missing from this rule, so a native "Choose File"
@@ -593,9 +605,10 @@ button, .tb-menu-item, .tb-dd-item, .layer-row, .tab-item, .sb-item.sb-toggle {
    whole sidebar column (~266px). That floor is why narrowing --sidebar-w
    for Classic had no visible effect: the grid track shrank, the sidebar
    overflowed it. #vec-file-input is hidden inline at its own markup.
-   #load-dwg is in this list for the same reason — a new unhidden file input
-   in .file-ops would re-create that sidebar-width floor exactly. */
-#load-kad, #load-dxf, #load-dwg { display:none; }
+   #load-dwg and #load-nc1 are in this list for the same reason — a new
+   unhidden file input in .file-ops would re-create that sidebar-width
+   floor exactly. */
+#load-kad, #load-dxf, #load-dwg, #load-nc1 { display:none; }
 
 /* Coord input panel */
 #coord-panel { flex-shrink:0; border-bottom:1px solid var(--border); }
@@ -992,6 +1005,27 @@ button, .tb-menu-item, .tb-dd-item, .layer-row, .tab-item, .sb-item.sb-toggle {
 }
 #dxf-import-dialog .dlg-close:hover { color: var(--t1); }
 #dxf-import-dialog .dlg-body { padding: 16px; }
+/* Height containment. Scoped through #dxf-import-overlay on purpose: the id
+   "dxf-import-dialog" is DUPLICATED — the vector-import overlay reuses it to
+   inherit this styling — so an unscoped rule here would silently reshape that
+   dialog too. Scoping keeps this fix to the DXF/DWG/NC1 dialog alone.
+
+   Without a max-height the dialog grew unbounded: the NC1 part-data section
+   took it to 888px inside an 844px phone viewport, clipping Cancel/Import
+   off-screen where they could not be tapped. Same flex-column + scrolling
+   body + pinned footer arrangement .pd-box already uses. min-height:0 is
+   required or the flex item refuses to shrink below its content and the
+   overflow never engages. */
+#dxf-import-overlay #dxf-import-dialog {
+  display: flex; flex-direction: column;
+  max-height: min(88vh, 760px);
+}
+#dxf-import-overlay #dxf-import-dialog .dlg-head    { flex-shrink: 0; }
+#dxf-import-overlay #dxf-import-dialog .dlg-body    { overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+#dxf-import-overlay #dxf-import-dialog .dlg-actions {
+  flex-shrink: 0; margin: 0; padding: 12px 16px;
+  background: var(--panel); border-top: 1px solid var(--border);
+}
 .dlg-file-info {
   background: var(--panel2); border: 1px solid var(--border);
   border-radius: 4px; padding: 10px 12px; margin-bottom: 14px;
@@ -2382,8 +2416,10 @@ body.kanvas-mode #app {
         <div class="tb-dd-item" onclick="document.getElementById('load-kad').click();closeMenus()">Open .kad<span class="dd-key">Ctrl+O</span></div>
         <div class="tb-dd-sep"></div>
         <div class="tb-dd-item" onclick="exportDXF();closeMenus()">Export .dxf<span class="dd-key">Ctrl+E</span></div>
+        <div class="tb-dd-item" onclick="exportBOM();closeMenus()">Export BOM (.csv)<span class="dd-key"></span></div>
         <div class="tb-dd-item" onclick="document.getElementById('load-dxf').click();closeMenus()">Import .dxf<span class="dd-key"></span></div>
         <div class="tb-dd-item" style="display:none;" onclick="document.getElementById('load-dwg').click();closeMenus()">Import .dwg<span class="dd-key"></span></div>
+        <div class="tb-dd-item" onclick="document.getElementById('load-nc1').click();closeMenus()">Import .nc1<span class="dd-key"></span></div>
         <div class="tb-dd-item" onclick="document.getElementById('vec-file-input').click();closeMenus()">Import .svg / .kvs<span class="dd-key"></span></div>
       </div>
     </div>
@@ -2716,6 +2752,12 @@ body.kanvas-mode #app {
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
       Export .dxf
     </button>
+    <!-- BOM — reads Parts Data only, writes nothing back to it. Same green
+         family as the DXF pair: pure JS, no side module, always available. -->
+    <button class="op-btn dxf" onclick="exportBOM()" title="Export a CSV Bill of Materials from Parts Data">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="9 2 9 9 16 9"/><line x1="7" y1="13" x2="17" y2="13"/><line x1="7" y1="17" x2="13" y2="17"/></svg>
+      Export BOM
+    </button>
     <button class="op-btn dxf" onclick="document.getElementById('vec-file-input').click()"
             title="Import an .svg or .kvs — asks which space and what scale">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3v12"/><path d="M8 11l4 4 4-4"/><path d="M4 19h16"/></svg>
@@ -2736,6 +2778,20 @@ body.kanvas-mode #app {
       Import .dwg
     </button>
     <input type="file" id="load-dwg" accept=".dwg,.DWG" onchange="importDWG(event)">
+    <!-- NC1 (DSTV) — plain text like DXF, no side module, always available.
+         Imports flat: every AK/IK/BO block lands on ONE plane (the first face
+         encountered), matching how most lightweight NC1 tools handle profiles
+         — no attempt to unfold a beam's web/flanges into separate faces.
+         Auto-creates a Part record from the ST header block (piece mark, qty,
+         thickness, and a suggested — never silently applied — material grade),
+         so this is the one import path that populates KAD's parts data, not
+         just geometry. See NC1-SUPPORT.md. -->
+    <button class="op-btn nc1" onclick="document.getElementById('load-nc1').click()"
+            title="Import a DSTV NC1 steel-fabrication file — auto-fills parts data">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      Import NC1
+    </button>
+    <input type="file" id="load-nc1" accept=".nc1,.NC1,.dstv,.DSTV" onchange="importNC1(event)">
   </div>
 
   <!-- Coordinate Input Help -->
@@ -3770,20 +3826,61 @@ body.kanvas-mode #app {
         <div class="fi-row" style="margin-top:4px;">$INSUNITS in file<span id="dlg-insunits">—</span></div>
       </div>
 
-      <div class="dlg-section-label">Interpret file coordinates as —</div>
-      <div class="dlg-unit-grid">
-        <button class="dlg-unit-btn selected" id="dub-mm"   onclick="selectDlgUnit('mm')">
-          <span class="dub-label">mm</span>
-          <span class="dub-sub">millimeters</span>
-        </button>
-        <button class="dlg-unit-btn" id="dub-in" onclick="selectDlgUnit('in')">
-          <span class="dub-label">in</span>
-          <span class="dub-sub">inches</span>
-        </button>
-        <button class="dlg-unit-btn" id="dub-auto" onclick="selectDlgUnit('auto')">
-          <span class="dub-label">auto</span>
-          <span class="dub-sub">from file</span>
-        </button>
+      <!-- Hidden entirely for NC1: DSTV coordinates have no unit header field
+           at all, they are unambiguously always millimetres. Offering an
+           mm/in/auto choice for a format that has no such choice would be
+           actively dangerous — a mis-click scales a structural part by 25.4x
+           into scrap. -->
+      <div id="dlg-unit-section">
+        <div class="dlg-section-label">Interpret file coordinates as —</div>
+        <div class="dlg-unit-grid">
+          <button class="dlg-unit-btn selected" id="dub-mm"   onclick="selectDlgUnit('mm')">
+            <span class="dub-label">mm</span>
+            <span class="dub-sub">millimeters</span>
+          </button>
+          <button class="dlg-unit-btn" id="dub-in" onclick="selectDlgUnit('in')">
+            <span class="dub-label">in</span>
+            <span class="dub-sub">inches</span>
+          </button>
+          <button class="dlg-unit-btn" id="dub-auto" onclick="selectDlgUnit('auto')">
+            <span class="dub-label">auto</span>
+            <span class="dub-sub">from file</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- NC1 only: the ST header block is a Part record, not just a unit
+           hint, so this import path is the one that auto-fills parts data
+           rather than leaving geometry ungrouped. A multi-part NC1 file only
+           gets this section for its first part — the rest land as geometry
+           immediately and can be grouped into their own parts afterward from
+           the Parts panel, same as any other drawing. -->
+      <div id="dlg-nc1-section" style="display:none;">
+        <div class="dlg-section-label">Part data (from NC1 header) —</div>
+        <div id="dlg-nc1-multi" class="fi-row" style="display:none;margin-bottom:8px;">
+          <span style="color:var(--amber);">Multiple parts detected</span><span id="dlg-nc1-multi-count">—</span>
+        </div>
+        <div class="pd-frow">
+          <label for="dlg-nc1-name">Piece mark</label>
+          <input id="dlg-nc1-name" type="text" maxlength="64" autocomplete="off">
+        </div>
+        <div class="pd-frow2">
+          <div class="pd-frow">
+            <label for="dlg-nc1-qty">Qty</label>
+            <input id="dlg-nc1-qty" type="number" min="1" step="1" inputmode="numeric">
+          </div>
+          <div class="pd-frow">
+            <label for="dlg-nc1-thick">Thickness (mm)</label>
+            <input id="dlg-nc1-thick" type="number" min="0.01" step="0.01" inputmode="decimal">
+          </div>
+        </div>
+        <div class="fi-row" style="margin-bottom:6px;">NC1 grade (as written)<span id="dlg-nc1-grade-raw">—</span></div>
+        <!-- Suggested by nearest yield strength, never applied without this
+             confirmation step — same "surfaced loudly, never quietly coerced"
+             rule the rest of the parts-data system already follows. -->
+        <div class="pd-sec-label">Material grade — confirm before import</div>
+        <div id="dlg-nc1-grade-note" class="fi-row" style="margin-bottom:6px;"></div>
+        <div id="nc1-grades" class="pd-grades" style="max-height:220px;overflow-y:auto;margin-bottom:4px;"></div>
       </div>
 
       <div class="dlg-section-label">Canvas —</div>
@@ -3798,10 +3895,16 @@ body.kanvas-mode #app {
         </button>
       </div>
 
-      <div class="dlg-actions">
-        <button class="dlg-btn cancel" onclick="closeDxfDialog()">Cancel</button>
-        <button class="dlg-btn commit" onclick="commitDxfImport()">Import</button>
-      </div>
+    </div>
+    <!-- Actions sit OUTSIDE .dlg-body so they stay pinned while the body
+         scrolls, mirroring how .pd-foot sits outside .pd-body in the Part
+         Data modal. Before this, the dialog had no max-height at all and
+         .dlg-body did not scroll: adding the NC1 part-data section pushed
+         the whole dialog to 888px in an 844px viewport and put Cancel/Import
+         off-screen on a phone, unreachable. -->
+    <div class="dlg-actions">
+      <button class="dlg-btn cancel" onclick="closeDxfDialog()">Cancel</button>
+      <button class="dlg-btn commit" onclick="commitDxfImport()">Import</button>
     </div>
   </div>
 </div>
@@ -8621,6 +8724,7 @@ const CTX_CATALOG = [
   { id:'theme',   label:'Toggle Theme',    key:'',       fn:()=>toggleTheme() },
   { id:'save',    label:'Save .KAD',       key:'Ctrl+S', fn:()=>saveKAD() },
   { id:'dxf',     label:'Export DXF',      key:'',       fn:()=>exportDXF() },
+  { id:'bom',     label:'Export BOM (CSV)', key:'',      fn:()=>exportBOM() },
 ];
 
 function loadCtxCustom() {
@@ -10199,11 +10303,13 @@ function selectDlgMerge(m) {
 function closeDxfDialog() {
   document.getElementById('dxf-import-overlay').classList.remove('open');
   document.getElementById('load-dxf').value = '';
-  // The DWG input is click-proxied through the same dialog, so it has to be
-  // cleared here too — otherwise re-picking the same .dwg fires no change
-  // event and the second import silently does nothing.
+  // The DWG and NC1 inputs are both click-proxied through this same dialog,
+  // so they have to be cleared here too — otherwise re-picking the same
+  // file fires no change event and the second import silently does nothing.
   const dwgIn = document.getElementById('load-dwg');
   if (dwgIn) dwgIn.value = '';
+  const nc1In = document.getElementById('load-nc1');
+  if (nc1In) nc1In.value = '';
   dxfDialog.parsed = null;
   dxfDialog.source = 'dxf';
 }
@@ -10233,16 +10339,19 @@ function openImportDialog(parsed, filename, kind) {
   // Stash parsed result and populate dialog
   dxfDialog.parsed   = parsed;
   dxfDialog.filename = filename;
-  dxfDialog.source   = (kind === 'dwg') ? 'dwg' : 'dxf';
+  dxfDialog.source   = (kind === 'dwg') ? 'dwg' : (kind === 'nc1') ? 'nc1' : 'dxf';
 
-  document.getElementById('dlg-title').textContent        = (kind === 'dwg') ? 'Import DWG' : 'Import DXF';
+  document.getElementById('dlg-title').textContent =
+    kind === 'dwg' ? 'Import DWG' : kind === 'nc1' ? 'Import NC1' : 'Import DXF';
   document.getElementById('dlg-filename').textContent     = filename;
   document.getElementById('dlg-entity-count').textContent = totalSegs + ' segments';
   document.getElementById('dlg-line-count').textContent   = lines.length;
   document.getElementById('dlg-circle-count').textContent = circles.length + (circles.length ? ' (→'+circles.length*72+' segs)' : '');
   document.getElementById('dlg-arc-count').textContent    = arcs.length;
 
-  // Only shown when the reader actually counted what it declined.
+  // Only shown when the reader actually counted what it declined. NC1 uses
+  // this same row for malformed AK/BO lines and non-primary-face blocks —
+  // both are, honestly, "things in the file that did not become geometry".
   const skipRow = document.getElementById('dlg-skipped-row');
   const skipN   = (typeof parsed.skipped === 'number' && parsed.skipped > 0) ? parsed.skipped : 0;
   if (skipRow) {
@@ -10250,21 +10359,63 @@ function openImportDialog(parsed, filename, kind) {
     if (skipN) document.getElementById('dlg-skipped-count').textContent = skipN;
   }
 
-  // Report what $INSUNITS said
-  const insunitsLabel = {
-    0:'0 — Unitless', 1:'1 — Inches', 4:'4 — Millimeters', 2:'2 — Feet',
-    5:'5 — Centimeters', 6:'6 — Meters',
-  };
-  const rawUnits = (parsed.rawInsUnits != null ? parsed.rawInsUnits : 0);
-  const insEl = document.getElementById('dlg-insunits');
-  insEl.textContent = (insunitsLabel[rawUnits] != null ? insunitsLabel[rawUnits] : `${rawUnits} — see DXF spec`);
-  // Colour-code: 0 = ambiguous, 1 = inches (common gotcha), 4 = mm fine
-  insEl.className = rawUnits===0 ? 'warn' : rawUnits===4 ? 'ok' : '';
+  const unitSection = document.getElementById('dlg-unit-section');
+  const nc1Section   = document.getElementById('dlg-nc1-section');
 
-  // Auto-suggest unit based on $INSUNITS: if inches or unitless, highlight that
-  if (rawUnits === 1) selectDlgUnit('auto');     // file says inches — auto will use 25.4
-  else if (rawUnits === 0) selectDlgUnit('in');  // unitless — default to inches as common case for US fab files
-  else selectDlgUnit('auto');                    // file has explicit metric or other — trust it
+  if (kind === 'nc1') {
+    // No unit choice to offer — DSTV coordinates are unambiguously mm.
+    if (unitSection) unitSection.style.display = 'none';
+    if (nc1Section)  nc1Section.style.display  = 'block';
+    const insEl = document.getElementById('dlg-insunits');
+    insEl.textContent = 'Millimeters (DSTV — always mm)';
+    insEl.className = 'ok';
+
+    const p0 = (parsed.ncParts && parsed.ncParts[0]) || null;
+    if (p0) {
+      document.getElementById('dlg-nc1-name').value  = p0.name;
+      document.getElementById('dlg-nc1-qty').value   = p0.qty;
+      document.getElementById('dlg-nc1-thick').value = p0.thicknessMM;
+      document.getElementById('dlg-nc1-grade-raw').textContent = p0.gradeRaw || '(none in file)';
+
+      const suggested = nc1SuggestGrade(p0.gradeRaw);
+      const suggestedId = suggested ? suggested.id : 'a36';
+      const note = document.getElementById('dlg-nc1-grade-note');
+      if (note) {
+        note.textContent = suggested
+          ? `Suggested by nearest yield: ${kadGradeLabel(suggested.id)} (file \u2248${suggested.yieldMPa} MPa / \u2248${suggested.yieldKsi} ksi, catalogue is \u2248${suggested.deltaKsi} ksi off)`
+          : 'No automatic match for this grade string \u2014 defaulted to mild steel, please confirm.';
+        note.className = suggested ? 'ok' : 'warn';
+      }
+      renderGradePicker(suggestedId, 'nc1-grades');
+    }
+
+    const multiRow = document.getElementById('dlg-nc1-multi');
+    if (multiRow) {
+      const n = parsed.ncParts ? parsed.ncParts.length : 1;
+      multiRow.style.display = n > 1 ? 'flex' : 'none';
+      if (n > 1) document.getElementById('dlg-nc1-multi-count').textContent =
+        n + ' \u2014 fields above edit Part 1 only; the rest use their own file data';
+    }
+  } else {
+    if (unitSection) unitSection.style.display = 'block';
+    if (nc1Section)  nc1Section.style.display  = 'none';
+
+    // Report what $INSUNITS said
+    const insunitsLabel = {
+      0:'0 — Unitless', 1:'1 — Inches', 4:'4 — Millimeters', 2:'2 — Feet',
+      5:'5 — Centimeters', 6:'6 — Meters',
+    };
+    const rawUnits = (parsed.rawInsUnits != null ? parsed.rawInsUnits : 0);
+    const insEl = document.getElementById('dlg-insunits');
+    insEl.textContent = (insunitsLabel[rawUnits] != null ? insunitsLabel[rawUnits] : `${rawUnits} — see DXF spec`);
+    // Colour-code: 0 = ambiguous, 1 = inches (common gotcha), 4 = mm fine
+    insEl.className = rawUnits===0 ? 'warn' : rawUnits===4 ? 'ok' : '';
+
+    // Auto-suggest unit based on $INSUNITS: if inches or unitless, highlight that
+    if (rawUnits === 1) selectDlgUnit('auto');     // file says inches — auto will use 25.4
+    else if (rawUnits === 0) selectDlgUnit('in');  // unitless — default to inches as common case for US fab files
+    else selectDlgUnit('auto');                    // file has explicit metric or other — trust it
+  }
 
   // Default merge mode based on whether canvas is empty
   selectDlgMerge(GeoMemory.objects.length === 0 ? 'replace' : 'merge');
@@ -10292,13 +10443,30 @@ function importDXF(event) {
 }
 
 function commitDxfImport() {
-  const { parsed, unitSel, mergeSel } = dxfDialog;
+  const { parsed, unitSel, mergeSel, source } = dxfDialog;
   if (!parsed) return;
+
+  // NC1-specific dialog fields, read before the dialog closes. Only
+  // meaningful when source==='nc1' — parts 2+ in a multi-part file use their
+  // own suggested grade/thickness/qty programmatically instead of this UI,
+  // which only edits Part 1 (see openImportDialog's NC1 branch and the
+  // multi-part note it shows).
+  const nc1FirstName  = document.getElementById('dlg-nc1-name')  ? document.getElementById('dlg-nc1-name').value  : '';
+  const nc1FirstQty   = document.getElementById('dlg-nc1-qty')   ? document.getElementById('dlg-nc1-qty').value   : '';
+  const nc1FirstThick = document.getElementById('dlg-nc1-thick') ? document.getElementById('dlg-nc1-thick').value : '';
+  const nc1GradeTile  = document.querySelector('#nc1-grades .pd-tile.sel');
+  const nc1FirstGrade = nc1GradeTile ? nc1GradeTile.dataset.gid : null;
 
   // Determine final mm-per-file-unit scale from user choice.
   // parseDXF now returns raw coordinates (no pre-scaling applied).
+  // NC1 ignores unitSel entirely: DSTV has no unit header field at all, it
+  // is unambiguously millimetres, and the unit-picker UI is hidden for this
+  // source (see openImportDialog) — trusting a stale unitSel here would be
+  // reading a control the user never had a chance to touch.
   let S;
-  if (unitSel === 'auto') {
+  if (source === 'nc1') {
+    S = 1;
+  } else if (unitSel === 'auto') {
     S = (DXF_INSUNITS_TO_MM[parsed.rawInsUnits] != null ? DXF_INSUNITS_TO_MM[parsed.rawInsUnits] : 1);
   } else if (unitSel === 'in') {
     S = 25.4;
@@ -10328,15 +10496,24 @@ function commitDxfImport() {
 
   const { lines, circles, arcs } = parsed;
 
+  // NC1 groups its created entities by source part (parsed.ncParts), so the
+  // returned ids are tracked per _ncPart index while creating them. DXF/DWG
+  // never set _ncPart on the objects they hand in, so this stays null and
+  // the part-creation block further down is a no-op for those two sources —
+  // one commit path, unchanged for the two that already used it.
+  const partEntityIds = (source === 'nc1' && parsed.ncParts) ? parsed.ncParts.map(() => []) : null;
+
   for (const ln of lines) {
-    GeoMemory.addLine(
+    const o = GeoMemory.addLine(
       parseFloat((ln.x1*S).toFixed(6)), parseFloat((ln.y1*S).toFixed(6)),
       parseFloat((ln.x2*S).toFixed(6)), parseFloat((ln.y2*S).toFixed(6)),
       ln.layer || 'Layer_0'
     );
+    if (partEntityIds && ln._ncPart != null) partEntityIds[ln._ncPart].push(o.id);
   }
   for (const c of circles) {
-    GeoMemory.addCircle(c.cx*S, c.cy*S, c.r*S, c.layer || 'Layer_0');
+    const o = GeoMemory.addCircle(c.cx*S, c.cy*S, c.r*S, c.layer || 'Layer_0');
+    if (partEntityIds && c._ncPart != null) partEntityIds[c._ncPart].push(o.id);
   }
   for (const a of arcs) {
     // DXF group 50/51 are DEGREES and always run counter-clockwise from
@@ -10346,21 +10523,393 @@ function commitDxfImport() {
                      a.layer || 'Layer_0');
   }
 
+  // NC1 → Part records. The ST header block IS a Part, not just a unit hint
+  // (see NC1-SUPPORT.md) — this is the one import path that auto-fills
+  // parts data rather than leaving geometry ungrouped. A part whose AK/BO/IK
+  // blocks were all malformed or on a non-primary face (ids.length === 0) is
+  // skipped rather than handed to PartLibrary.addPart, which would otherwise
+  // create a Part record with nothing to cut.
+  let ncPartsCreated = 0, ncArcsFlattened = 0;
+  if (partEntityIds) {
+    parsed.ncParts.forEach((p, pi) => {
+      const ids = partEntityIds[pi];
+      ncArcsFlattened += p.arcsFlattened || 0;
+      if (!ids.length) return;
+
+      const isFirst = pi === 0;
+      let gradeId;
+      if (isFirst && nc1FirstGrade) {
+        gradeId = nc1FirstGrade;
+      } else {
+        const suggested = nc1SuggestGrade(p.gradeRaw);
+        gradeId = suggested ? suggested.id : 'a36';
+      }
+      const name  = (isFirst && nc1FirstName)  ? nc1FirstName  : p.name;
+      const qty   = (isFirst && nc1FirstQty)   ? (parseInt(nc1FirstQty,10) || p.qty) : p.qty;
+      const thick = (isFirst && nc1FirstThick) ? (parseFloat(nc1FirstThick) || p.thicknessMM) : p.thicknessMM;
+
+      const { part } = PartLibrary.addPart(name, ids, { gradeId, thicknessMM: thick, qty });
+      if (!part) return;
+      ncPartsCreated++;
+      // Passthrough: every ST field this build has no dedicated slot for
+      // rides along on the part object itself, exactly like
+      // PartLibrary.serialize() already preserves unknown keys on round
+      // trip (see PARTS DATA notes above PartLibrary). This is what makes
+      // the KAD → KAM handoff lossless for NC1-sourced parts, not just the
+      // geometry.
+      Object.assign(part, {
+        nc1GradeRaw:        p.gradeRaw,
+        nc1Profile:         p.profile,
+        nc1ProfileType:     p.profileType,
+        nc1Length:          p.length,
+        nc1Height:          p.height,
+        nc1Width:           p.width,
+        nc1FlangeThickness: p.flangeThickness,
+        nc1Radius:          p.radius,
+        nc1WeightPerM:      p.weightPerM,
+        nc1SurfacePerM:     p.surfacePerM,
+        nc1OrderNumber:     p.orderNumber,
+        nc1DrawingNumber:   p.drawingNumber,
+        nc1Phase:           p.phase,
+        nc1ExtraFields:     p.extraFields,
+        nc1StRaw:           p.stRaw,
+        nc1PrimaryFace:     p.primaryFace,
+        nc1OtherFaceRaw:    p.otherFaceRaw,
+      });
+    });
+    updatePartsPanel();
+  }
+
   zoomExtents();
   render();
 
-  const unitLabel = unitSel==='auto'
-    ? (S===25.4 ? 'inches (file header)' : S===1 ? 'mm (file header)' : `×${S} (file header)`)
-    : unitSel;
-  showToast(`Imported ${lines.length+circles.length+arcs.length} entities · ${unitLabel} · ${mergeSel}`);
+  let msg;
+  if (source === 'nc1') {
+    msg = `Imported ${lines.length+circles.length} entities \u00b7 ${ncPartsCreated} part${ncPartsCreated===1?'':'s'}`
+        + (ncArcsFlattened ? ` \u00b7 ${ncArcsFlattened} arc${ncArcsFlattened===1?'':'s'} flattened` : '')
+        + ` \u00b7 ${mergeSel}`;
+  } else {
+    const unitLabel = unitSel==='auto'
+      ? (S===25.4 ? 'inches (file header)' : S===1 ? 'mm (file header)' : `\u00d7${S} (file header)`)
+      : unitSel;
+    msg = `Imported ${lines.length+circles.length+arcs.length} entities \u00b7 ${unitLabel} \u00b7 ${mergeSel}`;
+  }
+  showToast(msg);
+}
+
+// ── NC1 IMPORT (DSTV steel-fabrication format) ───────────
+// NC1 is plain text, like DXF — no side module, always available the moment
+// this file loads. It is NOT the same format as the .nc files KAM's own
+// postNC() writes: those are G-code (torch/plasma toolpaths), this is DSTV's
+// geometry + part-header exchange format used to hand a piece from a
+// detailing package to a beamline or plate table. Different producers,
+// different consumers, different content — the only thing they share is
+// that both are plain text, which is why parseNC1() sniffs actual content
+// (first non-blank line must be "ST") rather than trusting the extension.
+//
+// One plane, on purpose: AK/IK/BO blocks can appear on multiple faces for a
+// rolled profile (v=web, o=top flange, u=bottom flange, h=back), and unfolding
+// those into a true 3-D layout is a KRAFT-scale problem, not a KAD one. This
+// importer takes the FIRST face it sees per part as that part's plane and
+// draws only that — the same simplification most lightweight NC1 viewers
+// make, and exactly right for the plate case, which has only one face to
+// begin with.
+//
+// The ST header block IS a Part record. Piece mark → name, quantity → qty,
+// the web-thickness field → thicknessMM, and the steel grade string is
+// matched to KAD_MATERIALS by nearest yield strength — suggested, never
+// silently applied, per the same "surfaced loudly" rule the rest of the
+// parts-data system already follows for an id this build doesn't recognise.
+//
+// Known limitation, same one already documented for DWG's polyline bulges:
+// AK/IK corner radii flatten to straight chords rather than true arcs. The
+// radius value would need a reliable sign/side convention to reconstruct
+// correctly and that isn't something to guess at without a reference file to
+// verify against — see NC1-SUPPORT.md.
+
+// Parses the ST header block's fields positionally into names per the
+// commonly documented DSTV field order. Vendor field order for ST is not
+// strictly standardised, which is exactly why every raw line is ALSO kept
+// verbatim in `raw` — nothing here is the only copy of the data.
+function nc1ParseST(stLines) {
+  const f = (i) => (stLines[i] !== undefined ? stLines[i] : '');
+  const num = (i) => { const n = parseFloat(f(i)); return Number.isFinite(n) ? n : null; };
+  return {
+    orderNumber:     f(0),
+    drawingNumber:   f(1),
+    phase:           f(2),
+    piece:           f(3),
+    gradeRaw:        f(4),
+    qty:             Math.max(1, parseInt(f(5), 10) || 1),
+    profile:         f(6),
+    profileType:     f(7),
+    length:          num(8),
+    height:          num(9),
+    width:           num(10),
+    webThickness:    num(11),
+    flangeThickness: num(12),
+    radius:          num(13),
+    weightPerM:      num(14),
+    surfacePerM:     num(15),
+    extraFields:     stLines.slice(16),
+    raw:             stLines.slice(),
+  };
+}
+
+// Suggests a KAD_MATERIALS id for an EN 10025 structural grade string
+// (S235JR, S355J2, S460ML, ...) by nearest yield strength — the number
+// straight after "S" IS the nominal yield in MPa, that's how the naming
+// scheme works, so this needs no hardcoded EN→ASTM cross-reference table
+// that could silently go stale. Returns null (no suggestion, not a guess)
+// for anything that doesn't parse as an EN structural grade — stainless,
+// aluminium, or a grade string this pattern doesn't recognise.
+//
+// CANDIDATES ARE RESTRICTED TO STRUCTURAL CARBON PLATE, and that restriction
+// is load-bearing rather than tidying. Ranking the whole catalogue purely by
+// |yield difference| picks a material from the wrong FAMILY whenever two
+// entries sit a fraction of a ksi apart: S235JR (34.1 ksi) resolved to ss430
+// (35 ksi decorative stainless) ahead of a36 (36 ksi mild structural), and
+// S355J2 resolved to a1011-ss50 (sheet) ahead of a572-50 (plate). Both are
+// "nearest" and both are wrong — an NC1 file is structural steel fabrication
+// by definition, so a stainless or sheet-stock suggestion is never the right
+// answer no matter how close the number lands. Yield proximity only
+// disambiguates WITHIN the right family; it cannot choose the family.
+//
+// The a572-50 / a588 tie at 50 ksi is resolved by strict `<`, keeping the
+// first-listed: a588 weathering steel has very different corrosion behaviour
+// and is a deliberate specification, never a silent default. This mirrors
+// the reasoning already written above the PART DATA MODAL markup.
+const NC1_GRADE_CANDIDATE_GROUP = 'Carbon Steel - Plate';
+
+function nc1SuggestGrade(gradeRaw) {
+  if (!gradeRaw) return null;
+  const m = /^S\s*(\d{2,3})/i.exec(String(gradeRaw).trim());
+  if (!m) return null;
+  const yieldMPa = parseFloat(m[1]);
+  if (!Number.isFinite(yieldMPa) || yieldMPa <= 0) return null;
+  const yieldKsi = yieldMPa * 0.145038;
+  let best = null, bestDelta = Infinity;
+  for (const mat of KAD_MATERIALS) {
+    if (mat.group !== NC1_GRADE_CANDIDATE_GROUP) continue;
+    const d = Math.abs(mat.yield - yieldKsi);
+    if (d < bestDelta) { bestDelta = d; best = mat; }
+  }
+  if (!best) return null;
+  return {
+    id:       best.id,
+    yieldMPa,
+    yieldKsi:  parseFloat(yieldKsi.toFixed(1)),
+    deltaKsi:  parseFloat(bestDelta.toFixed(1)),
+  };
+}
+
+function parseNC1(text) {
+  const rawLines = text.split(/\r?\n/);
+
+  let firstIdx = 0;
+  while (firstIdx < rawLines.length && rawLines[firstIdx].trim() === '') firstIdx++;
+  const firstLine = (rawLines[firstIdx] || '').trim();
+  if (firstLine !== 'ST') {
+    const looksLikeGcode = rawLines.slice(firstIdx, firstIdx + 10)
+      .some(l => /^\s*%|^\s*[GM]\d/.test(l));
+    return { error: looksLikeGcode
+      ? 'This looks like G-code (e.g. a KAM .nc post), not a DSTV NC1 file.'
+      : 'Not a recognised NC1 file — expected an "ST" header block.' };
+  }
+
+  const BLOCK_KEYWORDS = new Set(['ST','AK','IK','BO','SI','KO','IN','PU','KA','AU','EN']);
+  const isKeywordLine  = (l) => BLOCK_KEYWORDS.has(l.trim());
+
+  const parts = [];
+  let i = firstIdx;
+  while (i < rawLines.length) {
+    if (rawLines[i].trim() !== 'ST') { i++; continue; }
+    i++; // past ST
+
+    const stLines = [];
+    while (i < rawLines.length && !isKeywordLine(rawLines[i])) {
+      // Every line counts, including blank ones: ST fields are positional,
+      // and a real file leaves unused fields (e.g. width, on many plates) as
+      // an empty line rather than omitting them. Skipping blanks here would
+      // shift every field after the first one left by one position and
+      // silently misread grade as quantity, or thickness as flange
+      // thickness, on any file that has one.
+      stLines.push(rawLines[i].trim());
+      i++;
+    }
+    const st = nc1ParseST(stLines);
+
+    const part = {
+      name:            st.piece || ('Part ' + (parts.length + 1)),
+      qty:             st.qty,
+      gradeRaw:        st.gradeRaw,
+      // Field 12 (web-thickness position) doubles as plate thickness for
+      // flat stock by DSTV convention — the single most useful number for a
+      // Part record either way. Falls back to KAD's own PartLibrary default.
+      thicknessMM:     st.webThickness != null ? st.webThickness : 6.35,
+      profile:         st.profile,
+      profileType:     st.profileType,
+      length:          st.length,
+      height:          st.height,
+      width:           st.width,
+      flangeThickness: st.flangeThickness,
+      radius:          st.radius,
+      weightPerM:      st.weightPerM,
+      surfacePerM:     st.surfacePerM,
+      orderNumber:     st.orderNumber,
+      drawingNumber:   st.drawingNumber,
+      phase:           st.phase,
+      extraFields:     st.extraFields,
+      stRaw:           st.raw,
+      primaryFace:     null,
+      otherFaceRaw:    [],
+      arcsFlattened:   0,
+      malformedLines:  0,
+      lines:           [],
+      circles:         [],
+    };
+
+    while (i < rawLines.length) {
+      const kw = rawLines[i].trim();
+      if (kw === 'EN') { i++; break; }
+      if (kw === 'ST') break; // next part — leave i pointing at it
+
+      if (kw === 'AK' || kw === 'IK') {
+        i++;
+        const pts = [];
+        while (i < rawLines.length && !isKeywordLine(rawLines[i])) {
+          const toks = rawLines[i].trim().split(/\s+/).filter(Boolean);
+          if (toks.length >= 3) {
+            const face = toks[0], x = parseFloat(toks[1]), y = parseFloat(toks[2]);
+            const r = toks.length >= 4 ? parseFloat(toks[3]) : null;
+            if (Number.isFinite(x) && Number.isFinite(y)) pts.push({ face, x, y, r: Number.isFinite(r) ? r : null });
+            else part.malformedLines++;
+          } else if (toks.length > 0) {
+            part.malformedLines++;
+          }
+          i++;
+        }
+        if (pts.length >= 2) {
+          if (part.primaryFace == null) part.primaryFace = pts[0].face;
+          if (pts[0].face !== part.primaryFace) {
+            part.otherFaceRaw.push({ block: kw, face: pts[0].face, points: pts.length });
+          } else {
+            for (let k = 0; k < pts.length - 1; k++) {
+              if (pts[k].r) part.arcsFlattened++;
+              part.lines.push({ type:'LINE', layer:'Layer_0', x1:pts[k].x, y1:pts[k].y, x2:pts[k+1].x, y2:pts[k+1].y });
+            }
+            // AK/IK contours are implicitly closed — DSTV does not repeat
+            // the first point to close the loop, matching how KAD's own
+            // POLYLINE closed:true already works (see PARTS DATA notes).
+            const p0 = pts[0], pN = pts[pts.length - 1];
+            if (p0.x !== pN.x || p0.y !== pN.y) {
+              if (pN.r) part.arcsFlattened++;
+              part.lines.push({ type:'LINE', layer:'Layer_0', x1:pN.x, y1:pN.y, x2:p0.x, y2:p0.y });
+            }
+          }
+        }
+        continue;
+      }
+
+      if (kw === 'BO') {
+        i++;
+        while (i < rawLines.length && !isKeywordLine(rawLines[i])) {
+          const toks = rawLines[i].trim().split(/\s+/).filter(Boolean);
+          if (toks.length >= 4) {
+            const face = toks[0];
+            const x = parseFloat(toks[1]), y = parseFloat(toks[2]), d = parseFloat(toks[3]);
+            if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(d) && d > 0) {
+              if (part.primaryFace == null) part.primaryFace = face;
+              if (face === part.primaryFace) {
+                part.circles.push({ type:'CIRCLE', layer:'Layer_0', cx:x, cy:y, r:d/2 });
+              } else {
+                part.otherFaceRaw.push({ block:'BO', face, x, y, d });
+              }
+            } else {
+              part.malformedLines++;
+            }
+          } else if (toks.length > 0) {
+            part.malformedLines++;
+          }
+          i++;
+        }
+        continue;
+      }
+
+      // SI (markings), KO (contours already covered by AK for most files),
+      // IN, PU, KA, AU or anything unrecognised: skip the block body without
+      // drawing it or erroring — these carry punch/marking/plant-specific
+      // data KAD has no representation for.
+      i++;
+      while (i < rawLines.length && !isKeywordLine(rawLines[i])) i++;
+    }
+
+    parts.push(part);
+  }
+
+  if (parts.length === 0) return { error: 'No parts found — no ST/EN block pairs parsed' };
+
+  // Multi-part files: DSTV coordinates are part-local, so most start every
+  // part near its own origin. Drawing them as-is stacks every part on top of
+  // the last. Lay subsequent parts out left-to-right instead, offset by the
+  // previous part's own bounding box plus a margin — the first part is never
+  // shifted, so the overwhelmingly common single-part file is untouched.
+  const GAP = 50;
+  let xOffset = 0;
+  for (const p of parts) {
+    if (xOffset > 0) {
+      for (const ln of p.lines)   { ln.x1 += xOffset; ln.x2 += xOffset; }
+      for (const c  of p.circles) { c.cx  += xOffset; }
+    }
+    let maxX = -Infinity;
+    for (const ln of p.lines)   maxX = Math.max(maxX, ln.x1, ln.x2);
+    for (const c  of p.circles) maxX = Math.max(maxX, c.cx + c.r);
+    if (Number.isFinite(maxX)) xOffset = maxX + GAP;
+  }
+
+  const lines = [], circles = [];
+  let totalMalformed = 0;
+  parts.forEach((p, pi) => {
+    for (const ln of p.lines)   lines.push(Object.assign({}, ln, { _ncPart: pi }));
+    for (const c  of p.circles) circles.push(Object.assign({}, c,  { _ncPart: pi }));
+    totalMalformed += p.malformedLines + p.otherFaceRaw.length;
+  });
+
+  return {
+    lines, circles, arcs: [],
+    rawInsUnits: 4,      // DSTV is unambiguously millimetres — reuses the DXF label path
+    skipped:     totalMalformed,
+    ncParts:     parts,
+  };
+}
+
+function importNC1(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = e.target.result;
+    let parsed;
+    try { parsed = parseNC1(text); }
+    catch (err) { showToast('NC1 parse error: ' + err.message); event.target.value=''; return; }
+
+    if (parsed.error) { showToast('NC1 error: ' + parsed.error); event.target.value=''; return; }
+
+    if (!openImportDialog(parsed, file.name, 'nc1')) event.target.value = '';
+  };
+  reader.onerror = () => { showToast('Could not read file'); event.target.value=''; };
+  reader.readAsText(file);
 }
 
 // ── DWG IMPORT (LibreDWG / WASM side module) ────────────
 // DXF is plain text, so parseDXF() is pure JS and ships inside this file.
 // DWG is a compiled binary format with no practical JS reader, so it is
-// handled by LibreDWG (GPLv3+, compatible with this file's AGPL-3.0+)
-// cross-compiled to WebAssembly and loaded as a SIDE MODULE — two extra
-// files next to this page, not a rewrite of anything here.
+// handled by LibreDWG (GPL-3.0-or-later) cross-compiled to WebAssembly and
+// loaded as a SIDE MODULE — two extra files next to this page, not a
+// rewrite of anything here. AGPL-3.0 carries every GPL-3.0 obligation plus
+// Section 13's network-copyleft clause — a strict superset — so combining
+// them and distributing the result under this file's AGPL-3.0-or-later
+// license satisfies both. See DWG-SUPPORT.md §5.
 //
 // Deliberately NOT a static script tag for kad-dwg.js in the head. KAD.html is
 // distributed as a single file that must open from a file:// path, a USB
@@ -11112,8 +11661,8 @@ function openPartDataModal(partId) {
   ov.classList.add('open');
 }
 
-function renderGradePicker(activeId) {
-  const box = document.getElementById('pd-grades');
+function renderGradePicker(activeId, containerId) {
+  const box = document.getElementById(containerId || 'pd-grades');
   if (!box) return;
   const groups = {};
   for (const m of KAD_MATERIALS) (groups[m.group] = groups[m.group] || []).push(m);
@@ -11296,6 +11845,215 @@ function exportDXF() {
       showToast(skipped
         ? `Exported ${n} \u00b7 ${objs.length - skipped} entities (${unitMode}) \u00b7 ${skipped} dimension${skipped>1?'s':''} not supported by DXF`
         : `Exported ${n} \u00b7 ${objs.length} entities (${unitMode})`);
+    });
+}
+
+// ── BOM / CSV EXPORT ──────────────────────────────────────
+// A Bill of Materials for whatever Parts Data currently defines — piece
+// mark, material, thickness, quantity, and (when it can be worked out
+// reliably) weight. Reads PartLibrary; never writes to it.
+//
+// Weight is deliberately conservative. An honest blank cell costs nothing; a
+// wrong number in a column someone uses for shipping or costing is a real
+// liability — the same "surfaced loudly, never quietly coerced" rule the
+// PARTS DATA notes already state for material grade, applied here to a
+// number instead of an id.
+//
+// Two routes to a weight, tried in this order:
+//   1. NC1 manufacturer figure — nc1WeightPerM x nc1Length. This is the
+//      profile's own published linear weight and is always preferred when
+//      present, regardless of profile type: it is correct for an I-beam or
+//      angle in a way area x thickness never could be, because this import
+//      pipeline only ever draws ONE face (see the NC1 IMPORT block above) —
+//      a web outline is not a cross-section.
+//   2. Geometry — net area x thickness x density, ONLY when (a) the part is
+//      not a non-flat NC1 profile, and (b) its geometry resolves to exactly
+//      one simple closed outer loop — traced from LINE/ARC segments, or a
+//      single closed POLYLINE — with zero or more CIRCLE holes fully inside
+//      it. Anything else (open contours, multiple loops, a hole outside the
+//      boundary, TEXT/POINT mixed in) leaves the cell blank rather than
+//      guessing.
+
+const MM2_PER_IN2 = 25.4 * 25.4;
+const LB_PER_KG    = 2.20462262185;
+
+function csvEscape(v) {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+// Traces LINE/ARC entities belonging to one part into a single closed
+// polygon loop, tessellating arcs as it goes. Returns an array of {x,y}
+// points, or null if the segments do not form exactly one simple closed
+// loop (open end, a branch, or more than one disconnected ring).
+function bomTraceLoop(segs) {
+  if (!segs.length) return null;
+  const EPS = 1e-3; // mm — floating point from repeated save/reimport cycles
+  const near = (a, b) => Math.abs(a.x - b.x) < EPS && Math.abs(a.y - b.y) < EPS;
+
+  const chunks = segs.map(o => {
+    if (o.type === 'LINE') return [{ x:o.x1, y:o.y1 }, { x:o.x2, y:o.y2 }];
+    // ARC — tessellated at ~10 degrees per step. This feeds an area
+    // estimate for a weight figure, not a cut path, so that resolution is
+    // ample; ~36 segments per full circle matches what the rest of this
+    // file already uses for arc-to-chord approximations elsewhere.
+    let sweep = o.endA - o.startA;
+    if (o.ccw) { if (sweep <= 0) sweep += 2*Math.PI; }
+    else       { if (sweep >= 0) sweep -= 2*Math.PI; }
+    const steps = Math.max(2, Math.ceil(Math.abs(sweep) / (Math.PI/18)));
+    const pts = [];
+    for (let i = 0; i <= steps; i++) {
+      const a = o.startA + sweep * (i / steps);
+      pts.push({ x:o.cx + o.r*Math.cos(a), y:o.cy + o.r*Math.sin(a) });
+    }
+    return pts;
+  });
+
+  const used = new Array(chunks.length).fill(false);
+  const loop = chunks[0].slice();
+  used[0] = true;
+  let remaining = chunks.length - 1;
+  const startPt = loop[0];
+
+  while (remaining > 0) {
+    const tail = loop[loop.length - 1];
+    let found = -1, reversed = false;
+    for (let i = 0; i < chunks.length; i++) {
+      if (used[i]) continue;
+      const c = chunks[i];
+      if (near(c[0], tail))            { found = i; reversed = false; break; }
+      if (near(c[c.length-1], tail))   { found = i; reversed = true;  break; }
+    }
+    if (found === -1) return null; // dangling end — not a simple closed loop
+    const c = reversed ? chunks[found].slice().reverse() : chunks[found];
+    for (let i = 1; i < c.length; i++) loop.push(c[i]); // c[0] duplicates tail
+    used[found] = true;
+    remaining--;
+  }
+  return near(loop[loop.length - 1], startPt) ? loop : null; // never closed
+}
+
+function bomShoelaceArea(pts) {
+  let s = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    s += a.x * b.y - b.x * a.y;
+  }
+  return Math.abs(s) / 2;
+}
+
+function bomPointInPolygon(pt, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
+    const hit = ((yi > pt.y) !== (yj > pt.y)) &&
+      (pt.x < (xj - xi) * (pt.y - yi) / (yj - yi) + xi);
+    if (hit) inside = !inside;
+  }
+  return inside;
+}
+
+// Net area in mm^2, or null if the part's geometry cannot be resolved to one
+// simple closed outer loop plus (optional) interior circular holes.
+function bomPartAreaMM2(part) {
+  const ents = part.entityIds
+    .map(id => GeoMemory.objects.find(o => o.id === id))
+    .filter(Boolean);
+  if (!ents.length) return null;
+
+  const polylines = ents.filter(o => o.type === 'POLYLINE');
+  const segs       = ents.filter(o => o.type === 'LINE' || o.type === 'ARC');
+  const circles    = ents.filter(o => o.type === 'CIRCLE');
+  const other      = ents.filter(o => !['POLYLINE','LINE','ARC','CIRCLE'].includes(o.type));
+  if (other.length) return null; // TEXT, POINT, etc. mixed in — don't guess
+
+  let outer = null;
+  if (polylines.length === 1 && segs.length === 0 && polylines[0].closed) {
+    outer = polylines[0].pts;
+  } else if (polylines.length === 0 && segs.length > 0) {
+    outer = bomTraceLoop(segs);
+  }
+  if (!outer || outer.length < 3) return null;
+
+  let area = bomShoelaceArea(outer);
+  for (const c of circles) {
+    // A hole this loop does not contain means the geometry does not match
+    // the single-outer-loop-plus-holes model this function assumes —
+    // safer to refuse the whole part than silently ignore that circle.
+    if (!bomPointInPolygon({ x:c.cx, y:c.cy }, outer)) return null;
+    area -= Math.PI * c.r * c.r;
+  }
+  return area > 0 ? area : null;
+}
+
+// { lb, kg } for ONE piece, or null if there is no reliable route to a
+// weight for this part.
+function bomPartWeight(part) {
+  if (typeof part.nc1WeightPerM === 'number' && typeof part.nc1Length === 'number'
+      && part.nc1WeightPerM > 0 && part.nc1Length > 0) {
+    const kg = part.nc1WeightPerM * (part.nc1Length / 1000);
+    return { kg, lb: kg * LB_PER_KG };
+  }
+  // profileType only exists on NC1-sourced parts. Its absence (DXF, DWG,
+  // hand-drawn) is treated as flat stock, which is the only shape KAD's 2D
+  // canvas can draw anyway — so the geometry route is safe to attempt there.
+  if (part.nc1ProfileType && part.nc1ProfileType !== 'B') return null;
+  const mat = kadMaterialById(part.gradeId);
+  if (!mat || !(mat.density > 0)) return null;
+  const areaMM2 = bomPartAreaMM2(part);
+  if (areaMM2 == null) return null;
+  const lb = (areaMM2 / MM2_PER_IN2) * (part.thicknessMM / 25.4) * mat.density;
+  return { lb, kg: lb / LB_PER_KG };
+}
+
+function buildBOMCSV() {
+  const cols = ['Mark','Qty','Profile','Material',
+    'Thickness (mm)','Thickness (in)',
+    'Weight Each (lb)','Weight Each (kg)','Weight Total (lb)','Weight Total (kg)',
+    'Order #','Drawing #','Phase'];
+  const rows = [cols.map(csvEscape).join(',')];
+  const r3 = n => Math.round(n * 1000) / 1000;
+
+  let totalQty = 0, totalLb = 0, totalKg = 0, unknownWeight = 0;
+
+  for (const p of PartLibrary.parts) {
+    const w = bomPartWeight(p);
+    if (!w) unknownWeight++;
+    const eachLb = w ? r3(w.lb) : '';
+    const eachKg = w ? r3(w.kg) : '';
+    const totLb  = w ? r3(w.lb * p.qty) : '';
+    const totKg  = w ? r3(w.kg * p.qty) : '';
+    if (w) { totalLb += w.lb * p.qty; totalKg += w.kg * p.qty; }
+    totalQty += p.qty;
+
+    rows.push([
+      p.name, p.qty, p.nc1Profile || '', kadGradeLabel(p.gradeId),
+      r3(p.thicknessMM), r3(p.thicknessMM / 25.4),
+      eachLb, eachKg, totLb, totKg,
+      p.nc1OrderNumber || '', p.nc1DrawingNumber || '', p.nc1Phase || '',
+    ].map(csvEscape).join(','));
+  }
+
+  rows.push(['TOTAL', totalQty, '', '', '', '', '', '', r3(totalLb), r3(totalKg), '', '', '']
+    .map(csvEscape).join(','));
+
+  return { csv: rows.join('\r\n') + '\r\n', unknownWeight, count: PartLibrary.parts.length };
+}
+
+function exportBOM() {
+  if (!PartLibrary.parts.length) { showToast('No parts to export \u2014 create parts first'); return; }
+  const { csv, unknownWeight, count } = buildBOMCSV();
+  // Leading BOM so Excel opens this as UTF-8 rather than guessing the
+  // system codepage — without it, the em dash and multiplication sign
+  // elsewhere in this file's toasts have a track record of becoming
+  // mojibake the moment a Windows user double-clicks the file.
+  downloadText('\uFEFF' + csv, docBaseName() + '-bom.csv', 'text/csv')
+    .then(n => {
+      if (!n) return;
+      showToast(unknownWeight
+        ? `Exported ${n} \u00b7 ${count} part${count===1?'':'s'} \u00b7 ${unknownWeight} without a computed weight`
+        : `Exported ${n} \u00b7 ${count} part${count===1?'':'s'}`);
     });
 }
 
@@ -18080,13 +18838,21 @@ if ('launchQueue' in window) {
         dt.items.add(file);
         input.files = dt.files;
         input.dispatchEvent(new Event('change'));
-      } else if (file.name.toLowerCase().endsWith('.dxf')) {
+      } else if (/\.dxf$/i.test(file.name)) {
         // Feed the launched file through the real DXF input element so
         // the existing importDXF() pipeline runs exactly as it does for
         // a manual upload — including its unit-selection dialog. This
         // avoids re-implementing that logic (and re-introducing the
         // kind of drift we've been fixing elsewhere in this project).
         const input = document.getElementById('load-dxf');
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        input.files = dt.files;
+        input.dispatchEvent(new Event('change'));
+      } else if (/\.(nc1|dstv)$/i.test(file.name)) {
+        // Same reasoning again: real input, real importNC1(), so a launched
+        // NC1 file gets the same Part-data dialog a manual pick would.
+        const input = document.getElementById('load-nc1');
         const dt = new DataTransfer();
         dt.items.add(file);
         input.files = dt.files;
