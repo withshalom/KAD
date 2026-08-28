@@ -149,7 +149,12 @@ body[data-theme="parchment"] {
   --accent-glow: rgba(107,68,35,0.18);
   --t1: #2e2412;               /* primary text — near-black warm brown */
   --t2: #4a3a20;               /* secondary text */
-  --t3: #7a6640;               /* muted text */
+  --t3: #63512f;               /* muted text — was #7a6640 at 3.79:1 on panel
+                                   (WCAG AA fail); now 5.24:1. Found and fixed
+                                   independently in the KOMMAND fork, never
+                                   merged back until now — verified against
+                                   this exact panel color, not carried over
+                                   on trust. */
 }
 
 body[data-theme="classic-dark"] #main-canvas,
@@ -172,7 +177,8 @@ body[data-theme="parchment"] #main-canvas { background: var(--void); }
   --red:           #ff4455;
   --t1:  #f0f4f8;
   --t2: #a8c4dc;
-  --t3: #6888a8;
+  --t3: #7391b0;  /* was #6888a8 at 4.43:1 on panel (WCAG AA fail); this
+                      clears 5.0:1. Same origin as the Parchment fix above. */
   --fm:     'JetBrains Mono', monospace;
   --fd:       'Syne', sans-serif;
   --fu:       'Atkinson Hyperlegible', sans-serif;
@@ -485,18 +491,18 @@ body.drafting-mode #app { pointer-events:auto; z-index:20; }
    swatch rows) rather than icon-led, so it has no business being dragged
    to a drafting-icon width by KAD's layout switch. Same reasoning as the
    selector scoping above — one file, two sidebars, no leakage. */
-body[data-layout="classic"] #sidebar { --sidebar-w: 184px; }
-body[data-layout="classic"] #sidebar .tool-grid { grid-template-columns:repeat(4,1fr); }
+body[data-layout="compact"] #sidebar { --sidebar-w: 184px; }
+body[data-layout="compact"] #sidebar .tool-grid { grid-template-columns:repeat(4,1fr); }
 /* cursor:default because names live in the hover tooltip rather than under
    the icon — the pointer should read as "this will tell you more". */
-body[data-layout="classic"] #sidebar .tool-btn { padding:7px 3px; gap:0; min-height:34px; cursor:default; }
-body[data-layout="classic"] #sidebar .tool-icon { width:20px; height:20px; }
-body[data-layout="classic"] #sidebar .tool-icon svg { width:18px; height:18px; }
-body[data-layout="classic"] #sidebar .tool-label { display:none; }
+body[data-layout="compact"] #sidebar .tool-btn { padding:7px 3px; gap:0; min-height:34px; cursor:default; }
+body[data-layout="compact"] #sidebar .tool-icon { width:20px; height:20px; }
+body[data-layout="compact"] #sidebar .tool-icon svg { width:18px; height:18px; }
+body[data-layout="compact"] #sidebar .tool-label { display:none; }
 /* The file column is the other place Classic can reclaim vertical space —
    its buttons are text-led and were sized for a fingertip. */
-body[data-layout="classic"] #sidebar .op-btn { padding:4px 8px; font-size:12px; }
-body[data-layout="classic"] #sidebar .section-head { padding:6px 12px 4px; }
+body[data-layout="compact"] #sidebar .op-btn { padding:4px 8px; font-size:12px; }
+body[data-layout="compact"] #sidebar .section-head { padding:6px 12px 4px; }
 /* Below the mobile/tablet breakpoint the sidebar becomes a fixed-width
    drawer (.mobile-mode #sidebar) that ignores --sidebar-w entirely, so
    the width override above is inert there and the grid simply gets the
@@ -513,10 +519,114 @@ body[data-layout="classic"] #sidebar .section-head { padding:6px 12px 4px; }
    :not([data-layout="classic"]) rather than [data-layout="touch"] so the
    rules also apply before the layout attribute is written at boot — the
    app must never render a frame with sub-target hit areas. */
-body:not([data-layout="classic"]) #sidebar .tool-btn { min-height:52px; }
-body:not([data-layout="classic"]) #sidebar .op-btn  { min-height:40px; }
-body:not([data-layout="classic"]) .tb-dd-item       { min-height:38px; }
-body:not([data-layout="classic"]) .layer-row        { min-height:38px; }
+body:not([data-layout="classic"]):not([data-layout="compact"]) #sidebar .tool-btn { min-height:52px; }
+body:not([data-layout="classic"]):not([data-layout="compact"]) #sidebar .op-btn  { min-height:40px; }
+body:not([data-layout="classic"]):not([data-layout="compact"]) .tb-dd-item       { min-height:38px; }
+body:not([data-layout="classic"]):not([data-layout="compact"]) .layer-row        { min-height:38px; }
+/* ── CLASSIC — docked rails ───────────────────────────────────────────
+   The third layout, and the only one that repositions rather than resizes.
+   AutoCAD Classic and DraftSight Classic both put draw tools in a vertical
+   rail on one edge and modify tools on the other, with thin horizontal
+   strips top and bottom for file/view and for the drafting-mode toggles.
+   That shape exists because it gives the drawing the whole middle of the
+   screen and never makes you cross it to reach a tool.
+
+   Mechanism: #model-pane is a flex row in touch/compact and becomes a named
+   grid here. The rails are always in the DOM but display:none outside this
+   layout, so a hidden rail costs nothing and the flex row is untouched.
+   #sidebar is NOT reused as the left rail — it carries its own width, its
+   section heads, and the file-op column, and fighting all of that down to a
+   40px strip is more code than one dedicated element. It collapses to zero
+   instead, and keeps holding the context dock (see below).
+
+   Guarded with :not(.mobile-mode) throughout: below the mobile breakpoint
+   the sidebar is a drawer and the canvas is the whole screen. Four rails
+   around a phone screen would leave nothing to draw on. */
+:root { --rail-w: 44px; --rail-h: 40px; }
+
+.rail { display:none; background:var(--panel); }
+.rail-v { flex-direction:column; overflow-y:auto; overflow-x:hidden; }
+.rail-h { flex-direction:row; overflow-x:auto; overflow-y:hidden; align-items:stretch; }
+
+body[data-layout="classic"]:not(.mobile-mode) #model-pane {
+  display:grid;
+  grid-template-columns: var(--rail-w) 1fr var(--rail-w);
+  grid-template-rows: var(--rail-h) 1fr var(--rail-h);
+  grid-template-areas:
+    "top  top    top"
+    "left canvas right"
+    "bot  bot    bot";
+}
+body[data-layout="classic"]:not(.mobile-mode) .rail { display:flex; }
+body[data-layout="classic"]:not(.mobile-mode) #rail-top    { grid-area:top;   border-bottom:1px solid var(--border); }
+body[data-layout="classic"]:not(.mobile-mode) #rail-bottom { grid-area:bot;   border-top:1px solid var(--border); }
+body[data-layout="classic"]:not(.mobile-mode) #rail-left   { grid-area:left;  border-right:1px solid var(--border); }
+body[data-layout="classic"]:not(.mobile-mode) #rail-right  { grid-area:right; border-left:1px solid var(--border); }
+body[data-layout="classic"]:not(.mobile-mode) #canvas-wrap { grid-area:canvas; min-width:0; min-height:0; }
+
+/* The sidebar collapses rather than disappears: it is still the parent of
+   #ctx-dock, and display:none on an ancestor would take the dock with it. */
+body[data-layout="classic"]:not(.mobile-mode) #sidebar {
+  width:0; min-width:0; border-right:none;
+}
+body[data-layout="classic"]:not(.mobile-mode) #sidebar > *:not(#ctx-dock) { display:none !important; }
+
+/* Rail buttons. Icon-only at every size — there is no room for a label in a
+   44px strip, so the hover tooltip carries the naming exactly as it does in
+   Compact. */
+.rail .tool-btn { background:var(--panel); padding:0; gap:0; cursor:default; flex-shrink:0; }
+.rail .tool-label { display:none; }
+.rail .tool-icon { width:22px; height:22px; }
+.rail .tool-icon svg { width:20px; height:20px; }
+.rail-v .tool-btn { width:100%; height:var(--rail-w); }
+.rail-h .tool-btn { height:100%; width:var(--rail-h); }
+/* Unequal sizes: the five tools that carry most of a drafting session get a
+   double cell. Declared as w:2 in the TOOLS manifest, not as a class list
+   here, so the tiering is one number next to the tool it describes. */
+.rail-v .tool-btn.tb-w2 { height:calc(var(--rail-w) * 1.5); }
+.rail-h .tool-btn.tb-w2 { width:calc(var(--rail-h) * 1.5); }
+.rail-v .tool-btn.tb-w2 .tool-icon svg { width:24px; height:24px; }
+.rail-h .tool-btn.tb-w2 .tool-icon svg { width:24px; height:24px; }
+.rail .rail-sep { flex-shrink:0; background:var(--border); }
+.rail-v .rail-sep { height:1px; width:100%; margin:4px 0; }
+.rail-h .rail-sep { width:1px; height:60%; align-self:center; margin:0 4px; }
+.rail .tool-btn.danger .tool-icon svg { stroke:#ff4455; }
+/* Rail items carry their name in the tooltip and the aria-label; there is no
+   room for a visible one in a 40px strip. */
+.rail-item-label { display:none; }
+/* Bottom-rail toggles show live state — the same ON/OFF the status bar
+   reports, but as a lit button rather than 12px of text at the screen edge. */
+.rail .tool-btn.on { background:var(--accent-glow); box-shadow:inset 0 0 0 1px var(--accent-dim); }
+.rail .tool-btn.on .tool-icon svg { stroke:var(--accent); }
+.rail .tool-btn:hover { background:var(--hover); }
+
+/* ── CONTEXT DOCK ─────────────────────────────────────────────────────
+   display:contents in touch/compact means the wrapper generates no box at
+   all and every bar inside it is still a direct flex child of #sidebar —
+   the same layout as before the wrapper was introduced, byte for byte.
+
+   In classic the sidebar is 0px wide, so the dock is lifted out as a fixed
+   panel. position:fixed escapes #sidebar's overflow:hidden for the same
+   reason the hover tooltip does, and for the same reason it has to: there
+   is no longer a rail wide enough to contain a labelled numeric input. */
+#ctx-dock { display:contents; }
+body[data-layout="classic"]:not(.mobile-mode) #ctx-dock {
+  display:block;
+  position:fixed;
+  left:calc(var(--rail-w) + 10px);
+  top:calc(var(--toolbar-h) + var(--tabbar-h) + var(--rail-h) + 10px);
+  width:auto; max-width:min(420px, calc(100vw - var(--rail-w)*2 - 20px));
+  z-index:40;
+  border:1px solid var(--border-hi);
+  border-radius:4px;
+  overflow:hidden;
+  box-shadow:0 8px 24px rgba(0,0,0,0.5);
+  pointer-events:none;            /* an empty dock must not eat canvas clicks */
+}
+body[data-layout="classic"]:not(.mobile-mode) #ctx-dock > * { pointer-events:auto; }
+/* Last visible bar should not draw a border into empty space. */
+body[data-layout="classic"]:not(.mobile-mode) #ctx-dock > :last-child { border-bottom:none; }
+
 /* Kill the tap-to-zoom delay and the grey flash on every control. Applied
    to the interactive chrome only — the canvas sets touch-action itself and
    must keep its own value. */
@@ -573,6 +683,7 @@ button, .tb-menu-item, .tb-dd-item, .layer-row, .tab-item, .sb-item.sb-toggle {
 .ctx-btn.go { background:rgba(0,212,255,0.1); border-color:var(--accent-dim); color:var(--accent); padding:3px 9px; margin-left:auto; }
 .ctx-num { background:var(--panel); border:1px solid var(--border-hi); border-radius:3px; color:var(--accent); font-family:var(--fm); font-size:13px; padding:3px 6px; width:60px; outline:none; text-align:right; }
 .ctx-num.narrow { width:52px; }
+.ctx-sel { background:var(--panel); border:1px solid var(--border-hi); border-radius:3px; color:var(--accent); font-family:var(--fu); font-size:12px; padding:3px 5px; outline:none; max-width:132px; }
 .ctx-unit { font-family:var(--fm); font-size:12px; color:var(--t3); }
 .ctx-read { font-family:var(--fm); font-size:13px; min-width:80px; }
 #offset-bar label { white-space:nowrap; }
@@ -597,6 +708,18 @@ button, .tb-menu-item, .tb-dd-item, .layer-row, .tab-item, .sb-item.sb-toggle {
    it is a first-class, always-available operation the moment this file loads. */
 .op-btn.nc1 { color:var(--accent); border-color:var(--accent); }
 .op-btn.nc1:hover { background:rgba(0,212,255,0.08); }
+/* PDF import is pure JS like NC1 — the only difference is a one-time CDN
+   fetch of pdf.js on first use (no manual build step, unlike DWG's
+   self-compiled WASM), so it gets the same "first-class, works out of the
+   box" accent treatment rather than DWG's amber "needs something you don't
+   have yet". */
+.op-btn.pdfimp { color:var(--accent); border-color:var(--accent); }
+.op-btn.pdfimp:hover { background:rgba(0,212,255,0.08); }
+/* STEP is pure JS like PDF — a lazy-loaded WASM kernel, no manual build
+   step. Same accent treatment: first-class, works the moment there's
+   network access for the one-time fetch. */
+.op-btn.stepimp { color:var(--accent); border-color:var(--accent); }
+.op-btn.stepimp:hover { background:rgba(0,212,255,0.08); }
 .op-btn svg { width:12px; height:12px; flex-shrink:0; }
 /* Both file inputs are click-proxied from .op-btn above and must never
    render. #load-dxf was missing from this rule, so a native "Choose File"
@@ -608,7 +731,7 @@ button, .tb-menu-item, .tb-dd-item, .layer-row, .tab-item, .sb-item.sb-toggle {
    #load-dwg and #load-nc1 are in this list for the same reason — a new
    unhidden file input in .file-ops would re-create that sidebar-width
    floor exactly. */
-#load-kad, #load-dxf, #load-dwg, #load-nc1 { display:none; }
+#load-kad, #load-dxf, #load-dwg, #load-nc1, #pdf-file, #step-file { display:none; }
 
 /* Coord input panel */
 #coord-panel { flex-shrink:0; border-bottom:1px solid var(--border); }
@@ -1026,6 +1149,95 @@ button, .tb-menu-item, .tb-dd-item, .layer-row, .tab-item, .sb-item.sb-toggle {
   flex-shrink: 0; margin: 0; padding: 12px 16px;
   background: var(--panel); border-top: 1px solid var(--border);
 }
+/* PDF's own overlay — a distinct id rather than a fourth reuse of
+   "dxf-import-dialog" (already shared by two dialogs; a third silent
+   consumer of that id is a worse trade than ~25 duplicate lines here).
+   Built with the height containment already correct — .dlg-body scrolls,
+   .dlg-actions is pinned outside it — rather than fixed after the fact,
+   which is how the DXF dialog above ended up needing that fix at all. */
+#pdf-import-overlay {
+  position: fixed; inset: 0;
+  background: rgba(4,6,10,0.82);
+  backdrop-filter: blur(3px);
+  z-index: 800;
+  display: none; align-items: center; justify-content: center;
+}
+#pdf-import-overlay.open { display: flex; }
+#pdf-import-dialog {
+  background: var(--panel);
+  border: 1px solid var(--border-hi);
+  border-radius: 6px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.8), 0 0 0 1px rgba(0,212,255,0.08);
+  width: 420px; max-width: 95vw;
+  font-family: var(--fu);
+  display: flex; flex-direction: column;
+  max-height: min(88vh, 760px);
+  overflow: hidden;
+}
+#pdf-import-dialog .dlg-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; flex-shrink: 0;
+  background: var(--panel2);
+  border-bottom: 1px solid var(--border);
+}
+#pdf-import-dialog .dlg-title {
+  font-size: 13px; font-weight: 500; color: var(--accent);
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
+#pdf-import-dialog .dlg-close {
+  background: none; border: none; color: var(--t3);
+  cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 4px;
+  transition: color 0.1s;
+}
+#pdf-import-dialog .dlg-close:hover { color: var(--t1); }
+#pdf-import-dialog .dlg-body { padding: 16px; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+#pdf-import-dialog .dlg-actions {
+  flex-shrink: 0; margin: 0; padding: 12px 16px;
+  background: var(--panel); border-top: 1px solid var(--border);
+}
+/* STEP's own overlay — same reasoning as PDF's: a fourth consumer of the
+   shared "dxf-import-dialog" id (already shared by two dialogs) is a worse
+   trade than these ~25 duplicate lines. */
+#step-import-overlay {
+  position: fixed; inset: 0;
+  background: rgba(4,6,10,0.82);
+  backdrop-filter: blur(3px);
+  z-index: 800;
+  display: none; align-items: center; justify-content: center;
+}
+#step-import-overlay.open { display: flex; }
+#step-import-dialog {
+  background: var(--panel);
+  border: 1px solid var(--border-hi);
+  border-radius: 6px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.8), 0 0 0 1px rgba(0,212,255,0.08);
+  width: 420px; max-width: 95vw;
+  font-family: var(--fu);
+  display: flex; flex-direction: column;
+  max-height: min(88vh, 760px);
+  overflow: hidden;
+}
+#step-import-dialog .dlg-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; flex-shrink: 0;
+  background: var(--panel2);
+  border-bottom: 1px solid var(--border);
+}
+#step-import-dialog .dlg-title {
+  font-size: 13px; font-weight: 500; color: var(--accent);
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
+#step-import-dialog .dlg-close {
+  background: none; border: none; color: var(--t3);
+  cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 4px;
+  transition: color 0.1s;
+}
+#step-import-dialog .dlg-close:hover { color: var(--t1); }
+#step-import-dialog .dlg-body { padding: 16px; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+#step-import-dialog .dlg-actions {
+  flex-shrink: 0; margin: 0; padding: 12px 16px;
+  background: var(--panel); border-top: 1px solid var(--border);
+}
 .dlg-file-info {
   background: var(--panel2); border: 1px solid var(--border);
   border-radius: 4px; padding: 10px 12px; margin-bottom: 14px;
@@ -1351,7 +1563,11 @@ button, .tb-menu-item, .tb-dd-item, .layer-row, .tab-item, .sb-item.sb-toggle {
   letter-spacing: 0.08em; text-align: center; cursor: pointer;
   transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
-.layer-add-btn:hover { background: var(--hover); color: var(--accent); border-color: var(--accent-dim); }
+/* --t1, not --accent: in the Blueprint theme, --accent on this hover
+   background is 3.91:1 — a real WCAG AA failure, not a style preference.
+   --t1 clears it at 6.26:1, and is equal-or-better in every other theme.
+   Same KOMMAND-fork origin as the two --t3 fixes above. */
+.layer-add-btn:hover { background: var(--hover); color: var(--t1); border-color: var(--accent-dim); }
 /* Phone: shrink the button chrome and let the panel use the screen width,
    but keep it anchored to the same control so it never floats loose. */
 .mobile-mode #layer-dd-btn { font-size: 10px; padding: 0 6px; gap: 4px; }
@@ -2420,6 +2636,8 @@ body.kanvas-mode #app {
         <div class="tb-dd-item" onclick="document.getElementById('load-dxf').click();closeMenus()">Import .dxf<span class="dd-key"></span></div>
         <div class="tb-dd-item" style="display:none;" onclick="document.getElementById('load-dwg').click();closeMenus()">Import .dwg<span class="dd-key"></span></div>
         <div class="tb-dd-item" onclick="document.getElementById('load-nc1').click();closeMenus()">Import .nc1<span class="dd-key"></span></div>
+        <div class="tb-dd-item" onclick="openPDF();closeMenus()">Import PDF<span class="dd-key">Ctrl ⇧ O</span></div>
+        <div class="tb-dd-item" style="display:none;" onclick="openSTEP();closeMenus()">Import STEP<span class="dd-key"></span></div>
         <div class="tb-dd-item" onclick="document.getElementById('vec-file-input').click();closeMenus()">Import .svg / .kvs<span class="dd-key"></span></div>
       </div>
     </div>
@@ -2461,6 +2679,7 @@ body.kanvas-mode #app {
     <div class="tb-menu-item" id="menu-draw" data-menu="draw">Draw
       <div class="tb-dropdown" id="dd-draw">
         <div class="tb-dd-item" onclick="setTool('pline');closeMenus()">Polyline<span class="dd-key">PL</span></div>
+        <div class="tb-dd-item" onclick="setTool('hatch');closeMenus()">Hatch<span class="dd-key">G</span></div>
         <div class="tb-dd-item" onclick="setTool('line');closeMenus()">Line<span class="dd-key">L</span></div>
         <div class="tb-dd-item" onclick="setTool('arc');closeMenus()">Arc (3-point)<span class="dd-key">A</span></div>
         <div class="tb-dd-item" onclick="setTool('circle');closeMenus()">Circle<span class="dd-key">C</span></div>
@@ -2499,8 +2718,9 @@ body.kanvas-mode #app {
         <span class="t-label" id="layout-label">TOUCH</span>
       </button>
       <div class="tb-dropdown" id="layout-dropdown">
-        <div class="tb-dd-item" id="layout-opt-touch" onclick="setLayout('touch');closeAuxMenus()">Touch (large icons)</div>
-        <div class="tb-dd-item" id="layout-opt-classic" onclick="setLayout('classic');closeAuxMenus()">Classic (small icons)</div>
+        <div class="tb-dd-item" id="layout-opt-touch" onclick="setLayout('touch');closeAuxMenus()">Touch — large buttons</div>
+        <div class="tb-dd-item" id="layout-opt-compact" onclick="setLayout('compact');closeAuxMenus()">Compact — dense sidebar</div>
+        <div class="tb-dd-item" id="layout-opt-classic" onclick="setLayout('classic');closeAuxMenus()">Classic — docked rails</div>
       </div>
     </div>
     <div class="tb-aux-wrap" id="grid-wrap">
@@ -2568,6 +2788,13 @@ body.kanvas-mode #app {
 <!-- ── PANE WRAPPERS ── -->
 <div id="model-pane">
 
+<!-- ── DOCKED RAILS (classic layout only) ──────────────────────────────
+     Hidden and empty in touch/compact, so #model-pane keeps its flex row and
+     nothing about the existing layout changes. renderTools() fills them and
+     the grid in the stylesheet places them only under data-layout="classic". -->
+<div class="rail rail-h" id="rail-top" role="toolbar" aria-label="File and view"></div>
+<div class="rail rail-v" id="rail-left" role="toolbar" aria-label="Draw tools"></div>
+
 <!-- SIDEBAR -->
 <div id="sidebar">
   <!-- Layers now live exclusively in the tab-bar dropdown (#layer-dd-wrap,
@@ -2576,97 +2803,23 @@ body.kanvas-mode #app {
        sidebar's width is set by the tool grid alone, not by how wide a
        layer name + swatch + gear controls need to be. -->
   <div class="section-head">Draw Tools</div>
-  <div class="tool-grid">
-    <button class="tool-btn active" id="btn-pline" onclick="setTool('pline')" data-tip="Polyline" data-tip-key="P L" aria-label="Polyline (P L)">
-      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="3 20 8 8 14 14 21 4"/><circle cx="3" cy="20" r="1.6" fill="currentColor"/><circle cx="8" cy="8" r="1.6" fill="currentColor"/><circle cx="14" cy="14" r="1.6" fill="currentColor"/><circle cx="21" cy="4" r="1.6" fill="currentColor"/></svg></div>
-      <span class="tool-label">PLINE</span>
-    </button>
-    <button class="tool-btn" id="btn-line" onclick="setTool('line')" data-tip="Line" data-tip-key="L" aria-label="Line (L)">
-      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="4" y1="20" x2="20" y2="4"/><circle cx="4" cy="20" r="2" fill="currentColor"/><circle cx="20" cy="4" r="2" fill="currentColor"/></svg></div>
-      <span class="tool-label">LINE</span>
-    </button>
-    <button class="tool-btn" id="btn-rect" onclick="setTool('rect')" data-tip="Rectangle" data-tip-key="R" aria-label="Rectangle (R)">
-      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="6" width="16" height="12" rx="1"/></svg></div>
-      <span class="tool-label">RECT</span>
-    </button>
-    <button class="tool-btn" id="btn-polygon" onclick="setTool('polygon')" data-tip="Polygon" data-tip-key="P" aria-label="Polygon (P)">
-      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="12,3 21,9 17,20 7,20 3,9"/></svg></div>
-      <span class="tool-label">POLY</span>
-    </button>
-    <button class="tool-btn" id="btn-offset" onclick="setTool('offset')" data-tip="Offset" data-tip-key="O" aria-label="Offset (O)">
-      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="3" y1="8" x2="21" y2="8"/><line x1="3" y1="16" x2="21" y2="16"/><path d="M14 11.5l3 2.5-3 2.5" stroke-width="1.2"/></svg></div>
-      <span class="tool-label">OFFSET</span>
-    </button>
+  <!-- Tool buttons are rendered from the TOOLS manifest by renderTools().
+       They were 21 hand-written <button> blocks; the same buttons now have to
+       appear in the sidebar OR in the docked rails depending on layout, and
+       duplicating the markup per layout would duplicate the btn-* ids that
+       setTool() resolves with getElementById(). One manifest, many mounts. -->
+  <div class="tool-grid" id="tool-grid"></div>
 
-    <button class="tool-btn" id="btn-rotate" onclick="setTool('rotate')" data-tip="Rotate" data-tip-key="T" aria-label="Rotate (T)">
-      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg></div>
-      <span class="tool-label">ROTATE</span>
-    </button>
-    <button class="tool-btn" id="btn-arc" onclick="setTool('arc')" data-tip="Arc" data-tip-key="A" aria-label="Arc (A)">
-      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 19a9 9 0 0 1 14 0"/><circle cx="5" cy="19" r="1.5" fill="currentColor"/><circle cx="19" cy="19" r="1.5" fill="currentColor"/></svg></div>
-      <span class="tool-label">ARC</span>
-    </button>
-    <button class="tool-btn" id="btn-circle" onclick="setTool('circle')" data-tip="Circle" data-tip-key="C" aria-label="Circle (C)">
-      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/></svg></div>
-      <span class="tool-label">CIRCLE</span>
-    </button>
-    <button class="tool-btn" id="btn-kompass" onclick="setTool('kompass')" data-tip="Kompass" data-tip-key="V" aria-label="Kompass (V)">
-      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="5" r="1.6" fill="currentColor"/><path d="M12 6.5 5 20"/><path d="M12 6.5 19 20"/><path d="M7.5 17a7 7 0 0 0 9 0"/></svg></div>
-      <span class="tool-label">KOMPASS</span>
-    </button>
-    <button class="tool-btn" id="btn-fillet" onclick="setTool('fillet')" data-tip="Fillet" data-tip-key="F" aria-label="Fillet (F)">
-      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 19 L5 8 Q5 5 8 5 L19 5"/></svg></div>
-      <span class="tool-label">FILLET</span>
-    </button>
-    <button class="tool-btn" id="btn-chamfer" onclick="setTool('chamfer')" data-tip="Chamfer" data-tip-key="H" aria-label="Chamfer (H)">
-      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-        <path d="M4 20 L12 4 L20 20"/>
-        <line x1="7" y1="14" x2="17" y2="14"/>
-      </svg></div>
-      <span class="tool-label">CHAMFER</span>
-    </button>
-    <button class="tool-btn" id="btn-mirror" onclick="setTool('mirror')" data-tip="Mirror" data-tip-key="M" aria-label="Mirror (M)">
-      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="3" x2="12" y2="21" stroke-dasharray="2 2"/><polyline points="3,7 9,12 3,17"/><polyline points="21,7 15,12 21,17"/></svg></div>
-      <span class="tool-label">MIRROR</span>
-    </button>
-    <button class="tool-btn" id="btn-dim" onclick="setTool('dim')" data-tip="Dimension" data-tip-key="D" aria-label="Dimension (D)">
-      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="3" y1="17" x2="21" y2="17"/><line x1="3" y1="14" x2="3" y2="20"/><line x1="21" y1="14" x2="21" y2="20"/><line x1="8" y1="12" x2="8" y2="17"/><line x1="16" y1="12" x2="16" y2="17"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="10" y1="5" x2="8" y2="7"/><line x1="10" y1="9" x2="8" y2="7"/><line x1="14" y1="5" x2="16" y2="7"/><line x1="14" y1="9" x2="16" y2="7"/></svg></div>
-      <span class="tool-label">DIM</span>
-    </button>
-    <button class="tool-btn" id="btn-trim" onclick="setTool('trim')" data-tip="Trim" data-tip-key="Q" aria-label="Trim (Q)">
-      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="4" y1="12" x2="20" y2="12"/><line x1="12" y1="4" x2="12" y2="10"/><line x1="12" y1="14" x2="12" y2="20" stroke-dasharray="2 2" opacity="0.4"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg></div>
-      <span class="tool-label">TRIM</span>
-    </button>
-    <button class="tool-btn" id="btn-extend" onclick="setTool('extend')" data-tip="Extend" data-tip-key="E" aria-label="Extend (E)">
-      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="4" y1="12" x2="16" y2="12"/><polyline points="13,9 16,12 13,15"/><line x1="19" y1="5" x2="19" y2="19"/></svg></div>
-      <span class="tool-label">EXTEND</span>
-    </button>
-    <button class="tool-btn" id="btn-break" onclick="setTool('break')" data-tip="Break" data-tip-key="B" aria-label="Break (B)">
-      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="4" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="20" y2="12"/><line x1="9" y1="9" x2="12" y2="15"/><line x1="12" y1="9" x2="15" y2="15"/></svg></div>
-      <span class="tool-label">BREAK</span>
-    </button>
-    <button class="tool-btn" id="btn-scale" onclick="setTool('scale')" data-tip="Scale" data-tip-key="I" aria-label="Scale (I)">
-      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="8" height="8"/><rect x="13" y="13" width="8" height="8"/><line x1="11" y1="7" x2="13" y2="7" stroke-dasharray="2 2"/><line x1="17" y1="11" x2="17" y2="13" stroke-dasharray="2 2"/></svg></div>
-      <span class="tool-label">SCALE</span>
-    </button>
-    <button class="tool-btn" id="btn-stretch" onclick="setTool('stretch')" data-tip="Stretch" data-tip-key="W" aria-label="Stretch (W)">
-      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="4" y1="20" x2="12" y2="12"/><line x1="12" y1="12" x2="20" y2="4"/><circle cx="20" cy="4" r="2.5" fill="currentColor"/><path d="M17 1l3 3-3 3" stroke-width="1.2"/></svg></div>
-      <span class="tool-label">STRETCH</span>
-    </button>
-    <button class="tool-btn" id="btn-text" onclick="setTool('text')" data-tip="Text" data-tip-key="K" aria-label="Text (K)">
-      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 7V5h16v2"/><line x1="12" y1="5" x2="12" y2="19"/><line x1="8" y1="19" x2="16" y2="19"/></svg></div>
-      <span class="tool-label">TEXT</span>
-    </button>
-    <button class="tool-btn" id="btn-array" onclick="openArrayDialog()" data-tip="Array" data-tip-key="N" aria-label="Array (N)">
-      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="5" height="5"/><rect x="10" y="3" width="5" height="5"/><rect x="17" y="3" width="4" height="5"/><rect x="3" y="10" width="5" height="5"/><rect x="10" y="10" width="5" height="5"/><rect x="17" y="10" width="4" height="5"/></svg></div>
-      <span class="tool-label">ARRAY</span>
-    </button>
-    <button class="tool-btn" id="btn-select" onclick="setTool('select')" data-tip="Select" data-tip-key="S" aria-label="Select (S)">
-      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 3l14 9-7 1-4 7z"/></svg></div>
-      <span class="tool-label">SELECT</span>
-    </button>
-  </div>
-
+  <!-- ── CONTEXT DOCK ──────────────────────────────────────────────────
+       Every tool-option bar lives in here. In touch/compact the dock is
+       display:contents, so each bar is still a direct flex child of #sidebar
+       and lays out exactly as it did before this wrapper existed — zero
+       visual change. In classic the sidebar collapses to nothing, and the
+       dock becomes a fixed-position panel over the canvas instead. The bars
+       are never moved in the DOM: their inputs are read by id from a dozen
+       call sites and hold live state, so re-parenting them is a risk with
+       no upside when a display change does the same job. -->
+  <div id="ctx-dock">
   <!-- Mirror axis bar -->
   <div id="mirror-bar" class="ctx-bar wrap">
     <label class="ctx-label">AXIS</label>
@@ -2717,6 +2870,20 @@ body.kanvas-mode #app {
     <span id="offset-dist-unit">mm</span>
   </div>
 
+  <!-- Hatch options. Pattern, scale and angle are all live: changing any of
+       them re-hatches the current selection rather than only affecting the
+       next one, because picking a scale blind and re-drawing to check is not
+       how anyone chooses a hatch scale. -->
+  <div id="hatch-bar" class="ctx-bar wrap">
+    <label class="ctx-label">PAT</label>
+    <select id="hatch-pattern" class="ctx-sel" onchange="hatchApplyOptions()"></select>
+    <label class="ctx-label">SCALE</label>
+    <input type="number" id="hatch-scale-input" value="1" min="0.01" step="0.25" class="ctx-num narrow" onchange="hatchApplyOptions()"/>
+    <label class="ctx-label">ANG</label>
+    <input type="number" id="hatch-angle-input" value="0" step="15" class="ctx-num narrow" onchange="hatchApplyOptions()"/>
+    <button class="ctx-btn go" onclick="hatchSelectedBoundaries()" title="Hatch the current selection">Fill</button>
+  </div>
+
   <!-- Polygon sides input (only shown for polygon tool) -->
   <div id="poly-bar" class="ctx-bar">
     <label class="ctx-label">SIDES</label>
@@ -2724,16 +2891,9 @@ body.kanvas-mode #app {
     <label class="ctx-label">CIRC</label>
     <input type="checkbox" id="poly-inscribed" checked title="Inscribed (vertices on circle) vs circumscribed"/>
   </div>
-  <div class="tool-grid-bottom">
-    <button class="tool-btn" id="btn-delete" onclick="deleteSelected()" style="color:#ff4455;" data-tip="Delete Selected" data-tip-key="Del" aria-label="Delete Selected (Del)">
-      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#ff4455" stroke-width="1.5">
-        <polyline points="3 6 5 6 21 6"/>
-        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
-        <path d="M10 11v6M14 11v6M9 6V4h6v2"/>
-      </svg></div>
-      <span class="tool-label" style="color:#ff4455;">DELETE</span>
-    </button>
-  </div>
+  </div><!-- end ctx-dock -->
+
+  <div class="tool-grid-bottom" id="tool-grid-bottom"></div>
 
   <div class="section-head">File</div>
   <div class="file-ops">
@@ -2792,6 +2952,33 @@ body.kanvas-mode #app {
       Import NC1
     </button>
     <input type="file" id="load-nc1" accept=".nc1,.NC1,.dstv,.DSTV" onchange="importNC1(event)">
+    <!-- PDF — vector import only (no raster). pdf.js is fetched lazily from
+         a CDN on first use, same pattern as the DWG WASM module but without
+         a build step: this works the moment a user has internet access, no
+         separate compile phase. See PDF-IMPORT.md. -->
+    <button class="op-btn pdfimp" onclick="openPDF()" title="Import vector line art and text from a PDF — fetches pdf.js from a CDN on first use">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 15v-4h1.5a1.5 1.5 0 0 1 0 3H9"/><path d="M13 15v-4h1.8"/><path d="M13 13h1.3"/></svg>
+      Import PDF
+    </button>
+    <input type="file" id="pdf-file" accept=".pdf,application/pdf" onchange="onPDFFile(event)">
+    <!-- STEP — cross-section import only, not a solid modeller. Same lazy
+         WASM pattern as PDF; the kernel walks a planar section of the
+         model and hands back ordinary 2D edges, which is the only shape
+         KAD's model space actually has anywhere to put. See
+         STEP-IMPORT-PLAN.md and STEP-SUPPORT.md.
+         Hidden (style="display:none" here and on the dropdown's "Import
+         STEP" item) same as DWG — until a kernel is picked (see
+         STEP-IMPORT-PLAN.md §2's andymai/occt-wasm vs. libcascade choice)
+         and stepKernelBridge()'s ASSUMED API calls are verified against
+         it. Further behind than DWG was: STEP_KERNEL_SOURCES still points
+         at a placeholder package name, not a real one pending a build.
+         stepNormalizeKernelOutput() and the rest of the pipeline are
+         untouched; re-enabling is removing those two style attributes. -->
+    <button class="op-btn stepimp" style="display:none;" onclick="openSTEP()" title="Import a planar cross-section from a STEP file — fetches a CAD kernel from a CDN on first use">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M8 15h3M8 12l3 3-3 3" transform="translate(1,-1)"/></svg>
+      Import STEP
+    </button>
+    <input type="file" id="step-file" accept=".step,.stp,.STEP,.STP" onchange="onSTEPFile(event)">
   </div>
 
   <!-- Coordinate Input Help -->
@@ -2876,6 +3063,9 @@ body.kanvas-mode #app {
   </div>
   <div id="hint">Press <span>L</span> Line · <span>A</span> Arc · <span>C</span> Circle · <span>R</span> Rect · <span>P</span> Poly · <span>F</span> Fillet · Right-click</div>
 </div>
+
+<div class="rail rail-v" id="rail-right" role="toolbar" aria-label="Modify tools"></div>
+<div class="rail rail-h" id="rail-bottom" role="toolbar" aria-label="Drafting modes"></div>
 
 </div><!-- end model-pane -->
 
@@ -3563,6 +3753,7 @@ body.kanvas-mode #app {
   <div class="ctx-sep"></div>
   <div class="ctx-head">Draw</div>
   <button class="ctx-item" onclick="setTool('pline');closeCtxMenu()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="3 20 8 8 14 14 21 4"/></svg>Polyline<span class="ctx-key">PL</span></button>
+  <button class="ctx-item" onclick="setTool('hatch');closeCtxMenu()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h16v16H4z"/><line x1="4" y1="12" x2="12" y2="4"/><line x1="4" y1="20" x2="20" y2="4"/><line x1="12" y1="20" x2="20" y2="12"/></svg>Hatch<span class="ctx-key">G</span></button>
   <button class="ctx-item" onclick="setTool('line');closeCtxMenu()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="4" y1="20" x2="20" y2="4"/></svg>Line<span class="ctx-key">L</span></button>
   <button class="ctx-item" onclick="setTool('arc');closeCtxMenu()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 19a9 9 0 0 1 14 0"/></svg>Arc<span class="ctx-key">A</span></button>
   <button class="ctx-item" onclick="setTool('circle');closeCtxMenu()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/></svg>Circle<span class="ctx-key">C</span></button>
@@ -3905,6 +4096,160 @@ body.kanvas-mode #app {
     <div class="dlg-actions">
       <button class="dlg-btn cancel" onclick="closeDxfDialog()">Cancel</button>
       <button class="dlg-btn commit" onclick="commitDxfImport()">Import</button>
+    </div>
+  </div>
+</div>
+
+<!-- PDF IMPORT DIALOG — a separate overlay, not a fourth branch of
+     #dxf-import-overlay above. That dialog's shape (unit picker OR NC1 part
+     fields, always a single grade list) doesn't fit a dialog needing two
+     independent option pickers plus a page-range field; forcing it in would
+     have meant threading PDF-only visibility toggles through code that
+     already juggles three sources. Reuses the SAME .dlg-* classes and the
+     same flex-column / scrolling-body / pinned-footer containment as the
+     dialog above, for an identical reason: this dialog's body can get tall
+     (file info + two option grids + a text field) and must not repeat the
+     888px-in-an-844px-viewport bug that dialog had before it was fixed. -->
+<div id="pdf-import-overlay">
+  <div id="pdf-import-dialog">
+    <div class="dlg-head">
+      <span class="dlg-title">Import PDF</span>
+      <button class="dlg-close" onclick="closePdfImport()">✕</button>
+    </div>
+    <div class="dlg-body">
+      <div class="dlg-file-info">
+        <div class="fi-name" id="pdfi-file">—</div>
+        <div class="fi-row">Pages<span id="pdfi-pages">—</span></div>
+        <div class="fi-row">Page size<span id="pdfi-size">—</span></div>
+      </div>
+
+      <div class="dlg-section-label">Text —</div>
+      <div class="dlg-merge-grid">
+        <button class="dlg-merge-btn selected" data-pdf-group="text" data-pdf-value="live" onclick="pdfPickCard('text','live')">
+          <span class="dmb-title">Live text</span>
+          <span class="dmb-sub">Editable, stays a TEXT object</span>
+        </button>
+        <button class="dlg-merge-btn" data-pdf-group="text" data-pdf-value="outline" onclick="pdfPickCard('text','outline')">
+          <span class="dmb-title">Glyph outlines</span>
+          <span class="dmb-sub">Curves — not editable as text</span>
+        </button>
+      </div>
+      <!-- Only meaningful once text is curves, so it stays out of the way
+           for the (much more common) live-text default. -->
+      <div id="pdfi-lines-row" class="fi-row" style="display:none;margin:-6px 0 12px;">
+        Fonts that refuse outlines<span style="color:var(--t3);">fall back to live text</span>
+      </div>
+
+      <div class="dlg-section-label">Curve tolerance —</div>
+      <div class="dlg-unit-grid">
+        <button class="dlg-unit-btn" data-pdf-group="tol" data-pdf-value="coarse" onclick="pdfPickCard('tol','coarse')">
+          <span class="dub-label">0.35</span>
+          <span class="dub-sub">coarse · mm</span>
+        </button>
+        <button class="dlg-unit-btn selected" data-pdf-group="tol" data-pdf-value="normal" onclick="pdfPickCard('tol','normal')">
+          <span class="dub-label">0.12</span>
+          <span class="dub-sub">normal · mm</span>
+        </button>
+        <button class="dlg-unit-btn" data-pdf-group="tol" data-pdf-value="fine" onclick="pdfPickCard('tol','fine')">
+          <span class="dub-label">0.04</span>
+          <span class="dub-sub">fine · mm</span>
+        </button>
+      </div>
+
+      <div class="pd-frow">
+        <label for="pdfi-range">Pages (blank = all)</label>
+        <input id="pdfi-range" type="text" placeholder="1-3, 5, 7-" autocomplete="off">
+      </div>
+
+      <!-- Every other importer in this file — DXF, DWG, NC1 — asks Merge or
+           Replace. This one silently always merged, which is the kind of
+           inconsistency a user notices by hitting it, not by reading about
+           it. Reuses pdfPickCard()/pdfPicked() as a third group rather than
+           inventing a separate mechanism. -->
+      <div class="dlg-section-label">Canvas —</div>
+      <div class="dlg-merge-grid">
+        <button class="dlg-merge-btn selected" data-pdf-group="place" data-pdf-value="merge" onclick="pdfPickCard('place','merge')">
+          <span class="dmb-title">Merge</span>
+          <span class="dmb-sub">Add to existing geometry</span>
+        </button>
+        <button class="dlg-merge-btn" data-pdf-group="place" data-pdf-value="replace" onclick="pdfPickCard('place','replace')">
+          <span class="dmb-title">Replace</span>
+          <span class="dmb-sub">Clear canvas first</span>
+        </button>
+      </div>
+
+      <div id="pdfi-status" class="fi-row" style="margin-top:4px;"></div>
+    </div>
+    <div class="dlg-actions">
+      <button class="dlg-btn cancel" onclick="closePdfImport()">Cancel</button>
+      <button class="dlg-btn commit" id="pdfi-go" onclick="pdfCommitImport()">Import</button>
+    </div>
+  </div>
+</div>
+
+<!-- STEP IMPORT DIALOG — cross-section only, said plainly in the copy
+     below rather than left implicit. Same self-contained overlay pattern
+     as PDF's own dialog, for the same reason PDF didn't reuse the DXF/DWG/
+     NC1 shared one: this needs its own independent option pickers (plane,
+     then Merge/Replace) plus a numeric field, a shape that dialog wasn't
+     built for. -->
+<div id="step-import-overlay">
+  <div id="step-import-dialog">
+    <div class="dlg-head">
+      <span class="dlg-title">Import STEP</span>
+      <button class="dlg-close" onclick="closeStepImport()">✕</button>
+    </div>
+    <div class="dlg-body">
+      <div class="dlg-file-info">
+        <div class="fi-name" id="stepi-file">—</div>
+        <div class="fi-row">Solids<span id="stepi-solids">—</span></div>
+      </div>
+
+      <div class="dlg-section-label">Section plane —</div>
+      <div class="dlg-unit-grid">
+        <button class="dlg-unit-btn selected" data-step-group="plane" data-step-value="xy" onclick="stepPickCard('plane','xy')">
+          <span class="dub-label">XY</span>
+          <span class="dub-sub">top-down</span>
+        </button>
+        <button class="dlg-unit-btn" data-step-group="plane" data-step-value="xz" onclick="stepPickCard('plane','xz')">
+          <span class="dub-label">XZ</span>
+          <span class="dub-sub">front</span>
+        </button>
+        <button class="dlg-unit-btn" data-step-group="plane" data-step-value="yz" onclick="stepPickCard('plane','yz')">
+          <span class="dub-label">YZ</span>
+          <span class="dub-sub">side</span>
+        </button>
+      </div>
+
+      <div class="pd-frow">
+        <label for="stepi-offset">Offset along the plane normal (mm)</label>
+        <input id="stepi-offset" type="number" value="0" step="any" autocomplete="off">
+      </div>
+
+      <!-- This is the honest limitation from STEP-IMPORT-PLAN.md §5, stated
+           here rather than only in documentation a user importing a file
+           will never open. -->
+      <div class="fi-row" style="margin:-4px 0 12px;">
+        <span style="color:var(--t3);">Curved solids need the right slice — this is a section, not a preview</span>
+      </div>
+
+      <div class="dlg-section-label">Canvas —</div>
+      <div class="dlg-merge-grid">
+        <button class="dlg-merge-btn selected" data-step-group="place" data-step-value="merge" onclick="stepPickCard('place','merge')">
+          <span class="dmb-title">Merge</span>
+          <span class="dmb-sub">Add to existing geometry</span>
+        </button>
+        <button class="dlg-merge-btn" data-step-group="place" data-step-value="replace" onclick="stepPickCard('place','replace')">
+          <span class="dmb-title">Replace</span>
+          <span class="dmb-sub">Clear canvas first</span>
+        </button>
+      </div>
+
+      <div id="stepi-status" class="fi-row" style="margin-top:4px;"></div>
+    </div>
+    <div class="dlg-actions">
+      <button class="dlg-btn cancel" onclick="closeStepImport()">Cancel</button>
+      <button class="dlg-btn commit" id="stepi-go" onclick="stepCommitImport()">Section &amp; Import</button>
     </div>
   </div>
 </div>
@@ -4432,9 +4777,68 @@ const GeoMemory = {
              pts: pts.map(p=>({x:parseFloat(p.x.toFixed(6)), y:parseFloat(p.y.toFixed(6))}))};
     this.objects.push(o); updateProps(); return o;
   },
+  // BEZIER: a chain of cubic segments — beziers = [{x0,y0,cx1,cy1,cx2,cy2,x3,y3}, ...],
+  // closed = bool. Same field shape the paperspace pen tool's KVM.paths already
+  // uses (kvFitBeziers) and the PDF importer's internal segment representation
+  // already uses (pdfInterpretPage) — chosen so existing bezier-handling code
+  // in this file needs adapting, not reinventing, to read or write these.
+  // Each segment restates its own x0,y0 rather than inheriting the previous
+  // segment's endpoint, matching that same existing convention exactly.
+  addBezierPath(beziers, closed=false, layer='Layer_0') {
+    if (!beziers || beziers.length < 1) return null;
+    const r6 = v => parseFloat(v.toFixed(6));
+    const o={id:this.nextId++, type:'BEZIER', layer, closed,
+             beziers: beziers.map(b=>({
+               x0:r6(b.x0), y0:r6(b.y0), cx1:r6(b.cx1), cy1:r6(b.cy1),
+               cx2:r6(b.cx2), cy2:r6(b.cy2), x3:r6(b.x3), y3:r6(b.y3),
+             }))};
+    this.objects.push(o); updateProps(); return o;
+  },
   addCircle(cx,cy,r,layer='Layer_0'){const o={id:this.nextId++,type:'CIRCLE',layer,cx:parseFloat(cx.toFixed(6)),cy:parseFloat(cy.toFixed(6)),r:parseFloat(r.toFixed(6))};this.objects.push(o);updateProps();return o;},
   addArc(cx,cy,r,startA,endA,ccw=true,layer='Layer_0'){const o={id:this.nextId++,type:'ARC',layer,cx:parseFloat(cx.toFixed(6)),cy:parseFloat(cy.toFixed(6)),r:parseFloat(r.toFixed(6)),startA:parseFloat(startA.toFixed(8)),endA:parseFloat(endA.toFixed(8)),ccw};this.objects.push(o);updateProps();return o;},
+  // HATCH: loops = [[{x,y},...], ...] — outer boundary first, islands after.
+  // Loops follow KAD's own closed-POLYLINE rule: the first point is NOT
+  // repeated at the end, because a loop is closed by definition.
+  //
+  // The boundary is stored TESSELLATED rather than as a reference to the
+  // entities it was picked from. KAD's object model is a flat array with no
+  // back-references and no dependency graph; live associativity would mean a
+  // change-propagation pass hanging off every edit path in the file. `assoc`
+  // keeps the source ids so a boundary can be re-hatched deliberately, which
+  // is the honest 90% of what associativity is actually used for.
+  addHatch(loops, opts={}, layer='Layer_0') {
+    if (!loops || !loops.length) return null;
+    const r6 = v => parseFloat(v.toFixed(6));
+    const clean = loops
+      .map(L => L.map(p => ({x:r6(p.x), y:r6(p.y)})))
+      .filter(L => L.length >= 3);
+    if (!clean.length) return null;
+    const o = {
+      id:this.nextId++, type:'HATCH', layer,
+      loops: clean,
+      pattern: opts.pattern || 'ANSI31',
+      scale:   opts.scale   || 1,
+      angle:   opts.angle   || 0,
+      origin:  opts.origin  || {x:0, y:0},
+      assoc:   opts.assoc   || null,
+    };
+    this.objects.push(o); updateProps(); return o;
+  },
   addText(x,y,text,height=5,layer='Layer_0'){const o={id:this.nextId++,type:'TEXT',layer,x,y,text,height};this.objects.push(o);updateProps();return o;},
+  // Paint order. The render loop walked objects in insertion order, which
+  // meant a hatch created after its boundary — i.e. every hatch — painted
+  // over the boundary lines that define it. Fills go behind strokes, always.
+  // Returns the live array untouched when there is nothing to reorder, so a
+  // drawing with no hatch pays one scan and allocates nothing.
+  drawOrder() {
+    let n = 0;
+    for (const o of this.objects) if (o.type === 'HATCH') n++;
+    if (n === 0) return this.objects;
+    const h = [], r = [];
+    for (const o of this.objects) (o.type === 'HATCH' ? h : r).push(o);
+    return h.concat(r);
+  },
+
   remove(id) {
     this.objects = this.objects.filter(o=>o.id!==id); updateProps();
   },
@@ -4455,6 +4859,12 @@ const GeoMemory = {
         pts.push({x:o.cx+o.r*Math.cos(o.startA),y:o.cy+o.r*Math.sin(o.startA)});
         pts.push({x:o.cx+o.r*Math.cos(o.endA),  y:o.cy+o.r*Math.sin(o.endA)});
         pts.push({x:o.cx,y:o.cy});
+      } else if(o.type==='BEZIER'){
+        // Every segment joint is a real endpoint to snap to, matching how a
+        // POLYLINE's own vertices are all snap candidates above.
+        for(const b of o.beziers) pts.push({x:b.x0,y:b.y0});
+        const last=o.beziers[o.beziers.length-1];
+        pts.push({x:last.x3,y:last.y3});
       }
     }
     return pts;
@@ -4474,6 +4884,453 @@ const GeoMemory = {
     }catch(e){ return false; }
   },
 };
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  HATCH ENGINE
+//  ────────────────────────────────────────────────────────────────────────────
+//  Patterns are declared in the grammar AutoCAD's own .pat files use — each
+//  line family is [angle, x-origin, y-origin, delta-x, delta-y, dash[]] — for
+//  two reasons. It is the compact, complete description of a hatch family, and
+//  it is the same set of numbers DXF group codes 53/43/44/45/46/49 want, so
+//  exporting a HATCH entity is a transcription rather than a translation.
+//
+//  delta-x shifts successive lines ALONG their own direction (that is what
+//  staggers a brick pattern); delta-y is the perpendicular spacing. Dash
+//  entries are lengths: positive draws, negative skips.
+//
+//  Values are millimetres — KAD's internal unit — converted from the inch
+//  figures in the stock ANSI patterns.
+// ══════════════════════════════════════════════════════════════════════════════
+const HATCH_PATTERNS = {
+  SOLID:    { label:'Solid',            solid:true },
+  ANSI31:   { label:'Steel / iron',     lines:[[45, 0, 0, 0, 3.175]] },
+  ANSI32:   { label:'Steel (heavy)',    lines:[[45, 0, 0, 0, 9.525], [45, 4.4979, 0, 0, 9.525]] },
+  ANSI33:   { label:'Bronze / brass',   lines:[[45, 0, 0, 0, 6.35], [45, 0.8865, 0, 0, 6.35, [3.175, -1.5875]]] },
+  ANSI37:   { label:'Plastic / rubber', lines:[[45, 0, 0, 0, 3.175], [135, 0, 0, 0, 3.175]] },
+  CROSS:    { label:'Crosshatch',       lines:[[0, 0, 0, 0, 3.175], [90, 0, 0, 0, 3.175]] },
+  EARTH:    { label:'Earth / fill',     lines:[[45, 0, 0, 0, 6.35, [6.35, -1.5875]], [135, 0, 0, 0, 6.35, [6.35, -1.5875]]] },
+  LINE:     { label:'Parallel lines',   lines:[[0, 0, 0, 0, 3.175]] },
+  DOTS:     { label:'Dots',             lines:[[0, 0, 0, 3.175, 3.175, [0, -3.175]]] },
+  CONCRETE: { label:'Concrete',         stochastic:true },
+};
+
+// Hard cap on generated segments per hatch. Without it, a pattern scale that
+// is small relative to the boundary generates unbounded geometry and locks
+// the tab — the classic AutoCAD hatch freeze. In a single-file app running
+// from file:// that costs the user their drawing, so this is a correctness
+// requirement, not a performance tweak.
+const HATCH_MAX_SEGMENTS = 5000;
+
+// Cache/diagnostic fields must never be enumerable: structuredClone (undo
+// snapshots) and JSON.stringify (the .kad file, DXF, the clipboard) all walk
+// own enumerable properties, so a plain assignment would persist derived
+// state into saved drawings and reload it as if it were authored geometry.
+function hatchSetHidden(o, k, v) {
+  Object.defineProperty(o, k, {value:v, writable:true, configurable:true, enumerable:false});
+}
+
+function hatchLoopsBBox(loops) {
+  let minx=Infinity, maxx=-Infinity, miny=Infinity, maxy=-Infinity;
+  for (const L of loops) for (const p of L) {
+    if (p.x<minx) minx=p.x;  if (p.x>maxx) maxx=p.x;
+    if (p.y<miny) miny=p.y;  if (p.y>maxy) maxy=p.y;
+  }
+  return {minx, maxx, miny, maxy};
+}
+
+// Even-odd across ALL loops at once. Island detection falls out of this for
+// free: a point inside an outer loop and inside one hole is crossed twice, so
+// it reads as outside. No separate nesting pass, no containment tests.
+function hatchPointInside(loops, x, y) {
+  let inside = false;
+  for (const L of loops) {
+    for (let i=0, j=L.length-1; i<L.length; j=i++) {
+      const xi=L[i].x, yi=L[i].y, xj=L[j].x, yj=L[j].y;
+      if (((yi>y) !== (yj>y)) && (x < (xj-xi)*(y-yi)/(yj-yi) + xi)) inside = !inside;
+    }
+  }
+  return inside;
+}
+
+// Deterministic PRNG (mulberry32). The speckle patterns MUST be stable: an
+// unseeded Math.random() would reshuffle the aggregate on every frame, so the
+// drawing would crawl while panning and the exported DXF would not match what
+// was on screen. Seeded from the entity id, so it also survives a reload.
+function hatchRandom(seed) {
+  let a = (seed >>> 0) || 1;
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Generates the hatch geometry in WORLD space. Cached on the entity as _lines
+// (non-enumerable so it never reaches serialize(), the .kad file, or a diff).
+function hatchLines(o) {
+  const pat = HATCH_PATTERNS[o.pattern] || HATCH_PATTERNS.ANSI31;
+  if (pat.solid) return [];
+  const scale = Math.max(o.scale || 1, 1e-4);
+  const loops = o.loops;
+  if (!loops || !loops.length) return [];
+  const bb = hatchLoopsBBox(loops);
+  const out = [];
+  let truncated = false;
+
+  if (pat.stochastic) {
+    // Aggregate: seeded speckle, rejected against the boundary. Density is
+    // per unit area so the look does not change with the size of the region.
+    const rnd = hatchRandom(o.id * 2654435761);
+    const cell = 4 * scale;
+    const w = bb.maxx-bb.minx, h = bb.maxy-bb.miny;
+    const target = Math.min(Math.ceil((w*h)/(cell*cell)) * 3, HATCH_MAX_SEGMENTS);
+    for (let i=0; i<target*4 && out.length<target; i++) {
+      const x = bb.minx + rnd()*w, y = bb.miny + rnd()*h;
+      if (!hatchPointInside(loops, x, y)) continue;
+      const a = rnd()*Math.PI, r = (0.35 + rnd()*0.9) * scale;
+      out.push({x1:x-Math.cos(a)*r, y1:y-Math.sin(a)*r, x2:x+Math.cos(a)*r, y2:y+Math.sin(a)*r});
+    }
+    hatchSetHidden(o, '_truncated', false);
+    return out;
+  }
+
+  for (const fam of pat.lines) {
+    const [fa, fox, foy, fdx, fdy, dash] = fam;
+    const ang = (fa + (o.angle||0)) * Math.PI/180;
+    const ca = Math.cos(ang), sa = Math.sin(ang);
+    const ox = (o.origin ? o.origin.x : 0) + fox*scale;
+    const oy = (o.origin ? o.origin.y : 0) + foy*scale;
+    const dy = (fdy||0) * scale;
+    const dx = (fdx||0) * scale;
+    if (Math.abs(dy) < 1e-9) continue;      // a family with no spacing is one line — skip
+
+    // Rotate every loop into pattern space, where the family runs along +X.
+    const P = loops.map(L => L.map(p => {
+      const rx = p.x - ox, ry = p.y - oy;
+      return {x: rx*ca + ry*sa, y: -rx*sa + ry*ca};
+    }));
+    const pb = hatchLoopsBBox(P);
+
+    const i0 = Math.floor(pb.miny / dy) - 1;
+    const i1 = Math.ceil (pb.maxy / dy) + 1;
+    if (!isFinite(i0) || !isFinite(i1)) continue;
+    // Bail before generating rather than after: (i1-i0) is the honest count
+    // of sweep lines and is known up front.
+    if ((i1 - i0) > HATCH_MAX_SEGMENTS) { truncated = true; continue; }
+
+    const xs = [];
+    for (let i=i0; i<=i1 && !truncated; i++) {
+      const y = i * dy;
+      const shift = i * dx;
+      xs.length = 0;
+      for (const L of P) {
+        for (let k=0, j=L.length-1; k<L.length; j=k++) {
+          const y1 = L[j].y, y2 = L[k].y;
+          if ((y1 > y) === (y2 > y)) continue;           // no crossing
+          const t = (y - y1) / (y2 - y1);
+          xs.push(L[j].x + t * (L[k].x - L[j].x));
+        }
+      }
+      if (xs.length < 2) continue;
+      xs.sort((a,b) => a-b);
+      for (let s=0; s+1<xs.length; s+=2) {
+        let a0 = xs[s], a1 = xs[s+1];
+        if (a1 - a0 < 1e-9) continue;
+        // Dash the span. Phase is taken from the span's own start offset by
+        // the family shift so adjacent rows stagger the way .pat intends.
+        const spans = dash && dash.length ? hatchDashSpan(a0, a1, dash, scale, shift) : [[a0, a1]];
+        for (const [b0, b1] of spans) {
+          if (out.length >= HATCH_MAX_SEGMENTS) { truncated = true; break; }
+          // Back to world space.
+          out.push({
+            x1: ox + (b0+shift)*ca - y*sa, y1: oy + (b0+shift)*sa + y*ca,
+            x2: ox + (b1+shift)*ca - y*sa, y2: oy + (b1+shift)*sa + y*ca,
+          });
+        }
+        if (truncated) break;
+      }
+    }
+  }
+  hatchSetHidden(o, '_truncated', truncated);
+  return out;
+}
+
+// Splits [a0,a1] according to a .pat dash list. Positive entries draw,
+// negative entries skip; a zero-length "dash" is a dot and is given a
+// hairline so it survives as a visible mark.
+function hatchDashSpan(a0, a1, dash, scale, phase) {
+  const cycle = dash.reduce((s,d) => s + Math.abs(d), 0) * scale;
+  if (cycle < 1e-9) return [[a0, a1]];
+  const spans = [];
+  // Start on the cycle boundary at or before a0 so neighbouring spans on the
+  // same sweep line stay in phase with each other.
+  let t = Math.floor((a0 - phase) / cycle) * cycle + phase;
+  let guard = 0;
+  while (t < a1 && guard++ < 4096) {
+    for (const d of dash) {
+      const len = Math.abs(d) * scale || (0.15 * scale);
+      if (d >= 0) {
+        const s0 = Math.max(t, a0), s1 = Math.min(t + len, a1);
+        if (s1 > s0) spans.push([s0, s1]);
+      }
+      t += len;
+      if (t >= a1) break;
+    }
+  }
+  return spans;
+}
+
+// Cached accessor. _lines is rebuilt only when the inputs change; the key is
+// cheap to compute and cheaper than regenerating thousands of segments.
+function hatchGetLines(o) {
+  const key = o.pattern + '|' + o.scale + '|' + o.angle + '|' +
+              (o.origin ? o.origin.x + ',' + o.origin.y : '0,0') + '|' + (o._rev || 0);
+  if (o._lines && o._linesKey === key) return o._lines;
+  const lines = hatchLines(o);
+  hatchSetHidden(o, '_lines', lines);
+  hatchSetHidden(o, '_linesKey', key);
+  return lines;
+}
+// Call after any edit to loops/origin — bumps the cache key without having to
+// hash the whole point list.
+function hatchInvalidate(o) {
+  hatchSetHidden(o, '_rev', (o._rev||0)+1);
+}
+
+
+// ── HATCH TOOL ───────────────────────────────────────────────────────────
+// Live options. Editing pattern/scale/angle re-hatches whatever is selected
+// as well as setting the default for the next fill, because choosing a hatch
+// scale by guessing and redrawing is the single most tedious thing about
+// hatching in every CAD package that makes you do it that way.
+let hatchOpts = { pattern:'ANSI31', scale:1, angle:0 };
+
+// Loops accumulated by shift-clicking before the fill is committed. Held
+// separately from the entity so a half-built boundary can be abandoned with
+// Escape without leaving anything in the drawing.
+let hatchPending = { loops:[], srcIds:[] };
+
+function hatchPopulatePatternSelect() {
+  const sel = document.getElementById('hatch-pattern');
+  if (!sel || sel.options.length) return;
+  for (const k in HATCH_PATTERNS) {
+    const opt = document.createElement('option');
+    opt.value = k;
+    opt.textContent = HATCH_PATTERNS[k].label + ' (' + k + ')';
+    sel.appendChild(opt);
+  }
+  sel.value = hatchOpts.pattern;
+}
+
+function hatchReadOptions() {
+  const sel = document.getElementById('hatch-pattern');
+  const sc  = document.getElementById('hatch-scale-input');
+  const an  = document.getElementById('hatch-angle-input');
+  if (sel && sel.value) hatchOpts.pattern = sel.value;
+  if (sc) {
+    const v = parseFloat(sc.value);
+    // A scale of zero or negative is not a small hatch, it is an infinite
+    // one — clamp at the input rather than discovering it in the generator.
+    hatchOpts.scale = (isFinite(v) && v > 0) ? v : 1;
+    if (hatchOpts.scale !== v) sc.value = hatchOpts.scale;
+  }
+  if (an) { const v = parseFloat(an.value); hatchOpts.angle = isFinite(v) ? v : 0; }
+  return hatchOpts;
+}
+
+// Applies the current options to every selected hatch. Silent no-op when the
+// selection contains no hatches — the controls still set the default.
+function hatchApplyOptions() {
+  hatchReadOptions();
+  let n = 0;
+  for (const o of GeoMemory.objects) {
+    if (o.type !== 'HATCH' || !selectedIds.has(o.id)) continue;
+    o.pattern = hatchOpts.pattern;
+    o.scale   = hatchOpts.scale;
+    o.angle   = hatchOpts.angle;
+    hatchInvalidate(o);
+    n++;
+  }
+  // updateProps() is the single choke point that marks the model dirty and
+  // therefore schedules the undo snapshot — there is no separate push here.
+  if (n) updateProps();
+  render();
+  if (n) showToast('Updated ' + n + ' hatch' + (n !== 1 ? 'es' : ''));
+}
+
+// Commits a hatch from a list of loops. Shared by every entry point so the
+// truncation warning and the ordering rule can only be written once.
+function hatchCommit(loops, layer, srcIds) {
+  const ordered = hatchOrderLoops(loops);
+  const o = GeoMemory.addHatch(ordered, {
+    pattern: hatchOpts.pattern, scale: hatchOpts.scale, angle: hatchOpts.angle,
+    origin: {x:ordered[0][0].x, y:ordered[0][0].y},
+    assoc: srcIds && srcIds.length ? srcIds.slice() : null,
+  }, layer);
+  if (!o) { showToast('Boundary too small to hatch'); return null; }
+  // Generate immediately rather than lazily at first paint: the cap has to
+  // be reported to the user at the moment they asked for the hatch, not
+  // silently on some later frame.
+  hatchGetLines(o);
+  if (o._truncated) {
+    showToast('Hatch scale too small for this boundary — pattern truncated. Raise SCALE.');
+  }
+  return o;
+}
+
+function hatchClickAt(wx, wy, e) {
+  // pickObject(), not pickLine(): pickLine only ever returns LINE entities,
+  // and a hatch boundary is a closed POLYLINE, a CIRCLE or a closed BEZIER —
+  // never a bare LINE. pickObject is the general picker every other
+  // shape-aware tool uses.
+  const hit = pickObject(mouseScreen.x, mouseScreen.y);
+  if (hit && hit.type === 'HATCH') {
+    // Clicking an existing fill means "edit this one", not "use it as a
+    // boundary" — a hatch is not a closed shape you can hatch again.
+    selectedIds.clear(); selectedIds.add(hit.id);
+    const sel = document.getElementById('hatch-pattern');
+    const sc  = document.getElementById('hatch-scale-input');
+    const an  = document.getElementById('hatch-angle-input');
+    if (sel) sel.value = hit.pattern;
+    if (sc)  sc.value  = hit.scale;
+    if (an)  an.value  = hit.angle;
+    hatchReadOptions();
+    updateSelectionProps(); render();
+    showToast('Hatch selected — change PAT / SCALE / ANG to edit it');
+    return;
+  }
+  const loop = hatchLoopFromEntity(hit);
+  if (!loop) {
+    showToast('Click a closed shape — closed polyline, circle or closed curve');
+    return;
+  }
+  const additive = e && (e.shiftKey || e.ctrlKey || e.metaKey);
+  if (additive) {
+    // Island mode. Even-odd does the rest: a loop inside the outer one
+    // becomes a hole with no explicit nesting logic anywhere.
+    hatchPending.loops.push(loop);
+    hatchPending.srcIds.push(hit.id);
+    showToast('Boundary ' + hatchPending.loops.length + ' added — click without Shift to fill');
+    render();
+    return;
+  }
+  const loops  = hatchPending.loops.concat([loop]);
+  const srcIds = hatchPending.srcIds.concat([hit.id]);
+  hatchPending = { loops:[], srcIds:[] };
+  const o = hatchCommit(loops, hit.layer || activeLayer || 'Layer_0', srcIds);
+  if (o) showToast('Hatched · ' + (HATCH_PATTERNS[o.pattern] || {}).label);
+  render();
+}
+
+// Fill everything currently selected. Nested shapes in one selection become
+// islands of a single hatch; separate shapes each get their own.
+function hatchSelectedBoundaries() {
+  hatchReadOptions();
+  const sel = GeoMemory.objects.filter(o => selectedIds.has(o.id));
+  if (!sel.length) { showToast('Select closed shapes first, then Fill'); return; }
+  const picked = [];
+  for (const o of sel) {
+    const L = hatchLoopFromEntity(o);
+    if (L) picked.push({loop:L, o});
+  }
+  if (!picked.length) { showToast('Selection has no closed shapes to fill'); return; }
+
+  // Group by containment: any loop wholly inside another joins it as an
+  // island rather than being hatched separately on top of it.
+  const ordered = picked.slice().sort((a,b) => hatchPolyArea(b.loop) - hatchPolyArea(a.loop));
+  const groups = [];
+  for (const item of ordered) {
+    const host = groups.find(g =>
+      hatchPointInside([g.loops[0]], item.loop[0].x, item.loop[0].y));
+    if (host) { host.loops.push(item.loop); host.ids.push(item.o.id); }
+    else groups.push({loops:[item.loop], ids:[item.o.id], layer:item.o.layer});
+  }
+  let n = 0;
+  for (const g of groups)
+    if (hatchCommit(g.loops, g.layer || activeLayer || 'Layer_0', g.ids)) n++;
+  render();
+  showToast('Created ' + n + ' hatch' + (n !== 1 ? 'es' : ''));
+}
+
+// Re-hatch from the stored source ids. This is what `assoc` buys instead of
+// live associativity: an explicit "the boundary moved, redo the fill".
+function hatchRebuildSelected() {
+  const targets = GeoMemory.objects.filter(o => o.type === 'HATCH' && selectedIds.has(o.id));
+  if (!targets.length) { showToast('Select a hatch to rebuild'); return; }
+  let n = 0, missing = 0;
+  for (const h of targets) {
+    if (!h.assoc || !h.assoc.length) { missing++; continue; }
+    const loops = [];
+    for (const id of h.assoc) {
+      const src = GeoMemory.objects.find(o => o.id === id);
+      const L = hatchLoopFromEntity(src);
+      if (L) loops.push(L);
+    }
+    if (!loops.length) { missing++; continue; }
+    h.loops = hatchOrderLoops(loops);
+    hatchInvalidate(h);
+    n++;
+  }
+  if (n) { updateProps(); render(); }
+  showToast(n ? ('Rebuilt ' + n + ' hatch' + (n !== 1 ? 'es' : '') + (missing ? ' · ' + missing + ' had no source' : ''))
+              : 'No rebuildable hatch — source boundaries were deleted');
+}
+
+function hatchCancelPending() {
+  if (!hatchPending.loops.length) return false;
+  hatchPending = { loops:[], srcIds:[] };
+  showToast('Hatch boundary cleared');
+  render();
+  return true;
+}
+
+// ── BOUNDARY ACQUISITION ─────────────────────────────────────────────────
+// v1 acquires from entities the user has already selected or clicked, which
+// needs no planar arrangement: a closed POLYLINE, a CIRCLE and a closed
+// BEZIER each already describe a loop. Picking an arbitrary internal point
+// and tracing whatever encloses it is a genuinely different problem (a planar
+// subdivision over every entity in view) and is deliberately not attempted
+// here rather than half-attempted.
+function hatchLoopFromEntity(o) {
+  if (!o) return null;
+  if (o.type === 'POLYLINE' && o.closed && o.pts.length >= 3) {
+    return o.pts.map(p => ({x:p.x, y:p.y}));
+  }
+  if (o.type === 'CIRCLE') {
+    // Segment count scales with radius so a large circle does not become a
+    // visible polygon, and a small one does not carry 128 useless points.
+    const n = Math.max(24, Math.min(180, Math.ceil(o.r * 2)));
+    const pts = [];
+    for (let i=0; i<n; i++) {
+      const a = (i/n) * Math.PI * 2;
+      pts.push({x:o.cx + o.r*Math.cos(a), y:o.cy + o.r*Math.sin(a)});
+    }
+    return pts;
+  }
+  if (o.type === 'BEZIER' && o.closed && o.beziers.length) {
+    const pts = [{x:o.beziers[0].x0, y:o.beziers[0].y0}];
+    for (const b of o.beziers)
+      flattenCubic({x:b.x0,y:b.y0},{x:b.cx1,y:b.cy1},{x:b.cx2,y:b.cy2},{x:b.x3,y:b.y3}, 0.12, pts);
+    if (pts.length > 3) pts.pop();   // flattenCubic restates the final point
+    return pts;
+  }
+  return null;
+}
+
+function hatchPolyArea(L) {
+  let a = 0;
+  for (let i=0, j=L.length-1; i<L.length; j=i++) a += (L[j].x + L[i].x) * (L[j].y - L[i].y);
+  return Math.abs(a/2);
+}
+
+// Orders acquired loops largest-first. Even-odd fill then treats anything
+// nested as a hole automatically, so this is the whole of island handling —
+// the ordering only matters for the DXF external-boundary flag.
+function hatchOrderLoops(loops) {
+  return loops.slice().sort((a,b) => hatchPolyArea(b) - hatchPolyArea(a));
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  OBJECT SNAP ENGINE
@@ -4997,6 +5854,7 @@ function applyGridSnap(w) {
 }
 
 // ── STATE ───────────────────────────────────────────────
+let activeToolRequested = 'pline';
 let activeTool   = 'select';
 let mouseWorld   = {x:0,y:0};
 let mouseScreen  = {x:0,y:0};
@@ -5095,6 +5953,9 @@ function restoreSnapshot(space, s) {
       activeLayer = s.activeLayer;
       if (typeof selectedIds !== 'undefined') selectedIds.clear();
       buildLayerPanel();
+    // The pattern list is built from HATCH_PATTERNS rather than written into
+    // the markup, so adding a pattern is a one-line table edit.
+    hatchPopulatePatternSelect();
       updateProps();
       render();
     }
@@ -6202,6 +7063,27 @@ function pickObject(sx,sy) {
         const a=Math.atan2(w.y-o.cy,w.x-o.cx);
         if(angleOnArc(a,o.startA,o.endA,o.ccw)) return o;
       }
+    } else if(o.type==='HATCH'){
+      // Every other type is hit by proximity to a stroke. A hatch has no
+      // stroke of its own that the user thinks of as the object — they
+      // click the filled area — so this is a containment test instead.
+      const w = screenToWorld(sx, sy);
+      if (hatchPointInside(o.loops, w.x, w.y)) return o;
+    } else if(o.type==='BEZIER'){
+      // Point-on-cubic-curve distance has no closed form — tessellate with
+      // the same flattenCubic() the PDF importer already relies on, then
+      // fall back to the same segment-distance test every straight-edged
+      // type above already uses. A 0.3mm world tolerance is coarser than
+      // export-quality tessellation needs to be; this is a throwaway click
+      // check, not geometry that ends up in the drawing.
+      for(const b of o.beziers){
+        const pts=[{x:b.x0,y:b.y0}];
+        flattenCubic({x:b.x0,y:b.y0},{x:b.cx1,y:b.cy1},{x:b.cx2,y:b.cy2},{x:b.x3,y:b.y3},0.3,pts);
+        for(let i=0;i<pts.length-1;i++){
+          const a=worldToScreen(pts[i].x,pts[i].y), c=worldToScreen(pts[i+1].x,pts[i+1].y);
+          if(ptSegDist(sx,sy,a.x,a.y,c.x,c.y)<HIT_PX) return o;
+        }
+      }
     }
   }
   return null;
@@ -6280,6 +7162,11 @@ function selectionCentroid() {
       const bb=arcBBox(o.cx,o.cy,o.r,o.startA,o.endA,o.ccw);
       x0=Math.min(x0,bb.minX); x1=Math.max(x1,bb.maxX);
       y0=Math.min(y0,bb.minY); y1=Math.max(y1,bb.maxY);
+    } else if (o.type === 'HATCH') {
+      for (const L of o.loops) for (const p of L) {
+        x0=Math.min(x0,p.x); x1=Math.max(x1,p.x);
+        y0=Math.min(y0,p.y); y1=Math.max(y1,p.y);
+      }
     }
   }
   if (!isFinite(x0)) return null;
@@ -6313,6 +7200,16 @@ function rotateSelected(deltaDeg, pivot) {
       o.x1=na.x;o.y1=na.y;o.x2=nb.x;o.y2=nb.y; count++;
     } else if(o.type==='POLYLINE'){
       o.pts=o.pts.map(pt=>rotatePoint(pt.x,pt.y,p.x,p.y,deltaDeg));
+      count++;
+    } else if(o.type==='HATCH'){
+      // Boundary AND pattern origin both rotate; the pattern angle advances
+      // by the same amount so the hatching turns with the part rather than
+      // staying locked to world axes while its outline swings around it.
+      o.loops = o.loops.map(L => L.map(pt => rotatePoint(pt.x,pt.y,p.x,p.y,deltaDeg)));
+      const no = rotatePoint(o.origin.x, o.origin.y, p.x, p.y, deltaDeg);
+      o.origin = {x:no.x, y:no.y};
+      o.angle  = (o.angle || 0) + deltaDeg;
+      hatchInvalidate(o);
       count++;
     } else if(o.type==='CIRCLE'){
       const nc=rotatePoint(o.cx,o.cy,p.x,p.y,deltaDeg);
@@ -7083,6 +7980,10 @@ function drawRotatePreview() {
 
 // ── TOOL MANAGEMENT ─────────────────────────────────────
 function cancelTool() {
+  // A half-built hatch boundary is invisible until it is filled, so leaving
+  // one alive past a cancel means the next fill silently includes shapes the
+  // user picked minutes ago.
+  if (typeof hatchCancelPending === 'function') hatchCancelPending();
   // Acquired points belong to the command that acquired them. An alignment
   // path that outlives its command is a trap: it is invisible until you happen
   // to cross it, and then it silently moves your point.
@@ -7128,10 +8029,19 @@ function setTool(tool) {
   }
 
   activeTool = tool;
+  // PLINE and LINE share activeTool 'line' (see above), so activeTool alone
+  // cannot say which button should be lit. renderTools() has to re-assert the
+  // highlight after it rebuilds the markup for a new layout, and re-asserting
+  // from activeTool would light LINE every time the user was in PLINE.
+  activeToolRequested = requested;
 
   document.querySelectorAll('.tool-btn').forEach(b=>b.classList.remove('active'));
-  const btnMap={select:'btn-select',pline:'btn-pline',line:'btn-line',rect:'btn-rect',polygon:'btn-polygon',offset:'btn-offset',rotate:'btn-rotate',circle:'btn-circle',arc:'btn-arc',kompass:'btn-kompass',fillet:'btn-fillet',chamfer:'btn-chamfer',mirror:'btn-mirror',dim:'btn-dim',trim:'btn-trim',extend:'btn-extend',break:'btn-break',scale:'btn-scale',stretch:'btn-stretch',text:'btn-text'};
-  const btnEl = document.getElementById(btnMap[requested]||'');
+  // Hand-maintained tool->button map, kept only for tools whose button id
+  // does not match the tool name. Everything else resolves by convention,
+  // so a new tool no longer has to be registered in two places — which is
+  // exactly how HATCH shipped without lighting its own button.
+  const btnMap={select:'btn-select',pline:'btn-pline',line:'btn-line',rect:'btn-rect',polygon:'btn-polygon',offset:'btn-offset',rotate:'btn-rotate',circle:'btn-circle',arc:'btn-arc',kompass:'btn-kompass',fillet:'btn-fillet',chamfer:'btn-chamfer',mirror:'btn-mirror',dim:'btn-dim',trim:'btn-trim',extend:'btn-extend',break:'btn-break',scale:'btn-scale',stretch:'btn-stretch',text:'btn-text',hatch:'btn-hatch'};
+  const btnEl = document.getElementById(btnMap[requested] || ('btn-' + requested));
   if(btnEl) btnEl.classList.add('active');
   
   // Update KOMMAND bar context button — shows the active tool's name so
@@ -7145,6 +8055,7 @@ function setTool(tool) {
 
   document.getElementById('offset-bar').style.display  = tool==='offset'?'flex':'none';
   document.getElementById('poly-bar').style.display    = tool==='polygon'?'flex':'none';
+  document.getElementById('hatch-bar').style.display   = tool==='hatch'?'flex':'none';
   document.getElementById('arc-bar').style.display     = tool==='arc'?'flex':'none';
   document.getElementById('fillet-bar').style.display  = tool==='fillet'?'flex':'none';
   document.getElementById('chamfer-bar').style.display = tool==='chamfer'?'flex':'none';
@@ -7171,6 +8082,7 @@ function setTool(tool) {
     rotate:  'Drag box to select · <span>Click</span> canvas to set angle · Drag <span>pivot ⊕</span> to reposition it · <span>Q/E</span> ±90° · sidebar for precision',
     mirror:  'Select objects first (<span>S</span>) · Choose axis in sidebar · <span>Apply</span> to mirror. For 2-Pt axis: click two points on canvas.',
     measure: '<span>Click</span> first point → <span>click</span> second point — distance and angle shown in sidebar',
+    hatch:   '<span>Click</span> a closed shape to fill it · Shift+click adds an island · Or select shapes and press <span>Fill</span>',
   };
   document.getElementById('hint').innerHTML = hintMap[tool]||'';
 
@@ -7182,7 +8094,7 @@ function setTool(tool) {
   // drawer slid shut before the control could ever be seen or touched —
   // the tool looked broken, when the control was actually there the
   // whole time, just permanently off-screen.
-  const SIDEBAR_ESSENTIAL_TOOLS = ['fillet','chamfer','offset','arc','polygon','mirror','measure'];
+  const SIDEBAR_ESSENTIAL_TOOLS = ['fillet','chamfer','offset','arc','polygon','mirror','measure','hatch'];
   if (document.body.classList.contains('mobile-mode') && !SIDEBAR_ESSENTIAL_TOOLS.includes(tool)) toggleMobileSidebar(false);
 
   updateCursor();
@@ -7296,6 +8208,9 @@ function selBoxWindow(obj, lx, rx, by, ty) {
   if(obj.type==='POLYLINE'){
     return obj.pts.every(p=>p.x>=lx&&p.x<=rx&&p.y>=by&&p.y<=ty);
   }
+  if(obj.type==='HATCH'){
+    return obj.loops.every(L=>L.every(p=>p.x>=lx&&p.x<=rx&&p.y>=by&&p.y<=ty));
+  }
   if(obj.type==='CIRCLE'){
     return obj.cx-obj.r>=lx&&obj.cx+obj.r<=rx&&
            obj.cy-obj.r>=by&&obj.cy+obj.r<=ty;
@@ -7312,6 +8227,19 @@ function selBoxCrossing(obj, lx, rx, by, ty) {
     if((obj.x1>=lx&&obj.x1<=rx&&obj.y1>=by&&obj.y1<=ty)||
        (obj.x2>=lx&&obj.x2<=rx&&obj.y2>=by&&obj.y2<=ty)) return true;
     return segIntersectsBox(obj.x1,obj.y1,obj.x2,obj.y2, lx,rx,by,ty);
+  }
+  if(obj.type==='HATCH'){
+    // Crossing selection catches a hatch if the box touches its boundary OR
+    // lands anywhere in the filled area — the fill is the object as far as
+    // the user is concerned, so a box entirely inside a large hatch must
+    // still pick it up.
+    for(const L of obj.loops){
+      for(let i=0,j=L.length-1;i<L.length;j=i++){
+        if(L[i].x>=lx&&L[i].x<=rx&&L[i].y>=by&&L[i].y<=ty) return true;
+        if(segIntersectsBox(L[j].x,L[j].y,L[i].x,L[i].y, lx,rx,by,ty)) return true;
+      }
+    }
+    return hatchPointInside(obj.loops, (lx+rx)/2, (by+ty)/2);
   }
   if(obj.type==='POLYLINE'){
     const n=obj.pts.length, segs=obj.closed?n:n-1;
@@ -8176,6 +9104,7 @@ function onMouseDown(e) {
       render();return;
     }
 
+    if(activeTool==='hatch')   { hatchClickAt(wp.x, wp.y, e); return; }
     if(activeTool==='trim')    { applyTrim();            return; }
     if(activeTool==='extend')  { applyExtend();          return; }
     if(activeTool==='break')   { applyBreak(wp.x,wp.y); return; }
@@ -8602,6 +9531,7 @@ function onKeyDown(e) {
     if(k==='v'||k==='V') setTool('kompass');   // V = Kompass (K is taken by KOMMAND focus)
     if(k==='f'||k==='F') setTool('fillet');
     if(k==='h'||k==='H') setTool('chamfer');   // H = cHamfer, sits beside fillet
+    if(k==='g'||k==='G') setTool('hatch');     // G = hatch (H is already chamfer)
     if(k==='i'||k==='I') setTool('scale');     // I = scale (S is select, C is circle)
     if(k==='w'||k==='W') setTool('stretch');   // W = stretch/Widen
     if(k==='r'||k==='R') setTool('rect');
@@ -8635,6 +9565,7 @@ function onKeyDown(e) {
     if(k==='n'){ e.preventDefault(); newDocument(); }
     if(k==='e' && e.shiftKey){ e.preventDefault(); exportSCAD(); }
     else if(k==='e'){ e.preventDefault(); exportDXF(); }
+    if(k==='o' && e.shiftKey){ e.preventDefault(); openPDF(); }
     if(k==='c'){ e.preventDefault(); copySelected(); }
     if(k==='v'){ e.preventDefault(); pasteSelected(); }
     if(k==='d'){ e.preventDefault(); copySelected(); _pasteCount=0; pasteSelected(); }
@@ -8714,7 +9645,7 @@ function ctxDelete() {
 // to a verified app function — the catalog is the single source of
 // truth, so a stale saved id from an older build simply won't render.
 const CTX_CATALOG = [
-  { id:'undo',    label:'Undo',            key:'Ctrl+Z', fn:()=>{ if(typeof undo==='function') undo(); } },
+  { id:'undo',    label:'Undo',            key:'Ctrl+Z', fn:()=>{ if(!SPACE().undo()) showToast('Nothing to undo'); } },
   { id:'copy',    label:'Copy Selected',   key:'Ctrl+C', fn:()=>copySelected() },
   { id:'paste',   label:'Paste',           key:'Ctrl+V', fn:()=>pasteSelected() },
   { id:'mirror',  label:'Mirror Selected', key:'M',      fn:()=>mirrorSelected() },
@@ -8789,6 +9720,11 @@ function zoomExtents() {
     if(o.type==='LINE'){
       x0=Math.min(x0,o.x1,o.x2); x1=Math.max(x1,o.x1,o.x2);
       y0=Math.min(y0,o.y1,o.y2); y1=Math.max(y1,o.y1,o.y2);
+    } else if(o.type==='HATCH'){
+      for(const L of o.loops) for(const p of L){
+        x0=Math.min(x0,p.x); x1=Math.max(x1,p.x);
+        y0=Math.min(y0,p.y); y1=Math.max(y1,p.y);
+      }
     } else if(o.type==='POLYLINE'){
       for(const p of o.pts){
         x0=Math.min(x0,p.x); x1=Math.max(x1,p.x);
@@ -8801,6 +9737,17 @@ function zoomExtents() {
       const bb=arcBBox(o.cx,o.cy,o.r,o.startA,o.endA,o.ccw);
       x0=Math.min(x0,bb.minX);x1=Math.max(x1,bb.maxX);
       y0=Math.min(y0,bb.minY);y1=Math.max(y1,bb.maxY);
+    } else if(o.type==='BEZIER'){
+      // Control points always lie outside or on the true curve's own extent
+      // (the convex-hull property of a Bezier curve) — a safe, correct bound
+      // even though it can be a little loose, without needing derivative/
+      // extrema math just to size a zoom-to-fit.
+      for(const b of o.beziers){
+        for(const [px,py] of [[b.x0,b.y0],[b.cx1,b.cy1],[b.cx2,b.cy2],[b.x3,b.y3]]){
+          x0=Math.min(x0,px); x1=Math.max(x1,px);
+          y0=Math.min(y0,py); y1=Math.max(y1,py);
+        }
+      }
     }
   }
   const rx=(x1-x0)||20, ry=(y1-y0)||20, pad=0.15;
@@ -9780,6 +10727,16 @@ function objInView(o, v) {
       return !(o.x + w < v.minx || o.x - h > v.maxx ||
                o.y + h * 2 < v.miny || o.y - h > v.maxy);
     }
+    case 'HATCH': {
+      // Boundary bbox. A hatch is a filled region: if any part of the box is
+      // on screen the fill may be visible even with no vertex inside.
+      let minx=Infinity, maxx=-Infinity, miny=Infinity, maxy=-Infinity;
+      for (const L of o.loops) for (const p of L) {
+        if (p.x<minx) minx=p.x;  if (p.x>maxx) maxx=p.x;
+        if (p.y<miny) miny=p.y;  if (p.y>maxy) maxy=p.y;
+      }
+      return !(maxx < v.minx || minx > v.maxx || maxy < v.miny || miny > v.maxy);
+    }
     case 'POLYLINE': {
       const pts = o.pts;
       if (!pts || !pts.length) return true;
@@ -9794,6 +10751,20 @@ function objInView(o, v) {
         if (py < miny) miny = py;  if (py > maxy) maxy = py;
       }
       // No vertex inside, but the path can still cross the view.
+      return !(maxx < v.minx || minx > v.maxx || maxy < v.miny || miny > v.maxy);
+    }
+    case 'BEZIER': {
+      // Same convex-hull-bound reasoning as POLYLINE's own case: control
+      // points always bound the true curve, so this stays correct (if a
+      // little conservative) without any curve-extrema math in a hot path.
+      const bez = o.beziers;
+      if (!bez || !bez.length) return true;
+      let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
+      for (const b of bez) for (const [px,py] of [[b.x0,b.y0],[b.cx1,b.cy1],[b.cx2,b.cy2],[b.x3,b.y3]]) {
+        if (px >= v.minx && px <= v.maxx && py >= v.miny && py <= v.maxy) return true;
+        if (px < minx) minx = px;  if (px > maxx) maxx = px;
+        if (py < miny) miny = py;  if (py > maxy) maxy = py;
+      }
       return !(maxx < v.minx || minx > v.maxx || maxy < v.miny || miny > v.maxy);
     }
     default:
@@ -9827,7 +10798,8 @@ function drawEntities() {
 
   ctx.save();
   const _view = viewWorldRect();
-  for(const o of GeoMemory.objects){
+  // drawOrder() puts fills behind strokes — see GeoMemory.drawOrder().
+  for(const o of GeoMemory.drawOrder()){
     const sel = selectedIds.has(o.id);
     // Layer visibility
     const _lay = (typeof LAYERS !== 'undefined') && LAYERS[o.layer];
@@ -9850,7 +10822,60 @@ function drawEntities() {
                    ? LINETYPES[_lay.ltype] || LINETYPES.continuous
                    : LINETYPES && LINETYPES.continuous || {dash:[]};
     ctx.setLineDash(_lt.dash.map(d => d * cam.zoom * 0.3));
-    if(o.type==='LINE'){
+    if(o.type==='HATCH'){
+      const pat = HATCH_PATTERNS[o.pattern] || HATCH_PATTERNS.ANSI31;
+      // One path built from every loop, filled/clipped with the even-odd
+      // rule. That single rule is what makes islands work: a region inside
+      // the outer loop and inside a hole is crossed twice and drops out.
+      ctx.save();
+      ctx.beginPath();
+      for(const L of o.loops){
+        if(L.length < 3) continue;
+        const q0 = worldToScreen(L[0].x, L[0].y);
+        ctx.moveTo(q0.x, q0.y);
+        for(let i=1;i<L.length;i++){ const q = worldToScreen(L[i].x, L[i].y); ctx.lineTo(q.x, q.y); }
+        ctx.closePath();
+      }
+      if(pat.solid){
+        ctx.fillStyle = _col;
+        ctx.globalAlpha = sel ? 0.55 : 0.85;
+        ctx.fill('evenodd');
+        ctx.globalAlpha = 1;
+      } else {
+        // Clip, then stroke the generated family. The even-odd pairing in
+        // hatchLines() already bounds the segments; the clip is what keeps
+        // the stochastic patterns honest and costs one path either way.
+        ctx.clip('evenodd');
+        ctx.setLineDash([]);
+        ctx.strokeStyle = _col;
+        ctx.lineWidth   = Math.max(0.6, (_lay ? _lay.weight : 1.4) * 0.7);
+        ctx.globalAlpha = sel ? 1 : 0.9;
+        ctx.beginPath();
+        for(const s of hatchGetLines(o)){
+          const a = worldToScreen(s.x1, s.y1), b = worldToScreen(s.x2, s.y2);
+          ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+        }
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+      ctx.restore();
+      if(sel){
+        // Selected: outline the boundary so the user can see what they
+        // picked. The fill itself has no edge of its own to highlight.
+        ctx.save();
+        ctx.strokeStyle = C.entitySel; ctx.lineWidth = 1.6; ctx.setLineDash([4,3]);
+        for(const L of o.loops){
+          if(L.length < 3) continue;
+          ctx.beginPath();
+          const q0 = worldToScreen(L[0].x, L[0].y);
+          ctx.moveTo(q0.x, q0.y);
+          for(let i=1;i<L.length;i++){ const q = worldToScreen(L[i].x, L[i].y); ctx.lineTo(q.x, q.y); }
+          ctx.closePath(); ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+    } else if(o.type==='LINE'){
       const a=worldToScreen(o.x1,o.y1), b=worldToScreen(o.x2,o.y2);
       if(sel){ ctx.shadowColor='rgba(255,170,0,0.5)'; ctx.shadowBlur=8; }
       ctx.strokeStyle=_col;
@@ -9880,6 +10905,31 @@ function drawEntities() {
         const isEndpoint = !o.closed && (i===0 || i===o.pts.length-1);
         drawDot(p.x,p.y,_col, isEndpoint?2.5:1.5);
       }
+
+    } else if(o.type==='BEZIER'){
+      if(o.beziers.length < 1) continue;
+      if(sel){ ctx.shadowColor='rgba(255,170,0,0.5)'; ctx.shadowBlur=10; }
+      ctx.strokeStyle=_col; ctx.lineWidth=_lw;
+      ctx.beginPath();
+      // Canvas2D draws true cubic curves natively — no flattening needed
+      // just to render; flattenCubic() exists for area/export math, not this.
+      const b0=o.beziers[0];
+      let p0=worldToScreen(b0.x0,b0.y0);
+      ctx.moveTo(p0.x,p0.y);
+      for(const b of o.beziers){
+        const c1=worldToScreen(b.cx1,b.cy1), c2=worldToScreen(b.cx2,b.cy2), p3=worldToScreen(b.x3,b.y3);
+        ctx.bezierCurveTo(c1.x,c1.y,c2.x,c2.y,p3.x,p3.y);
+      }
+      if(o.closed) ctx.closePath();
+      ctx.stroke();
+      ctx.shadowBlur=0;
+      // Segment-joint dots, same visual language as POLYLINE's vertex dots.
+      for(let i=0;i<o.beziers.length;i++){
+        const p=worldToScreen(o.beziers[i].x0,o.beziers[i].y0);
+        drawDot(p.x,p.y,_col, (!o.closed && i===0)?2.5:1.5);
+      }
+      const last=o.beziers[o.beziers.length-1];
+      if(!o.closed){ const pe=worldToScreen(last.x3,last.y3); drawDot(pe.x,pe.y,_col,2.5); }
 
     } else if(o.type==='DIM'){
       drawDimension({x:o.x1,y:o.y1},{x:o.x2,y:o.y2},false);
@@ -10901,7 +11951,1058 @@ function importNC1(event) {
   reader.readAsText(file);
 }
 
-// ── DWG IMPORT (LibreDWG / WASM side module) ────────────
+// ── PDF IMPORT (vector-only, via pdf.js) ─────────────────
+// Interpreter logic is adapted from KANVAS.html's pdfInterpretPage() and its
+// supporting matrix/bezier/glyph helpers — real, working code, not written
+// from scratch. What changes here is entirely the OUTPUT side: KANVAS emits
+// its own richer object model (type:'path' with a bezier array, type:'rect',
+// per-object fill/stroke/width/colour). KAD has none of that — LINE, ARC,
+// CIRCLE, POLYLINE, TEXT only, no bezier storage, no per-entity colour (that
+// lives on the layer). Every subpath this interpreter finds ends up as ONE
+// of those four shapes, flattened where it has to be.
+//
+// SECURITY — read before touching the getDocument() call below.
+// CVE-2024-4367 (CVSS 8.8) is a type-confusion bug in pdf.js's font handling
+// that allows arbitrary JS execution from a crafted PDF, gated entirely on
+// isEvalSupported (default true). It was patched in pdf.js 4.2.67. This file
+// pins 3.11.174 — same version KANVAS already uses — because pdf.js's build
+// output dropped the classic script-tag global build somewhere in the 4.x
+// line; even the "legacy" folder on 4.x+ ships ES modules only (.mjs), which
+// this codebase's lazy-loader (a plain appended script element, matching how
+// peerjs.min.js already loads) cannot consume without a rewrite to dynamic
+// import(). Rather than take on an unproven loading mechanism for a version
+// bump, isEvalSupported is set to FALSE explicitly below — the CVE writeups'
+// own documented mitigation, and one that costs nothing here: this feature
+// extracts static vector line art, never executes PDF-embedded JavaScript
+// either way. KANVAS.html's existing PDF import does NOT set this and should
+// get the same one-line fix; flagged, not fixed here — out of scope for a
+// KAD-only request.
+const PDFJS_VERSION = '3.11.174';
+const PDFJS_SOURCES = [
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/' + PDFJS_VERSION,
+  'https://unpkg.com/pdfjs-dist@' + PDFJS_VERSION + '/build',
+  'https://cdn.jsdelivr.net/npm/pdfjs-dist@' + PDFJS_VERSION + '/build',
+];
+let _pdfjsPromise = null;
+function loadPdfJs() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (_pdfjsPromise) return _pdfjsPromise;
+  _pdfjsPromise = new Promise((resolve, reject) => {
+    let i = 0;
+    const tryNext = () => {
+      if (i >= PDFJS_SOURCES.length) { _pdfjsPromise = null; reject(new Error('offline')); return; }
+      const base = PDFJS_SOURCES[i++];
+      const s = document.createElement('script');
+      s.src = base + '/pdf.min.js';
+      s.onload = () => {
+        if (!window.pdfjsLib) { tryNext(); return; }
+        try { window.pdfjsLib.GlobalWorkerOptions.workerSrc = base + '/pdf.worker.min.js'; }
+        catch (err) {}
+        resolve(window.pdfjsLib);
+      };
+      s.onerror = () => { s.remove(); tryNext(); };
+      document.head.appendChild(s);
+    };
+    tryNext();
+  });
+  return _pdfjsPromise;
+}
+
+/* ── Matrices — PDF's [a b c d e f], row-vector convention ── */
+function mtx(a, b, c, d, e, f) { return [a, b, c, d, e, f]; }
+const MTX_ID = [1, 0, 0, 1, 0, 0];
+function mtxMul(m, n) {                       // apply m, then n
+  return [
+    m[0]*n[0] + m[1]*n[2],            m[0]*n[1] + m[1]*n[3],
+    m[2]*n[0] + m[3]*n[2],            m[2]*n[1] + m[3]*n[3],
+    m[4]*n[0] + m[5]*n[2] + n[4],     m[4]*n[1] + m[5]*n[3] + n[5],
+  ];
+}
+function mtxApply(m, x, y) { return { x: m[0]*x + m[2]*y + m[4], y: m[1]*x + m[3]*y + m[5] }; }
+function mtxScale(m) { return (Math.hypot(m[0], m[1]) + Math.hypot(m[2], m[3])) / 2; }
+// Only used to recover the current point in user space for the PDF `v`
+// path operator, which is defined in terms of it.
+function mtxInvApply(m, p) {
+  const det = m[0]*m[3] - m[1]*m[2];
+  if (Math.abs(det) < 1e-12) return { x: 0, y: 0 };
+  const dx = p.x - m[4], dy = p.y - m[5];
+  return { x: ( dx*m[3] - dy*m[2]) / det, y: (-dx*m[1] + dy*m[0]) / det };
+}
+
+/* ── Bezier flattening — adaptive: subdivide only where actually curved ── */
+function flattenCubic(p0, c1, c2, p3, tol, out, depth) {
+  const d = depth == null ? 0 : depth;
+  const dx = p3.x - p0.x, dy = p3.y - p0.y;
+  const d1 = Math.abs((c1.x-p3.x)*dy - (c1.y-p3.y)*dx);
+  const d2 = Math.abs((c2.x-p3.x)*dy - (c2.y-p3.y)*dx);
+  const dd = (d1 + d2) * (d1 + d2);
+  if (d > 16 || dd < tol * tol * (dx*dx + dy*dy) || (dx*dx + dy*dy) < 1e-12) {
+    out.push({ x: p3.x, y: p3.y });
+    return;
+  }
+  const m = (a, b) => ({ x:(a.x+b.x)/2, y:(a.y+b.y)/2 });
+  const p01 = m(p0, c1), p12 = m(c1, c2), p23 = m(c2, p3);
+  const p012 = m(p01, p12), p123 = m(p12, p23), mid = m(p012, p123);
+  flattenCubic(p0, p01, p012, mid, tol, out, d+1);
+  flattenCubic(mid, p123, p23, p3, tol, out, d+1);
+}
+function lineAsBezier(p0, p1) {
+  return { x0:p0.x, y0:p0.y,
+           cx1:p0.x + (p1.x-p0.x)/3, cy1:p0.y + (p1.y-p0.y)/3,
+           cx2:p0.x + (p1.x-p0.x)*2/3, cy2:p0.y + (p1.y-p0.y)*2/3,
+           x3:p1.x, y3:p1.y };
+}
+
+/* ── Glyph recorder — hands pdf.js's font path generator a fake canvas
+   context that records path commands instead of drawing them. That is the
+   entire mechanism behind text-as-curves. Ported verbatim; no KANVAS
+   dependency, no KAD dependency either — it only touches pdf.js objects. ── */
+function glyphRecorder() {
+  const subs = [];
+  let m = MTX_ID.slice();
+  const stack = [];
+  let cur = null, at = { x:0, y:0 };
+  const P = (x, y) => mtxApply(m, x, y);
+  const num = (v, size) => {
+    if (typeof v === 'number') return v;
+    const s = String(v);
+    if (s === 'size') return size;
+    if (s === '-size') return -size;
+    const n = parseFloat(s);
+    return isFinite(n) ? n : 0;
+  };
+  const rec = {
+    _size: 1,
+    save() { stack.push(m.slice()); },
+    restore() { m = stack.pop() || MTX_ID.slice(); },
+    transform(a, b, c, d, e, f) {
+      const s = this._size;
+      m = mtxMul(mtx(num(a,s), num(b,s), num(c,s), num(d,s), num(e,s), num(f,s)), m);
+    },
+    scale(sx, sy) { this.transform(sx, 0, 0, sy, 0, 0); },
+    translate(tx, ty) { this.transform(1, 0, 0, 1, tx, ty); },
+    rotate(a) { const c = Math.cos(a), s = Math.sin(a); this.transform(c, s, -s, c, 0, 0); },
+    setTransform(a, b, c, d, e, f) { m = mtx(a, b, c, d, e, f); },
+    beginPath() {},
+    moveTo(x, y) { at = P(x, y); cur = { start:at, segs:[], closed:false }; subs.push(cur); },
+    lineTo(x, y) {
+      if (!cur) this.moveTo(x, y);
+      const p = P(x, y);
+      cur.segs.push(lineAsBezier(at, p)); at = p;
+    },
+    bezierCurveTo(x1, y1, x2, y2, x3, y3) {
+      if (!cur) this.moveTo(x1, y1);
+      const c1 = P(x1, y1), c2 = P(x2, y2), p = P(x3, y3);
+      cur.segs.push({ x0:at.x, y0:at.y, cx1:c1.x, cy1:c1.y, cx2:c2.x, cy2:c2.y, x3:p.x, y3:p.y });
+      at = p;
+    },
+    quadraticCurveTo(cx, cy, x, y) {
+      if (!cur) this.moveTo(cx, cy);
+      const c = P(cx, cy), p = P(x, y);
+      cur.segs.push({ x0:at.x, y0:at.y,
+                      cx1:at.x + 2/3*(c.x-at.x), cy1:at.y + 2/3*(c.y-at.y),
+                      cx2:p.x  + 2/3*(c.x-p.x),  cy2:p.y  + 2/3*(c.y-p.y),
+                      x3:p.x, y3:p.y });
+      at = p;
+    },
+    closePath() { if (cur) cur.closed = true; },
+    fill() {}, stroke() {}, clip() {}, rect() {}, arc() {}, ellipse() {},
+    setLineDash() {}, measureText() { return { width:0 }; },
+    get subpaths() { return subs; },
+  };
+  return rec;
+}
+// Outline one glyph, in em units with Y already pointing up.
+function glyphOutline(font, commonObjs, fontChar) {
+  if (!font || typeof font.getPathGenerator !== 'function') return null;
+  let gen;
+  try { gen = font.getPathGenerator(commonObjs, fontChar); } catch (err) { return null; }
+  if (typeof gen !== 'function') return null;
+  const rec = glyphRecorder();
+  rec._size = 1;
+  try { gen(rec, 1); } catch (err) { return null; }
+  const subs = rec.subpaths.filter(s => s.segs.length);
+  if (!subs.length) return null;
+  // The generator's leading scale(size, -size) leaves the glyph Y-down,
+  // because that is what a canvas wants. Text space is Y-up; flip back.
+  for (const s of subs) {
+    s.start = { x:s.start.x, y:-s.start.y };
+    for (const b of s.segs) { b.y0 = -b.y0; b.cy1 = -b.cy1; b.cy2 = -b.cy2; b.y3 = -b.y3; }
+  }
+  return subs;
+}
+
+// Page → mm transform. Rotation-normalised, points-to-millimetres, nothing
+// else — no sheet fitting, because KAD has no sheets to fit to (this is the
+// one place the target's simpler geometry model made the KANVAS mechanism
+// MORE complex than KAD needs, not less).
+function pdfPageBase(page) {
+  const view = page.view || [0, 0, 612, 792];
+  const rot = ((page.rotate || 0) % 360 + 360) % 360;
+  const x0 = view[0], y0 = view[1];
+  const pw = view[2] - view[0], ph = view[3] - view[1];
+  let R = MTX_ID, dw = pw, dh = ph;
+  if (rot === 90)       { R = mtx(0, -1, 1, 0, 0, pw); dw = ph; dh = pw; }
+  else if (rot === 180) { R = mtx(-1, 0, 0, -1, pw, ph); }
+  else if (rot === 270) { R = mtx(0, 1, -1, 0, ph, 0); dw = ph; dh = pw; }
+  const ptToMM = 25.4 / 72;
+  let base = mtx(1, 0, 0, 1, -x0, -y0);
+  base = mtxMul(base, R);
+  base = mtxMul(base, mtx(ptToMM, 0, 0, ptToMM, 0, 0));
+  return { base, dwMM: dw * ptToMM, dhMM: dh * ptToMM };
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   THE INTERPRETER
+   One pass over the operator list. Emits plain {type,...} objects matching
+   parseDXF()/parseNC1()'s own contract: this function returns data, it does
+   not touch GeoMemory — pdfCommitImport() is the commit step, same
+   two-phase split every other importer in this file already uses.
+
+   Corrected against pdf.js's REAL operator shape, not assumed from it: path
+   construction (moveTo/lineTo/curveTo/rectangle) arrives batched inside ONE
+   constructPath operator's argument arrays — [subOpArray, coordArray] — not
+   as separate top-level fnArray entries. Fonts come from
+   page.commonObjs.get(id), not a Page method. Both would have silently
+   produced zero geometry if assumed rather than read from the source.
+   ════════════════════════════════════════════════════════════════════════ */
+function pdfInterpretPage(ops, page, opts, report) {
+  const L = window.pdfjsLib.OPS;
+  const out = [];
+  const G = { ctm: opts.base.slice(), clip: null };
+  const stack = [];
+
+  let T = null;
+  let font = null, fontSize = 0, charSp = 0, wordSp = 0, hScale = 1, rise = 0,
+      leading = 0, renderMode = 0;
+
+  let subpaths = [], cur = null, at = { x:0, y:0 }, start = { x:0, y:0 };
+
+  const P = (x, y) => mtxApply(G.ctm, x, y);
+  const moveTo = (x, y) => { at = start = P(x, y); cur = { start:at, segs:[], closed:false, rect:null };
+                             subpaths.push(cur); };
+  const lineTo = (x, y) => { if (!cur) return moveTo(x, y);
+                             const p = P(x, y); cur.segs.push(lineAsBezier(at, p)); at = p; };
+  const curveTo = (x1,y1,x2,y2,x3,y3) => {
+    if (!cur) moveTo(x1, y1);
+    const c1 = P(x1,y1), c2 = P(x2,y2), p = P(x3,y3);
+    cur.segs.push({ x0:at.x, y0:at.y, cx1:c1.x, cy1:c1.y, cx2:c2.x, cy2:c2.y, x3:p.x, y3:p.y });
+    cur.curved = true; at = p;
+  };
+
+  function subBounds(list) {
+    let minX=1e12, minY=1e12, maxX=-1e12, maxY=-1e12;
+    for (const s of list) {
+      const h = (x,y) => { if(x<minX)minX=x; if(y<minY)minY=y; if(x>maxX)maxX=x; if(y>maxY)maxY=y; };
+      h(s.start.x, s.start.y);
+      for (const b of s.segs) { h(b.x3,b.y3); h(b.cx1,b.cy1); h(b.cx2,b.cy2); }
+    }
+    return { minX, minY, maxX, maxY };
+  }
+  // Rectangular clips only — a frame, a page box, a crop. The common case by
+  // a wide margin, and the one that needs no clip primitive in KAD's object
+  // model to honour.
+  function culled(list) {
+    if (!G.clip) return false;
+    const b = subBounds(list);
+    return b.maxX < G.clip.minX || b.minX > G.clip.maxX ||
+           b.maxY < G.clip.minY || b.minY > G.clip.maxY;
+  }
+  function closeSub(s) {
+    const bez = s.segs.slice();
+    const lastPt = bez.length ? { x:bez[bez.length-1].x3, y:bez[bez.length-1].y3 } : s.start;
+    if (Math.hypot(lastPt.x - s.start.x, lastPt.y - s.start.y) > 1e-9)
+      bez.push(lineAsBezier(lastPt, s.start));
+    return bez;
+  }
+  // Flattens one subpath's beziers into a KAD LINE or POLYLINE. A 2-point
+  // open (unfilled) subpath is a LINE, matching how every other importer in
+  // this file draws a bare segment; everything else — 3+ points, or forced
+  // closed by a fill — is a POLYLINE.
+  function subToKad(s, forceClosed) {
+    const bez = (s.closed || forceClosed) ? closeSub(s) : s.segs.slice();
+    const pts = [{ x:s.start.x, y:s.start.y }];
+    for (const b of bez) flattenCubic({x:b.x0,y:b.y0}, {x:b.cx1,y:b.cy1}, {x:b.cx2,y:b.cy2},
+                                       {x:b.x3,y:b.y3}, opts.tol, pts);
+    const closed = !!(s.closed || forceClosed);
+    // closeSub() may have appended a genuine closing edge back to s.start —
+    // necessary when the drawn segments didn't already return there (a PDF
+    // fill closes implicitly, with no explicit segment for it). That edge's
+    // own endpoint then lands in `pts` as a final point identical to the
+    // first. KAD's own convention, already relied on by the NC1 and DXF
+    // importers, is that a closed POLYLINE does NOT repeat its first point —
+    // the closing edge is implied by closed:true and drawn at render time.
+    // Left in, this duplicate produces a zero-length closing segment sitting
+    // exactly on top of the real one.
+    if (closed && pts.length > 1) {
+      const first = pts[0], last = pts[pts.length - 1];
+      if (Math.hypot(last.x - first.x, last.y - first.y) < 1e-6) pts.pop();
+    }
+    if (pts.length < 2) return null;
+    if (pts.length === 2 && !closed)
+      return { type:'LINE', x1:pts[0].x, y1:pts[0].y, x2:pts[1].x, y2:pts[1].y };
+    return { type:'POLYLINE', pts, closed };
+  }
+  function emitPath(doFill, doStroke) {
+    // endPath ('n' in PDF syntax) calls this with both false — it exists to
+    // let a path be used ONLY to set a clip region, painting nothing. Same
+    // op sequence as a real fill/stroke otherwise (a rect built, then a
+    // terminal op consuming it), so without this guard a clip-only rectangle
+    // was drawn as if it were visible geometry — caught by a test asserting
+    // that geometry outside a clip gets culled: the clip rectangle itself
+    // showed up in the output instead.
+    if (!doFill && !doStroke) { subpaths = []; cur = null; return; }
+    const live = subpaths.filter(s => s.segs.length || s.rect);
+    if (live.length && !culled(live)) {
+      // A rectangle, unrotated, with nothing else going on: keep it a
+      // 4-point closed POLYLINE rather than routing it through bezier
+      // flattening it never needed.
+      for (const s of live) {
+        if (s.rect && !s.curved) {
+          const r = s.rect;
+          out.push({ type:'POLYLINE', closed:true, pts:[
+            { x:r.x0, y:r.y0 }, { x:r.x1, y:r.y0 }, { x:r.x1, y:r.y1 }, { x:r.x0, y:r.y1 },
+          ]});
+          continue;
+        }
+        // Several subpaths sharing one fill is how a PDF expresses "with a
+        // hole" (an O's counter, a slotted plate). KAD has no compound-path
+        // type to carry that relationship, so each subpath — outer boundary
+        // AND every hole — becomes its own independent closed POLYLINE. The
+        // visible geometry survives completely; only the "this one is a cut
+        // INSIDE that one" relationship is lost, and only a human reading
+        // the drawing needs that relationship anyway.
+        const o = subToKad(s, doFill);
+        if (o) out.push(o);
+      }
+    }
+    subpaths = []; cur = null;
+  }
+
+  /* ── Text ── */
+  const textRuns = [];
+  let runBuf = null;
+  function flushRun() { if (runBuf && runBuf.text.trim()) textRuns.push(runBuf); runBuf = null; }
+  function trm() { return mtxMul(mtx(fontSize*hScale, 0, 0, fontSize, 0, rise), mtxMul(T.m, G.ctm)); }
+  function collectRun(gl) {
+    const M = trm();
+    if (!runBuf) runBuf = { text:'', m:M };
+    else if (Math.abs(M[5] - runBuf.m[5]) > 0.01 || Math.abs(mtxScale(M) - mtxScale(runBuf.m)) > 0.01) {
+      flushRun();
+      runBuf = { text:'', m:M };
+    }
+    runBuf.text += (gl.unicode != null ? gl.unicode : '');
+  }
+  function showGlyphs(glyphs) {
+    if (!T || renderMode === 3 || renderMode === 7) {          // invisible text (e.g. OCR layer)
+      for (const gl of glyphs) {
+        if (gl == null) continue;
+        if (typeof gl === 'number') { T && (T.m = mtxMul(mtx(1,0,0,1,-gl/1000*fontSize*hScale,0), T.m)); continue; }
+        const isSpace = gl.isSpace || gl.unicode === ' ';
+        const tx = ((gl.width||0)/1000*fontSize + charSp + (isSpace?wordSp:0)) * hScale;
+        T && (T.m = mtxMul(mtx(1,0,0,1,tx,0), T.m));
+      }
+      return;
+    }
+    for (const gl of glyphs) {
+      if (gl == null) continue;
+      if (typeof gl === 'number') { T.m = mtxMul(mtx(1,0,0,1,-gl/1000*fontSize*hScale,0), T.m); continue; }
+      const isSpace = gl.isSpace || gl.unicode === ' ';
+      if (!isSpace && opts.textMode === 'outline') {
+        const subs = font ? glyphOutline(font, page.commonObjs, gl.fontChar) : null;
+        if (subs) {
+          const M = trm();
+          const mapped = subs.map(s => closeSub({
+            start: mtxApply(M, s.start.x, s.start.y),
+            segs: s.segs.map(b => {
+              const p0=mtxApply(M,b.x0,b.y0), c1=mtxApply(M,b.cx1,b.cy1),
+                    c2=mtxApply(M,b.cx2,b.cy2), p3=mtxApply(M,b.x3,b.y3);
+              return { x0:p0.x, y0:p0.y, cx1:c1.x, cy1:c1.y, cx2:c2.x, cy2:c2.y, x3:p3.x, y3:p3.y };
+            }),
+            closed: true,
+          }));
+          const asSubs = mapped.map(bz => ({ start:{x:bz[0].x0,y:bz[0].y0}, segs:bz }));
+          if (!culled(asSubs)) {
+            // One closed polygon per contour — a glyph's counter (the hole
+            // in an "o") arrives as its own polyline, same reasoning as
+            // emitPath's holes above.
+            for (const bz of mapped) {
+              const pts = [{ x:bz[0].x0, y:bz[0].y0 }];
+              for (const b of bz) flattenCubic({x:b.x0,y:b.y0},{x:b.cx1,y:b.cy1},{x:b.cx2,y:b.cy2},{x:b.x3,y:b.y3}, opts.tol, pts);
+              if (pts.length > 2) out.push({ type:'POLYLINE', pts, closed:true });
+            }
+            report.glyphs++;
+          }
+        } else {
+          collectRun(gl);
+          if (font) report.fontFallbacks.add(font.name || font.loadedName || 'unnamed font');
+        }
+      } else if (!isSpace) {
+        collectRun(gl);
+      } else if (isSpace && runBuf) {
+        runBuf.text += ' ';
+      }
+      const tx = ((gl.width||0)/1000*fontSize + charSp + (isSpace?wordSp:0)) * hScale;
+      T.m = mtxMul(mtx(1,0,0,1,tx,0), T.m);
+    }
+  }
+
+  /* ── The loop ── */
+  const fn = ops.fnArray, ar = ops.argsArray;
+  for (let i = 0; i < fn.length; i++) {
+    const a = ar[i];
+    switch (fn[i]) {
+      case L.save: stack.push({ ctm:G.ctm.slice(), clip:G.clip ? {...G.clip} : null }); break;
+      case L.restore: { const s = stack.pop(); if (s) { G.ctm = s.ctm; G.clip = s.clip; } break; }
+      case L.transform: G.ctm = mtxMul(mtx(a[0],a[1],a[2],a[3],a[4],a[5]), G.ctm); break;
+      case L.setGState:
+        for (const [key, val] of (a[0] || []))
+          if (key === 'Font' && val) { font = null; fontSize = val[1] || fontSize; }
+        break;
+
+      case L.constructPath: {
+        const sub = a[0], co = a[1];
+        let p = 0;
+        for (let j = 0; j < sub.length; j++) {
+          switch (sub[j]) {
+            case L.moveTo:  moveTo(co[p], co[p+1]); p += 2; break;
+            case L.lineTo:  lineTo(co[p], co[p+1]); p += 2; break;
+            case L.curveTo: curveTo(co[p],co[p+1],co[p+2],co[p+3],co[p+4],co[p+5]); p += 6; break;
+            case L.curveTo2: {   // `v`: current point doubles as first control point
+              const inv = mtxInvApply(G.ctm, at);
+              curveTo(inv.x, inv.y, co[p], co[p+1], co[p+2], co[p+3]); p += 4; break;
+            }
+            case L.curveTo3: curveTo(co[p],co[p+1],co[p+2],co[p+3],co[p+2],co[p+3]); p += 4; break;
+            case L.closePath: if (cur) { cur.closed = true; at = start; } break;
+            case L.rectangle: {
+              const x=co[p], y=co[p+1], w=co[p+2], h=co[p+3]; p += 4;
+              moveTo(x, y); lineTo(x+w, y); lineTo(x+w, y+h); lineTo(x, y+h);
+              if (cur) {
+                cur.closed = true;
+                if (Math.abs(G.ctm[1]) < 1e-9 && Math.abs(G.ctm[2]) < 1e-9) {
+                  const c0 = P(x, y), c1 = P(x+w, y+h);
+                  cur.rect = { x0:c0.x, y0:c0.y, x1:c1.x, y1:c1.y };
+                }
+              }
+              break;
+            }
+          }
+        }
+        break;
+      }
+      case L.fill: case L.eoFill:            emitPath(true, false);  break;
+      case L.stroke:                          emitPath(false, true);  break;
+      case L.closeStroke:      if (cur) cur.closed = true; emitPath(false, true); break;
+      case L.fillStroke: case L.eoFillStroke: emitPath(true, true);   break;
+      case L.closeFillStroke: case L.closeEOFillStroke:
+        if (cur) cur.closed = true; emitPath(true, true); break;
+      case L.endPath:                         emitPath(false, false); break;
+      case L.clip: case L.eoClip: {
+        // Applied immediately against whatever is currently accumulated —
+        // pdf.js issues clip ops before the path-painting op that follows
+        // them, on the SAME path, so there is no separate "pending" state
+        // to carry across emitPath() the way KANVAS's richer version does.
+        if (subpaths.length) {
+          const b = subBounds(subpaths);
+          G.clip = G.clip
+            ? { minX:Math.max(G.clip.minX,b.minX), minY:Math.max(G.clip.minY,b.minY),
+                maxX:Math.min(G.clip.maxX,b.maxX), maxY:Math.min(G.clip.maxY,b.maxY) }
+            : b;
+        }
+        break;
+      }
+
+      case L.beginText: T = { m:MTX_ID.slice(), line:MTX_ID.slice() }; break;
+      case L.endText:   flushRun(); T = null; break;
+      case L.setFont: {
+        fontSize = a[1];
+        try { font = page.commonObjs.get(a[0]); } catch (err) { font = null; }
+        break;
+      }
+      case L.setCharSpacing: charSp = a[0]; break;
+      case L.setWordSpacing: wordSp = a[0]; break;
+      case L.setHScale:      hScale = a[0] / 100; break;
+      case L.setLeading:     leading = a[0]; break;
+      case L.setTextRise:    rise = a[0]; break;
+      case L.setTextRenderingMode: renderMode = a[0]; break;
+      case L.setTextMatrix:
+        if (T) { T.m = mtx(a[0],a[1],a[2],a[3],a[4],a[5]); T.line = T.m.slice(); flushRun(); }
+        break;
+      case L.setLeadingMoveText:
+        leading = -a[1];
+        if (T) { T.line = mtxMul(mtx(1,0,0,1,a[0],a[1]), T.line); T.m = T.line.slice(); flushRun(); }
+        break;
+      case L.moveText:
+        if (T) { T.line = mtxMul(mtx(1,0,0,1,a[0],a[1]), T.line); T.m = T.line.slice(); flushRun(); }
+        break;
+      case L.nextLine:
+        if (T) { T.line = mtxMul(mtx(1,0,0,1,0,-leading), T.line); T.m = T.line.slice(); flushRun(); }
+        break;
+      case L.showText: case L.showSpacedText: if (T) showGlyphs(a[0] || []); break;
+      case L.nextLineShowText:
+        if (T) { T.line = mtxMul(mtx(1,0,0,1,0,-leading), T.line); T.m = T.line.slice();
+                 flushRun(); showGlyphs(a[0] || []); }
+        break;
+      case L.nextLineSetSpacingShowText:
+        wordSp = a[0]; charSp = a[1];
+        if (T) { T.line = mtxMul(mtx(1,0,0,1,0,-leading), T.line); T.m = T.line.slice();
+                 flushRun(); showGlyphs(a[2] || []); }
+        break;
+
+      // No raster support in KAD's object model — counted, not drawn.
+      case L.paintImageXObject: case L.paintImageXObjectRepeat:
+      case L.paintInlineImageXObject: case L.paintImageMaskXObject:
+        report.imagesSkipped++; break;
+    }
+  }
+  flushRun();
+
+  // Runs that reached end-of-text without being flushed by a position jump,
+  // plus everything in live-text mode. height comes straight from the
+  // transformed font size — already in mm via the page base transform.
+  for (const r of textRuns) {
+    const size = Math.hypot(r.m[2], r.m[3]) || Math.hypot(r.m[0], r.m[1]);
+    if (size < 0.01) continue;
+    out.push({ type:'TEXT', x:r.m[4], y:r.m[5], text:r.text, height:size });
+    report.textRuns++;
+  }
+  return out;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   IMPORT FLOW
+   ════════════════════════════════════════════════════════════════════════ */
+let PDFIMP = null;
+
+function openPDF() { const el = document.getElementById('pdf-file'); if (el) el.click(); }
+function onPDFFile(e) {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (f) pdfBeginImport(f);
+}
+
+async function pdfBeginImport(file) {
+  showToast('Reading ' + file.name + '\u2026');
+  let lib;
+  try { lib = await loadPdfJs(); }
+  catch (err) { showToast('PDF support needs to download once \u00b7 check your connection'); return; }
+  let buf;
+  try { buf = await file.arrayBuffer(); }
+  catch (err) { showToast('Could not read that file'); return; }
+
+  try {
+    const task = lib.getDocument({
+      data: new Uint8Array(buf),
+      // Glyph outlines depend on font-face loading being off — otherwise
+      // the worker renders locally and never hands back a path generator,
+      // and the Glyph outlines option would silently degrade to live text
+      // on every file.
+      disableFontFace: true,
+      useSystemFonts: false,
+      // Explicitly OFF — see the SECURITY note above this block. This
+      // feature never needs PDF-embedded JavaScript to extract vector line
+      // art, and CVE-2024-4367 is gated entirely on this flag.
+      isEvalSupported: false,
+    });
+    const doc = await task.promise;
+    const first = await doc.getPage(1);
+    const view = first.view;
+    const rot = ((first.rotate || 0) % 360 + 360) % 360;
+    let wpt = view[2]-view[0], hpt = view[3]-view[1];
+    if (rot === 90 || rot === 270) { const t = wpt; wpt = hpt; hpt = t; }
+    PDFIMP = { doc, name: file.name, pages: doc.numPages, wpt, hpt };
+    pdfShowImportDialog();
+  } catch (err) {
+    showToast(/password/i.test(String(err && err.message)) ?
+      'That PDF is password protected' : 'Could not open that PDF');
+  }
+}
+
+function pdfShowImportDialog() {
+  const ov = document.getElementById('pdf-import-overlay');
+  if (!ov || !PDFIMP) return;
+  const mm = v => v * 25.4 / 72;
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('pdfi-file', PDFIMP.name);
+  set('pdfi-pages', PDFIMP.pages + ' page' + (PDFIMP.pages > 1 ? 's' : ''));
+  set('pdfi-size', mm(PDFIMP.wpt).toFixed(0) + ' \u00d7 ' + mm(PDFIMP.hpt).toFixed(0) + ' mm');
+  const r = document.getElementById('pdfi-range');
+  if (r) { r.value = ''; r.placeholder = '1-' + PDFIMP.pages; }
+  set('pdfi-status', '');
+  pdfPickCard('text', 'live');
+  pdfPickCard('tol', 'normal');
+  // Same default logic openImportDialog() already uses for DXF/DWG/NC1: an
+  // empty canvas defaults to Replace (nothing to lose), anything else
+  // defaults to the safer Merge.
+  pdfPickCard('place', GeoMemory.objects.length === 0 ? 'replace' : 'merge');
+  ov.classList.add('open');
+}
+function closePdfImport() {
+  const ov = document.getElementById('pdf-import-overlay');
+  if (ov) ov.classList.remove('open');
+  if (PDFIMP && PDFIMP.doc) { try { PDFIMP.doc.destroy(); } catch (err) {} }
+  PDFIMP = null;
+  const el = document.getElementById('pdf-file');
+  if (el) el.value = '';
+}
+// Card-style exclusive choice — same interaction KANVAS's own PDF dialog
+// uses, reimplemented against KAD's .dlg-unit-btn/.dlg-merge-btn classes
+// rather than KANVAS's .act, so it costs no new CSS.
+function pdfPickCard(group, value) {
+  const cards = document.querySelectorAll('[data-pdf-group="' + group + '"]');
+  for (const c of cards) c.classList.toggle('selected', c.dataset.pdfValue === value);
+  const lines = document.getElementById('pdfi-lines-row');
+  if (group === 'text' && lines) lines.style.display = (value === 'outline') ? 'flex' : 'none';
+}
+function pdfPicked(group, fallback) {
+  const el = document.querySelector('[data-pdf-group="' + group + '"].selected');
+  return el ? el.dataset.pdfValue : fallback;
+}
+
+// "1-3, 7, 10-" and the empty string, which means everything.
+function parsePageRange(spec, max) {
+  const s = String(spec || '').trim();
+  if (!s) return Array.from({ length: max }, (_, i) => i + 1);
+  const set = new Set();
+  for (const part of s.split(',')) {
+    const m = /^\s*(\d+)?\s*(?:[-\u2013]\s*(\d+)?)?\s*$/.exec(part);
+    if (!m) continue;
+    if (m[2] === undefined && !/[-\u2013]/.test(part)) {
+      const n = parseInt(m[1], 10);
+      if (n >= 1 && n <= max) set.add(n);
+    } else {
+      const a = m[1] ? parseInt(m[1], 10) : 1;
+      const b = m[2] ? parseInt(m[2], 10) : max;
+      for (let i = Math.max(1, a); i <= Math.min(max, b); i++) set.add(i);
+    }
+  }
+  return [...set].sort((x, y) => x - y);
+}
+
+async function pdfCommitImport() {
+  if (!PDFIMP) return;
+  const doc = PDFIMP.doc;
+  const textMode = pdfPicked('text', 'live');
+  const tolSel   = pdfPicked('tol', 'normal');
+  const tol = tolSel === 'fine' ? 0.04 : tolSel === 'coarse' ? 0.35 : 0.12;
+  const mergeSel = pdfPicked('place', 'merge');
+  const range = parsePageRange(document.getElementById('pdfi-range').value, PDFIMP.pages);
+  if (!range.length) {
+    const st = document.getElementById('pdfi-status'); if (st) st.textContent = 'That page range is empty.';
+    return;
+  }
+
+  const btn = document.getElementById('pdfi-go');
+  if (btn) btn.disabled = true;
+  // Same single call commitDxfImport() uses for its own Replace: geometry
+  // only, not PartLibrary — an orphaned part (if any existed) is cleaned up
+  // by prune() elsewhere, same as every other importer's replace path.
+  if (mergeSel === 'replace') GeoMemory.clear();
+  const report = { objects:0, glyphs:0, textRuns:0, imagesSkipped:0, failed:0, fontFallbacks:new Set() };
+  const baseName = (PDFIMP.name.replace(/\.pdf$/i, '') || 'PDF').slice(0, 24);
+
+  // Multi-page PDFs land side by side rather than stacked exactly on top of
+  // each other — same reasoning as NC1's multi-part auto-offset: PDF page
+  // content, like DSTV part coordinates, starts near its own origin.
+  const GAP = 20; // mm
+  let xOffset = 0;
+
+  for (let n = 0; n < range.length; n++) {
+    const pno = range[n];
+    const st = document.getElementById('pdfi-status');
+    if (st) st.textContent = 'Page ' + pno + ' of ' + PDFIMP.pages + '\u2026';
+    await new Promise(r => setTimeout(r, 0));   // yield so the status line actually repaints
+
+    let objs = [], dwMM = 0;
+    try {
+      const page = await doc.getPage(pno);
+      const { base, dwMM: w, dhMM: h } = pdfPageBase(page);
+      dwMM = w;
+      const shifted = mtxMul(base, mtx(1, 0, 0, 1, xOffset, 0));
+      const ops = await page.getOperatorList();
+      objs = pdfInterpretPage(ops, page, { base: shifted, textMode, tol }, report);
+      try { page.cleanup(); } catch (err) {}
+    } catch (err) {
+      report.failed++;
+      continue;
+    }
+
+    const layerName = (baseName + (range.length > 1 ? ' p' + pno : '')).slice(0, 28);
+    if (!LAYERS[layerName]) {
+      LAYERS[layerName] = { name:layerName, color:'#a68ae8', ltype:'continuous', weight:2.0, visible:true, locked:false };
+    }
+    const prevLayer = activeLayer;
+    activeLayer = layerName;
+    for (const o of objs) {
+      if (o.type === 'LINE')          GeoMemory.addLine(o.x1, o.y1, o.x2, o.y2, layerName);
+      else if (o.type === 'POLYLINE') GeoMemory.addPolyline(o.pts, o.closed, layerName);
+      else if (o.type === 'TEXT')     GeoMemory.addText(o.x, o.y, o.text, o.height, layerName);
+    }
+    activeLayer = prevLayer;
+    report.objects += objs.length;
+    xOffset += dwMM + GAP;
+  }
+
+  closePdfImport();
+  if (btn) btn.disabled = false;
+  buildLayerPanel();
+  updateProps();
+  zoomExtents();
+  render();
+
+  const bits = [report.objects + ' object' + (report.objects === 1 ? '' : 's')];
+  if (report.glyphs)   bits.push(report.glyphs + ' glyph' + (report.glyphs === 1 ? '' : 's') + ' as curves');
+  if (report.textRuns) bits.push(report.textRuns + ' text run' + (report.textRuns === 1 ? '' : 's'));
+  if (report.imagesSkipped) bits.push(report.imagesSkipped + ' image' + (report.imagesSkipped === 1 ? '' : 's') + ' skipped (vector-only)');
+  bits.push(mergeSel);
+  showToast('Imported ' + bits.join(' \u00b7 '));
+
+  if (report.failed || report.fontFallbacks.size) {
+    const notes = [];
+    if (report.failed) notes.push(report.failed + ' page(s) could not be read.');
+    if (report.fontFallbacks.size)
+      notes.push('These fonts would not give up their outlines, so their text came in as live text instead: ' +
+        [...report.fontFallbacks].slice(0, 6).join(', ') + '.');
+    setTimeout(() => alert('Import notes\n\n\u2022 ' + notes.join('\n\n\u2022 ')), 400);
+  }
+}
+
+// ── STEP IMPORT (cross-section, via an OCCT-class WASM kernel) ──────────
+// See STEP-IMPORT-PLAN.md for the architecture this implements and
+// STEP-SUPPORT.md for what is real here versus what still needs a real
+// kernel plugged in. Short version, stated plainly rather than left to be
+// discovered: this is NOT a STEP reader in the sense DWG import reads DWG.
+// No CAD kernel binary can be fetched or compiled in the environment this
+// was built in — no network access, verified directly, same constraint
+// DWG's WASM module hit. Everything on KAD's own side of the boundary is
+// real, working, and tested against synthetic data shaped like real kernel
+// output. The one piece that cannot be produced here is the kernel itself.
+//
+// Two functions carry that boundary, deliberately kept separate, mirroring
+// exactly how kad-dwg's kadDwgNormalize() (real, tested, defensive) stayed
+// separate from its C bridge (best-effort, flagged, unverifiable here):
+//   stepNormalizeKernelOutput() — real. Takes whatever shape a bridge
+//     produces and coerces it into the strict contract below, or reports
+//     why it couldn't. Fully testable without any kernel at all.
+//   stepKernelBridge() — the adapter that would call into a REAL library
+//     (andymai/occt-wasm or libcascade per the plan — neither picked by
+//     name here, since neither was ever actually touched). Written against
+//     the API shape that research turned up, not verified against a real
+//     one. Treat every call in it as needing confirmation before this is
+//     genuinely load-bearing.
+//
+// Normalized contract, the only shape anything downstream of the bridge
+// ever has to understand:
+//   { solids: [ { name, edges: [
+//       {kind:'line',   x1,y1,x2,y2}
+//       {kind:'arc',    cx,cy,r,startA,endA,ccw}   // degrees stored as radians, matching GeoMemory.addArc
+//       {kind:'bezier', x0,y0,cx1,cy1,cx2,cy2,x3,y3}
+//     ] } ],
+//     error: null | string }
+// Coordinates are already 2D, already projected into the chosen section
+// plane's own basis, already in mm. That projection is kernel-side work
+// (trivial once the plane's basis vectors are known) — pushing it there
+// rather than doing it in the normalizer keeps the normalizer able to run,
+// and be tested, with zero geometry math of its own.
+
+const STEP_KERNEL_VERSION = '0.0.0-unverified';
+const STEP_KERNEL_SOURCES = [
+  // No specific package pinned — see STEP-SUPPORT.md \u00a72. Placeholders
+  // shaped like the real thing so the lazy-load MECHANISM (proven three
+  // times already: DWG, then pdf.js, same CDN-fallback pattern each time)
+  // is exercised correctly the moment a real kernel gets pointed at.
+  'https://cdn.jsdelivr.net/npm/PICK-A-STEP-KERNEL@' + STEP_KERNEL_VERSION,
+  'https://unpkg.com/PICK-A-STEP-KERNEL@' + STEP_KERNEL_VERSION,
+];
+let _stepKernelPromise = null;
+function loadStepKernel() {
+  if (window.StepKernel) return Promise.resolve(window.StepKernel);
+  if (_stepKernelPromise) return _stepKernelPromise;
+  _stepKernelPromise = new Promise((resolve, reject) => {
+    let i = 0;
+    const tryNext = () => {
+      if (i >= STEP_KERNEL_SOURCES.length) { _stepKernelPromise = null; reject(new Error('offline')); return; }
+      const base = STEP_KERNEL_SOURCES[i++];
+      const s = document.createElement('script');
+      s.src = base + '/dist/index.js';
+      s.onload = () => {
+        if (!window.StepKernel) { tryNext(); return; }
+        resolve(window.StepKernel);
+      };
+      s.onerror = () => { s.remove(); tryNext(); };
+      document.head.appendChild(s);
+    };
+    tryNext();
+  });
+  return _stepKernelPromise;
+}
+
+/* ── Edge chaining — same endpoint-matching shape as bomTraceLoop, kept
+   as its own function rather than sharing that one. bomTraceLoop flattens
+   everything to points for an area sum; this needs to come back out the
+   other end still typed (line stays line, arc stays arc) so the right
+   GeoMemory entity gets created for each. Different output need from the
+   same underlying problem — not worth bending shipped, tested code to a
+   second job when duplicating ~30 lines is the safer trade. ── */
+function stepEdgeStart(e) {
+  if (e.kind === 'line')   return { x:e.x1, y:e.y1 };
+  if (e.kind === 'arc')    return { x:e.cx+e.r*Math.cos(e.startA), y:e.cy+e.r*Math.sin(e.startA) };
+  if (e.kind === 'bezier') return { x:e.x0, y:e.y0 };
+  return null;
+}
+function stepEdgeEnd(e) {
+  if (e.kind === 'line')   return { x:e.x2, y:e.y2 };
+  if (e.kind === 'arc')    return { x:e.cx+e.r*Math.cos(e.endA), y:e.cy+e.r*Math.sin(e.endA) };
+  if (e.kind === 'bezier') return { x:e.x3, y:e.y3 };
+  return null;
+}
+function stepEdgeReversed(e) {
+  if (e.kind === 'line')   return { kind:'line', x1:e.x2, y1:e.y2, x2:e.x1, y2:e.y1 };
+  if (e.kind === 'arc')    return { kind:'arc', cx:e.cx, cy:e.cy, r:e.r, startA:e.endA, endA:e.startA, ccw:!e.ccw };
+  if (e.kind === 'bezier') return { kind:'bezier', x0:e.x3, y0:e.y3, cx1:e.cx2, cy1:e.cy2, cx2:e.cx1, cy2:e.cy1, x3:e.x0, y3:e.y0 };
+  return e;
+}
+// All given edges chained into ONE ordered closed loop, or null if they
+// don't form exactly one — same all-or-nothing contract bomTraceLoop uses,
+// for the same reason: a dangling end means don't guess, report it instead.
+function stepChainEdges(edges) {
+  if (!edges.length) return null;
+  const EPS = 1e-3; // mm
+  const near = (a,b) => a && b && Math.abs(a.x-b.x)<EPS && Math.abs(a.y-b.y)<EPS;
+
+  const used = new Array(edges.length).fill(false);
+  const chain = [edges[0]];
+  used[0] = true;
+  let remaining = edges.length - 1;
+  const startPt = stepEdgeStart(edges[0]);
+  if (!startPt) return null;
+
+  while (remaining > 0) {
+    const tail = stepEdgeEnd(chain[chain.length-1]);
+    if (!tail) return null;
+    let found = -1, reversed = false;
+    for (let i=0; i<edges.length; i++) {
+      if (used[i]) continue;
+      if (near(stepEdgeStart(edges[i]), tail)) { found=i; reversed=false; break; }
+      if (near(stepEdgeEnd(edges[i]), tail))   { found=i; reversed=true;  break; }
+    }
+    if (found === -1) return null;
+    chain.push(reversed ? stepEdgeReversed(edges[found]) : edges[found]);
+    used[found] = true;
+    remaining--;
+  }
+  return near(stepEdgeEnd(chain[chain.length-1]), startPt) ? chain : null;
+}
+
+// Real, tested, zero geometry math of its own — coerces whatever a bridge
+// handed back into the strict contract, dropping anything malformed rather
+// than guessing at it. Every rule here can be changed and tested without
+// touching stepKernelBridge() or needing a real kernel in the loop at all,
+// same reasoning kadDwgNormalize() was built around.
+function stepNormalizeKernelOutput(raw) {
+  const out = { solids: [] };
+  if (!raw || typeof raw !== 'object') { out.error = 'kernel returned no data'; return out; }
+  if (raw.error) { out.error = String(raw.error); return out; }
+  const num = v => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+
+  for (const s of (raw.solids || [])) {
+    const solid = { name: (s && s.name) ? String(s.name).trim() : '', edges: [] };
+    for (const e of (s && s.edges) || []) {
+      if (!e || typeof e.kind !== 'string') continue;
+      if (e.kind === 'line') {
+        const x1=num(e.x1), y1=num(e.y1), x2=num(e.x2), y2=num(e.y2);
+        if ([x1,y1,x2,y2].every(v => v !== null)) solid.edges.push({ kind:'line', x1,y1,x2,y2 });
+      } else if (e.kind === 'arc') {
+        const cx=num(e.cx), cy=num(e.cy), r=num(e.r), a0=num(e.startA), a1=num(e.endA);
+        if (r > 0 && [cx,cy,a0,a1].every(v => v !== null))
+          solid.edges.push({ kind:'arc', cx,cy,r, startA:a0, endA:a1, ccw: e.ccw !== false });
+      } else if (e.kind === 'bezier') {
+        const f = ['x0','y0','cx1','cy1','cx2','cy2','x3','y3'].map(k => num(e[k]));
+        if (f.every(v => v !== null))
+          solid.edges.push({ kind:'bezier', x0:f[0],y0:f[1],cx1:f[2],cy1:f[3],cx2:f[4],cy2:f[5],x3:f[6],y3:f[7] });
+      }
+      // Any other kind (a face, a vertex, something section-adjacent but
+      // not edge geometry) is silently dropped here rather than guessed at
+      // — counted by the caller via edges-in minus edges-out, not by this
+      // function reaching back into caller state.
+    }
+    out.solids.push(solid);
+  }
+  if (!out.solids.length) out.error = 'no solids in file';
+  return out;
+}
+
+/* ── stepKernelBridge — NOT independently verified. Written against the
+   API shape research turned up for andymai/occt-wasm-class bindings
+   (readStep, a boolean/section-class call, getSubShapes by type, per-edge
+   curve-type introspection) — but no library was ever actually loaded and
+   called in the environment this was built in, so treat every method name
+   below as a plan, not a confirmed contract. See STEP-SUPPORT.md \u00a72 for
+   exactly what to check against whichever real kernel gets chosen. ── */
+async function stepKernelBridge(kernel, buf, planeSpec) {
+  // planeSpec: { axis: 'xy'|'xz'|'yz', offset: number(mm) }
+  const solids = [];
+  let shapes;
+  try {
+    // ASSUMED API — confirm against the real library.
+    const doc = await kernel.readStep(buf);
+    shapes = (typeof kernel.getSubShapes === 'function')
+      ? kernel.getSubShapes(doc, 'solid')
+      : (doc.solids || [doc]);
+  } catch (err) {
+    return { error: 'STEP read failed: ' + (err && err.message || err) };
+  }
+  if (!shapes || !shapes.length) return { error: 'no solids found in file' };
+
+  for (let i = 0; i < shapes.length; i++) {
+    const shape = shapes[i];
+    const name = (shape && shape.name) ? shape.name : ('Solid ' + (i + 1));
+    let edges = [];
+    try {
+      // ASSUMED API — the actual section call, plane construction, and
+      // per-edge curve-type walk all need confirming against whichever
+      // kernel this ends up pointed at. kernel.sectionAndProject is not a
+      // real method name from any research done for this build; it stands
+      // in for "run BRepAlgoAPI_Section against planeSpec, then classify
+      // and project each resulting edge into the plane's own 2D basis" —
+      // exactly the step described in STEP-IMPORT-PLAN.md \u00a76.
+      edges = await kernel.sectionAndProject(shape, planeSpec);
+    } catch (err) {
+      continue; // this solid's section failed; others may still succeed
+    }
+    solids.push({ name, edges: edges || [] });
+  }
+  return { solids };
+}
+
+let STEPIMP = null;
+
+function openSTEP() { const el = document.getElementById('step-file'); if (el) el.click(); }
+function onSTEPFile(e) {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (f) stepBeginImport(f);
+}
+
+async function stepBeginImport(file) {
+  showToast('Reading ' + file.name + '\u2026');
+  let kernel;
+  try { kernel = await loadStepKernel(); }
+  catch (err) { showToast('STEP support needs a CAD kernel \u00b7 none configured yet \u2014 see STEP-SUPPORT.md'); return; }
+  let buf;
+  try { buf = new Uint8Array(await file.arrayBuffer()); }
+  catch (err) { showToast('Could not read that file'); return; }
+
+  STEPIMP = { kernel, buf, name: file.name };
+  stepShowImportDialog();
+}
+
+function stepShowImportDialog() {
+  const ov = document.getElementById('step-import-overlay');
+  if (!ov || !STEPIMP) return;
+  document.getElementById('stepi-file').textContent = STEPIMP.name;
+  document.getElementById('stepi-solids').textContent = '\u2014 (known after sectioning)';
+  document.getElementById('stepi-offset').value = '0';
+  document.getElementById('stepi-status').textContent = '';
+  stepPickCard('plane', 'xy');
+  stepPickCard('place', GeoMemory.objects.length === 0 ? 'replace' : 'merge');
+  ov.classList.add('open');
+}
+function closeStepImport() {
+  const ov = document.getElementById('step-import-overlay');
+  if (ov) ov.classList.remove('open');
+  STEPIMP = null;
+  const el = document.getElementById('step-file');
+  if (el) el.value = '';
+}
+function stepPickCard(group, value) {
+  const cards = document.querySelectorAll('[data-step-group="' + group + '"]');
+  for (const c of cards) c.classList.toggle('selected', c.dataset.stepValue === value);
+}
+function stepPicked(group, fallback) {
+  const el = document.querySelector('[data-step-group="' + group + '"].selected');
+  return el ? el.dataset.stepValue : fallback;
+}
+
+// Section-edge dispatch: one GeoMemory entity per chained edge, matching
+// how NC1's own AK contour already lands as individual LINE entities
+// rather than one merged shape — simple, direct, precedented, and it means
+// a malformed chain still imports whatever edges it does have instead of
+// an all-or-nothing failure.
+function stepCommitChain(chain, layer) {
+  const ids = [];
+  for (const e of chain) {
+    let o = null;
+    if (e.kind === 'line')        o = GeoMemory.addLine(e.x1, e.y1, e.x2, e.y2, layer);
+    else if (e.kind === 'arc')    o = GeoMemory.addArc(e.cx, e.cy, e.r, e.startA, e.endA, e.ccw, layer);
+    else if (e.kind === 'bezier') o = GeoMemory.addBezierPath([e], false, layer);
+    if (o) ids.push(o.id);
+  }
+  return ids;
+}
+
+async function stepCommitImport() {
+  if (!STEPIMP) return;
+  const planeSpec = { axis: stepPicked('plane','xy'), offset: parseFloat(document.getElementById('stepi-offset').value) || 0 };
+  const mergeSel  = stepPicked('place', 'merge');
+
+  const btn = document.getElementById('stepi-go');
+  if (btn) btn.disabled = true;
+  const st = document.getElementById('stepi-status');
+  if (st) st.textContent = 'Sectioning\u2026';
+  await new Promise(r => setTimeout(r, 0));
+
+  let raw;
+  try { raw = await stepKernelBridge(STEPIMP.kernel, STEPIMP.buf, planeSpec); }
+  catch (err) { raw = { error: 'kernel call failed: ' + (err && err.message || err) }; }
+  const norm = stepNormalizeKernelOutput(raw);
+
+  if (norm.error) {
+    if (st) st.textContent = norm.error;
+    if (btn) btn.disabled = false;
+    return;
+  }
+
+  if (mergeSel === 'replace') GeoMemory.clear();
+  const baseName = (STEPIMP.name.replace(/\.(step|stp)$/i, '') || 'STEP').slice(0, 20);
+
+  let entitiesCreated = 0, solidsChained = 0, solidsUnchained = 0, solidsEmpty = 0;
+  norm.solids.forEach((solid, i) => {
+    if (!solid.edges.length) { solidsEmpty++; return; }
+    const layerName = (baseName + ' ' + (solid.name || ('Solid ' + (i+1)))).slice(0, 28);
+    if (!LAYERS[layerName]) LAYERS[layerName] = { name:layerName, color:'#a68ae8', ltype:'continuous', weight:2.0, visible:true, locked:false };
+
+    const chain = stepChainEdges(solid.edges);
+    if (chain) {
+      solidsChained++;
+      entitiesCreated += stepCommitChain(chain, layerName).length;
+    } else {
+      // Could not verify a single closed loop — common with an interior
+      // hole (a second loop in the same section) or a genuinely open/
+      // malformed result. Import the edges as-is rather than dropping
+      // them: never silently lose geometry, even when it can't be
+      // validated as clean. Reported plainly in the completion toast.
+      solidsUnchained++;
+      entitiesCreated += stepCommitChain(solid.edges, layerName).length;
+    }
+  });
+
+  closeStepImport();
+  if (btn) btn.disabled = false;
+  buildLayerPanel();
+  updateProps();
+  zoomExtents();
+  render();
+
+  const bits = [entitiesCreated + ' entit' + (entitiesCreated===1?'y':'ies')];
+  bits.push(norm.solids.length + ' solid' + (norm.solids.length===1?'':'s'));
+  if (solidsUnchained) bits.push(solidsUnchained + ' as unchained edges \u2014 review before use');
+  if (solidsEmpty) bits.push(solidsEmpty + ' had no material at this plane');
+  bits.push(mergeSel);
+  showToast('Sectioned ' + bits.join(' \u00b7 '));
+}
+
+
 // DXF is plain text, so parseDXF() is pure JS and ships inside this file.
 // DWG is a compiled binary format with no practical JS reader, so it is
 // handled by LibreDWG (GPL-3.0-or-later) cross-compiled to WebAssembly and
@@ -11168,6 +13269,54 @@ function buildDXF(objects, units) {
       lines.push('0','LINE','8',o.layer,'10',f(o.x1),'20',f(o.y1),'30','0.0000','11',f(o.x2),'21',f(o.y2),'31','0.0000');
     if(o.type==='POINT')
       lines.push('0','POINT','8',o.layer,'10',f(o.x),'20',f(o.y),'30','0.0000');
+    if(o.type==='HATCH' && o.loops && o.loops.length){
+      // A real HATCH entity with polyline boundary paths (group 92 bit 1 =
+      // external, bit 2 = polyline). The alternative — exporting the
+      // generated hatch lines as a few thousand LWPOLYLINEs — round-trips
+      // as loose geometry that can never be re-scaled, re-patterned or
+      // erased as one object, so it is not a hatch in any useful sense.
+      //
+      // The pattern definition lines (53/43/44/45/46/49) are the same
+      // numbers HATCH_PATTERNS already holds, which is why the table is
+      // written in .pat grammar in the first place.
+      const pat = HATCH_PATTERNS[o.pattern] || HATCH_PATTERNS.ANSI31;
+      const solid = pat.solid ? '1' : '0';
+      // Stochastic patterns have no line families to declare. AutoCAD has no
+      // equivalent primitive, so they go out as a named pattern with an
+      // empty definition — readers fall back to their own AR-CONC.
+      const fams = pat.lines || [];
+      const ordered = hatchOrderLoops(o.loops);
+      lines.push('0','HATCH','8',o.layer,
+        '10','0.0','20','0.0','30','0.0',          // elevation point
+        '210','0.0','220','0.0','230','1.0',       // extrusion, +Z
+        '2', o.pattern,
+        '70', solid,
+        '71','0',                                   // non-associative — see addHatch()
+        '91', String(ordered.length));
+      ordered.forEach((L, li) => {
+        lines.push('92', li === 0 ? '3' : '2',      // 1=external | 2=polyline
+                   '72','0',                        // no bulges
+                   '73','1',                        // closed
+                   '93', String(L.length));
+        for (const p of L) lines.push('10', f(p.x), '20', f(p.y));
+        lines.push('97','0');                       // no source boundary objects
+      });
+      lines.push('75','0',                          // hatch style: normal / odd parity
+                 '76','1',                          // predefined pattern
+                 '52', (o.angle||0).toFixed(6),
+                 '41', (o.scale||1).toFixed(6),
+                 '77','0',                          // not doubled
+                 '78', String(fams.length));
+      for (const fam of fams) {
+        const [fa, fox, foy, fdx, fdy, dash] = fam;
+        lines.push('53', (fa + (o.angle||0)).toFixed(6),
+                   '43', f(fox), '44', f(foy),
+                   '45', f(fdx||0), '46', f(fdy||0),
+                   '79', String(dash ? dash.length : 0));
+        if (dash) for (const d of dash) lines.push('49', f(d));
+      }
+      lines.push('98','0');                         // no seed points
+    }
     if(o.type==='POLYLINE' && o.pts && o.pts.length>=2){
       // LWPOLYLINE: group 70 flag: 0=open, 1=closed
       lines.push('0','LWPOLYLINE','8',o.layer,
@@ -11175,6 +13324,44 @@ function buildDXF(objects, units) {
         '70',o.closed?'1':'0',      // closed flag
         '43','0.0');                 // constant width
       for(const p of o.pts){ lines.push('10',f(p.x),'20',f(p.y)); }
+    }
+    if(o.type==='BEZIER' && o.beziers && o.beziers.length>=1){
+      // One SPLINE entity per segment, not one multi-span spline for the
+      // whole chain. A single spline covering N cubic segments needs a knot
+      // vector with degree+1 multiplicity at every internal join — gettable
+      // right, but not verifiable here without a real DXF reader to open
+      // the result in. N independent clamped-bezier splines (the simplest,
+      // most universal single-cubic-as-NURBS form: degree 3, 4 control
+      // points, knots [0,0,0,0,1,1,1,1]) is unambiguous and low-risk. DXF
+      // has no requirement that one visual curve be one entity — LWPOLYLINE
+      // with bulges already works the same way, several primitives making
+      // up what reads as one curve.
+      for(const b of o.beziers){
+        lines.push('0','SPLINE','8',o.layer,
+          '210','0.0','220','0.0','230','1.0',  // planar, normal +Z
+          '70','8',    // flags: bit 3 (8) = planar
+          '71','3',    // degree
+          '72','8',    // knot count
+          '73','4',    // control-point count
+          '74','0');   // fit-point count
+        for(const k of [0,0,0,0,1,1,1,1]) lines.push('40',k.toFixed(1));
+        for(const [px,py] of [[b.x0,b.y0],[b.cx1,b.cy1],[b.cx2,b.cy2],[b.x3,b.y3]])
+          lines.push('10',f(px),'20',f(py),'30','0.0000');
+      }
+      // Canvas2D's closePath() (used when rendering) implicitly draws a
+      // final straight edge back to the path's start — DXF has no
+      // equivalent implicit behaviour, so that edge has to be written out
+      // explicitly here or the shape reads as open in every other DXF
+      // reader. Same convention this file already applies to closed
+      // POLYLINE data: closed:true means the caller may rely on an
+      // automatic closing edge, not that one is pre-baked into the array.
+      if(o.closed){
+        const first=o.beziers[0], last=o.beziers[o.beziers.length-1];
+        if(Math.hypot(last.x3-first.x0, last.y3-first.y0) > 1e-6){
+          lines.push('0','LINE','8',o.layer,'10',f(last.x3),'20',f(last.y3),'30','0.0000',
+                     '11',f(first.x0),'21',f(first.y0),'31','0.0000');
+        }
+      }
     }
     if(o.type==='CIRCLE')
       lines.push('0','CIRCLE','8',o.layer,'10',f(o.cx),'20',f(o.cy),'30','0.0000','40',f(o.r));
@@ -11280,6 +13467,8 @@ function mirrorSelected() {
       minY=Math.min(minY,bb.minY); maxY=Math.max(maxY,bb.maxY);
     } else if (o.type === 'POLYLINE') {
       for (const p of o.pts) { minX=Math.min(minX,p.x); maxX=Math.max(maxX,p.x); minY=Math.min(minY,p.y); maxY=Math.max(maxY,p.y); }
+    } else if (o.type === 'HATCH') {
+      for (const L of o.loops) for (const p of L) { minX=Math.min(minX,p.x); maxX=Math.max(maxX,p.x); minY=Math.min(minY,p.y); maxY=Math.max(maxY,p.y); }
     }
   }
 
@@ -11300,6 +13489,18 @@ function mirrorSelected() {
     } else if (o.type === 'POLYLINE') {
       const newPts = o.pts.map(p => mp(p.x,p.y));
       GeoMemory.addPolyline(newPts, o.closed, o.layer); added++;
+    } else if (o.type === 'HATCH') {
+      // A mirror reverses loop winding. Even-odd fill does not care about
+      // winding, so the loops need no re-ordering — but the pattern angle is
+      // reflected, or a 45-degree steel hatch would come back leaning the
+      // same way as the original instead of mirroring with the part.
+      const newLoops = o.loops.map(L => L.map(p => mp(p.x,p.y)));
+      const no = mp(o.origin.x, o.origin.y);
+      let ang = -(o.angle || 0);
+      if (mirrorAxis === 'v') ang = 180 - (o.angle || 0);
+      GeoMemory.addHatch(newLoops,
+        {pattern:o.pattern, scale:o.scale, angle:ang, origin:{x:no.x,y:no.y}}, o.layer);
+      added++;
     } else if (o.type === 'CIRCLE') {
       const c = mp(o.cx,o.cy);
       GeoMemory.addCircle(c.x,c.y,o.r,o.layer); added++;
@@ -11894,6 +14095,17 @@ function bomTraceLoop(segs) {
 
   const chunks = segs.map(o => {
     if (o.type === 'LINE') return [{ x:o.x1, y:o.y1 }, { x:o.x2, y:o.y2 }];
+    if (o.type === 'BEZIER') {
+      // The whole entity — however many internal cubic segments it holds —
+      // is ONE chainable edge here, from its first segment's start to its
+      // last segment's end. This is exactly the shape a STEP section's
+      // free-form boundary takes: some straight edges, one curved one, all
+      // needing to connect into a single outer loop together.
+      const pts = [{ x:o.beziers[0].x0, y:o.beziers[0].y0 }];
+      for (const b of o.beziers)
+        flattenCubic({x:b.x0,y:b.y0},{x:b.cx1,y:b.cy1},{x:b.cx2,y:b.cy2},{x:b.x3,y:b.y3}, 0.12, pts);
+      return pts;
+    }
     // ARC — tessellated at ~10 degrees per step. This feeds an area
     // estimate for a weight figure, not a cut path, so that resolution is
     // ample; ~36 segments per full circle matches what the rest of this
@@ -11963,14 +14175,28 @@ function bomPartAreaMM2(part) {
   if (!ents.length) return null;
 
   const polylines = ents.filter(o => o.type === 'POLYLINE');
-  const segs       = ents.filter(o => o.type === 'LINE' || o.type === 'ARC');
+  const segs       = ents.filter(o => o.type === 'LINE' || o.type === 'ARC' || o.type === 'BEZIER');
   const circles    = ents.filter(o => o.type === 'CIRCLE');
-  const other      = ents.filter(o => !['POLYLINE','LINE','ARC','CIRCLE'].includes(o.type));
-  if (other.length) return null; // TEXT, POINT, etc. mixed in — don't guess
+  // HATCH is deliberately in this reject list rather than being ignored: a
+  // hatch inside a part outline is annotation, and silently skipping it
+  // would let a part whose outline is ONLY a hatch report a plausible-looking
+  // area computed from nothing. Refusing to guess is the safe answer when the
+  // number ends up on a cutting list.
+  const other      = ents.filter(o => !['POLYLINE','LINE','ARC','BEZIER','CIRCLE'].includes(o.type));
+  if (other.length) return null; // TEXT, POINT, HATCH etc. mixed in — don't guess
 
   let outer = null;
   if (polylines.length === 1 && segs.length === 0 && polylines[0].closed) {
     outer = polylines[0].pts;
+  } else if (polylines.length === 0 && segs.length === 1 && segs[0].type === 'BEZIER' && segs[0].closed) {
+    // A single self-contained closed curve — the BEZIER equivalent of the
+    // closed-POLYLINE case just above. Tessellate directly rather than
+    // routing a lone, already-closed entity through the multi-edge chainer.
+    const b0 = segs[0];
+    const pts = [{ x:b0.beziers[0].x0, y:b0.beziers[0].y0 }];
+    for (const b of b0.beziers)
+      flattenCubic({x:b.x0,y:b.y0},{x:b.cx1,y:b.cy1},{x:b.cx2,y:b.cy2},{x:b.x3,y:b.y3}, 0.12, pts);
+    outer = pts;
   } else if (polylines.length === 0 && segs.length > 0) {
     outer = bomTraceLoop(segs);
   }
@@ -12409,6 +14635,7 @@ function newDocument() {
 function updateProps() {
   markModelDirty();   // single choke point for every GeoMemory mutation
   const lines    = GeoMemory.objects.filter(o=>o.type==='LINE').length;
+  const hatches  = GeoMemory.objects.filter(o=>o.type==='HATCH').length;
   const polys    = GeoMemory.objects.filter(o=>o.type==='POLYLINE').length;
   const arcs2=GeoMemory.objects.filter(o=>o.type==='ARC'||o.type==='CIRCLE').length;
   document.getElementById('prop-objects').textContent = GeoMemory.objects.length;
@@ -12554,6 +14781,10 @@ function pasteSelected() {
     else if (o.type==='ARC')      n = GeoMemory.addArc(o.cx+dx,o.cy+dy,o.r,o.startA,o.endA,o.ccw,lay);
     else if (o.type==='POLYLINE') n = GeoMemory.addPolyline(o.pts.map(p=>({x:p.x+dx,y:p.y+dy})),o.closed,lay);
     else if (o.type==='TEXT')     n = GeoMemory.addText(o.x+dx,o.y+dy,o.text,o.height,lay);
+    else if (o.type==='HATCH')    n = GeoMemory.addHatch(
+      o.loops.map(L=>L.map(p=>({x:p.x+dx,y:p.y+dy}))),
+      {pattern:o.pattern, scale:o.scale, angle:o.angle,
+       origin:{x:o.origin.x+dx, y:o.origin.y+dy}}, lay);
     if (n) selectedIds.add(n.id);
   }
   updateProps(); render();
@@ -12695,6 +14926,7 @@ function kvModelBounds() {
   for (const o of GeoMemory.objects) {
     if (o.type==='LINE') { put(o.x1,o.y1); put(o.x2,o.y2); }
     else if (o.type==='POLYLINE' && o.pts) for (const p of o.pts) put(p.x,p.y);
+    else if (o.type==='HATCH' && o.loops) for (const L of o.loops) for (const p of L) put(p.x,p.y);
     else if (o.type==='CIRCLE'||o.type==='ARC') { put(o.cx-o.r,o.cy-o.r); put(o.cx+o.r,o.cy+o.r); }
     else if (o.type==='POINT'||o.type==='TEXT') put(o.x,o.y);
   }
@@ -12937,6 +15169,7 @@ function kvFitViewport() {
     if (o.type==='LINE') { add(o.x1,o.y1); add(o.x2,o.y2); }
     else if (o.type==='CIRCLE'||o.type==='ARC') { add(o.cx-o.r,o.cy-o.r); add(o.cx+o.r,o.cy+o.r); }
     else if (o.type==='POLYLINE'&&o.pts) o.pts.forEach(p=>add(p.x,p.y));
+    else if (o.type==='HATCH'&&o.loops) o.loops.forEach(L=>L.forEach(p=>add(p.x,p.y)));
     else if (o.type==='TEXT'||o.type==='POINT') add(o.x,o.y);
   }
   if (!isFinite(m.x1)) { showToast('No geometry to fit'); return; }
@@ -17952,6 +20185,11 @@ function kommandClear() {
 
 // Command word table
 const KOMMANDS = {
+  'H':       () => setTool('hatch'),
+  'HATCH':   () => setTool('hatch'),
+  'BHATCH':  () => setTool('hatch'),
+  'FILL':    () => hatchSelectedBoundaries(),
+  'REHATCH': () => hatchRebuildSelected(),
   'PL':      () => setTool('pline'),
   'PLINE':   () => setTool('pline'),
   'O':       () => setTool('offset'),
@@ -18501,7 +20739,7 @@ canvas.addEventListener('mousedown', () => {
 // KOMMAND focus — K key, OR any coord-start character while a draw tool is active
 const DRAW_TOOLS = new Set(['line','rect','polygon','offset','rotate','circle','arc',
                              'kompass','fillet','chamfer','mirror','trim','extend','break',
-                             'scale','stretch','text','dim']);
+                             'scale','stretch','text','dim','hatch']);
 document.addEventListener('keydown', function(ev) {
   if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)) return;
   if(document.activeElement === kInput) return;
@@ -18562,6 +20800,212 @@ kInput.addEventListener('blur', () => {
 // the boot init calls setTool('pline') two frames after load, so a
 // separate DOMContentLoaded sync would only flash a stale label first.
 
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  TOOL MANIFEST & RAIL RENDERING
+//  ────────────────────────────────────────────────────────────────────────────
+//  The 21 tool buttons used to be hand-written markup inside #sidebar. Three
+//  layouts now need the SAME buttons in different containers, and the obvious
+//  approach — one copy of the markup per layout — cannot work here: setTool()
+//  resolves the active button with getElementById('btn-'+tool), and duplicate
+//  ids mean every copy but the first silently stops highlighting. Rendering
+//  from one manifest into one mount at a time keeps the ids unique by
+//  construction.
+//
+//  It also gives the tool table a single home. The key, the tooltip, the
+//  aria-label and the icon were four independent strings per button that had
+//  to agree; they are now one row that cannot disagree with itself.
+//
+//  `w` is the size tier: 2 = double cell in a rail. Deliberately ignored in
+//  Touch — every target there stays at the full comfortable size, because a
+//  deliberately-smaller button on a tablet is just a missed tap.
+// ══════════════════════════════════════════════════════════════════════════════
+const TOOLS = [
+  {id:'pline', label:'PLINE', tip:'Polyline', key:'P L', group:'draw', w:2, act:"setTool('pline')",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="3 20 8 8 14 14 21 4"/><circle cx="3" cy="20" r="1.6" fill="currentColor"/><circle cx="8" cy="8" r="1.6" fill="currentColor"/><circle cx="14" cy="14" r="1.6" fill="currentColor"/><circle cx="21" cy="4" r="1.6" fill="currentColor"/></svg>'},
+  {id:'line', label:'LINE', tip:'Line', key:'L', group:'draw', w:2, act:"setTool('line')",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="4" y1="20" x2="20" y2="4"/><circle cx="4" cy="20" r="2" fill="currentColor"/><circle cx="20" cy="4" r="2" fill="currentColor"/></svg>'},
+  {id:'rect', label:'RECT', tip:'Rectangle', key:'R', group:'draw', w:1, act:"setTool('rect')",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="6" width="16" height="12" rx="1"/></svg>'},
+  {id:'polygon', label:'POLY', tip:'Polygon', key:'P', group:'draw', w:1, act:"setTool('polygon')",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="12,3 21,9 17,20 7,20 3,9"/></svg>'},
+  {id:'hatch', label:'HATCH', tip:'Hatch', key:'G', group:'draw', w:1, act:"setTool('hatch')",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h16v16H4z"/><line x1="4" y1="12" x2="12" y2="4" stroke-width="1"/><line x1="4" y1="17" x2="17" y2="4" stroke-width="1"/><line x1="4" y1="22" x2="22" y2="4" stroke-width="1" opacity="0.55"/><line x1="7" y1="20" x2="20" y2="7" stroke-width="1"/><line x1="12" y1="20" x2="20" y2="12" stroke-width="1"/></svg>'},
+  {id:'offset', label:'OFFSET', tip:'Offset', key:'O', group:'modify', w:1, act:"setTool('offset')",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="3" y1="8" x2="21" y2="8"/><line x1="3" y1="16" x2="21" y2="16"/><path d="M14 11.5l3 2.5-3 2.5" stroke-width="1.2"/></svg>'},
+  {id:'rotate', label:'ROTATE', tip:'Rotate', key:'T', group:'modify', w:1, act:"setTool('rotate')",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>'},
+  {id:'arc', label:'ARC', tip:'Arc', key:'A', group:'draw', w:1, act:"setTool('arc')",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 19a9 9 0 0 1 14 0"/><circle cx="5" cy="19" r="1.5" fill="currentColor"/><circle cx="19" cy="19" r="1.5" fill="currentColor"/></svg>'},
+  {id:'circle', label:'CIRCLE', tip:'Circle', key:'C', group:'draw', w:2, act:"setTool('circle')",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/></svg>'},
+  {id:'kompass', label:'KOMPASS', tip:'Kompass', key:'V', group:'draw', w:1, act:"setTool('kompass')",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="5" r="1.6" fill="currentColor"/><path d="M12 6.5 5 20"/><path d="M12 6.5 19 20"/><path d="M7.5 17a7 7 0 0 0 9 0"/></svg>'},
+  {id:'fillet', label:'FILLET', tip:'Fillet', key:'F', group:'modify', w:1, act:"setTool('fillet')",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 19 L5 8 Q5 5 8 5 L19 5"/></svg>'},
+  {id:'chamfer', label:'CHAMFER', tip:'Chamfer', key:'H', group:'modify', w:1, act:"setTool('chamfer')",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"> <path d="M4 20 L12 4 L20 20"/> <line x1="7" y1="14" x2="17" y2="14"/> </svg>'},
+  {id:'mirror', label:'MIRROR', tip:'Mirror', key:'M', group:'modify', w:1, act:"setTool('mirror')",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="3" x2="12" y2="21" stroke-dasharray="2 2"/><polyline points="3,7 9,12 3,17"/><polyline points="21,7 15,12 21,17"/></svg>'},
+  {id:'dim', label:'DIM', tip:'Dimension', key:'D', group:'modify', w:1, act:"setTool('dim')",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="3" y1="17" x2="21" y2="17"/><line x1="3" y1="14" x2="3" y2="20"/><line x1="21" y1="14" x2="21" y2="20"/><line x1="8" y1="12" x2="8" y2="17"/><line x1="16" y1="12" x2="16" y2="17"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="10" y1="5" x2="8" y2="7"/><line x1="10" y1="9" x2="8" y2="7"/><line x1="14" y1="5" x2="16" y2="7"/><line x1="14" y1="9" x2="16" y2="7"/></svg>'},
+  {id:'trim', label:'TRIM', tip:'Trim', key:'Q', group:'modify', w:2, act:"setTool('trim')",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="4" y1="12" x2="20" y2="12"/><line x1="12" y1="4" x2="12" y2="10"/><line x1="12" y1="14" x2="12" y2="20" stroke-dasharray="2 2" opacity="0.4"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg>'},
+  {id:'extend', label:'EXTEND', tip:'Extend', key:'E', group:'modify', w:1, act:"setTool('extend')",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="4" y1="12" x2="16" y2="12"/><polyline points="13,9 16,12 13,15"/><line x1="19" y1="5" x2="19" y2="19"/></svg>'},
+  {id:'break', label:'BREAK', tip:'Break', key:'B', group:'modify', w:1, act:"setTool('break')",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="4" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="20" y2="12"/><line x1="9" y1="9" x2="12" y2="15"/><line x1="12" y1="9" x2="15" y2="15"/></svg>'},
+  {id:'scale', label:'SCALE', tip:'Scale', key:'I', group:'modify', w:1, act:"setTool('scale')",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="8" height="8"/><rect x="13" y="13" width="8" height="8"/><line x1="11" y1="7" x2="13" y2="7" stroke-dasharray="2 2"/><line x1="17" y1="11" x2="17" y2="13" stroke-dasharray="2 2"/></svg>'},
+  {id:'stretch', label:'STRETCH', tip:'Stretch', key:'W', group:'modify', w:1, act:"setTool('stretch')",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="4" y1="20" x2="12" y2="12"/><line x1="12" y1="12" x2="20" y2="4"/><circle cx="20" cy="4" r="2.5" fill="currentColor"/><path d="M17 1l3 3-3 3" stroke-width="1.2"/></svg>'},
+  {id:'text', label:'TEXT', tip:'Text', key:'K', group:'draw', w:1, act:"setTool('text')",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 7V5h16v2"/><line x1="12" y1="5" x2="12" y2="19"/><line x1="8" y1="19" x2="16" y2="19"/></svg>'},
+  {id:'array', label:'ARRAY', tip:'Array', key:'N', group:'modify', w:1, act:"openArrayDialog()",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="5" height="5"/><rect x="10" y="3" width="5" height="5"/><rect x="17" y="3" width="4" height="5"/><rect x="3" y="10" width="5" height="5"/><rect x="10" y="10" width="5" height="5"/><rect x="17" y="10" width="4" height="5"/></svg>'},
+  {id:'select', label:'SELECT', tip:'Select', key:'S', group:'draw', w:2, act:"setTool('select')",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 3l14 9-7 1-4 7z"/></svg>'},
+];
+const TOOL_DELETE = {id:'delete', label:'DELETE', tip:'Delete Selected', key:'Del',
+  group:'modify', w:1, danger:true, act:'deleteSelected()',
+  icon:'<svg viewBox="0 0 24 24" fill="none" stroke="#ff4455" stroke-width="1.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6M9 6V4h6v2"/></svg>'};
+
+// Rail-only controls. These exist because Classic has no sidebar file column
+// and no room for the topbar menus to be the only route to a Save. Each one
+// calls a function that already existed — no new behaviour, just a shorter path.
+const RAIL_TOP_ITEMS = [
+  {id:'rt-save',   tip:'Save .kad',      key:'',    act:'saveKAD()',
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>'},
+  {id:'rt-open',   tip:'Open .kad',      key:'',    act:"document.getElementById('load-kad').click()",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'},
+  {sep:true},
+  {id:'rt-undo',   tip:'Undo',           key:'Ctrl Z', act:"if(!SPACE().undo()) showToast('Nothing to undo')",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 10h11a5 5 0 0 1 0 10H9"/><polyline points="7 6 3 10 7 14"/></svg>'},
+  {id:'rt-redo',   tip:'Redo',           key:'Ctrl Y', act:"if(!SPACE().redo()) showToast('Nothing to redo')",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 10H10a5 5 0 0 0 0 10h5"/><polyline points="17 6 21 10 17 14"/></svg>'},
+  {sep:true},
+  {id:'rt-zoomext',tip:'Zoom Extents',   key:'',    act:'zoomExtents()',
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="3 9 3 3 9 3"/><polyline points="15 3 21 3 21 9"/><polyline points="21 15 21 21 15 21"/><polyline points="9 21 3 21 3 15"/><rect x="8" y="8" width="8" height="8"/></svg>'},
+  {id:'rt-units',  tip:'Toggle mm / in', key:'U',   act:'toggleUnits()',
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="3" y1="16" x2="21" y2="16"/><line x1="3" y1="12" x2="3" y2="20"/><line x1="9" y1="13" x2="9" y2="20"/><line x1="15" y1="13" x2="15" y2="20"/><line x1="21" y1="12" x2="21" y2="20"/><line x1="6" y1="4" x2="18" y2="4"/></svg>'},
+];
+
+// Drafting-mode toggles. The status bar already REPORTS these; it is a poor
+// place to OPERATE them — 12px text targets at the very bottom edge. Same
+// state, same functions, a real target. Live state is mirrored from the
+// status bar spans by railSyncModes().
+const RAIL_BOTTOM_ITEMS = [
+  {id:'rb-osnap',  tip:'Object Snap',          key:'F3',  act:'toggleSnap()',      watch:'sb-snap'},
+  {id:'rb-ortho',  tip:'Ortho',                key:'F8',  act:'toggleOrtho()',     watch:'sb-ortho'},
+  {id:'rb-polar',  tip:'Polar Tracking',       key:'F10', act:'togglePolar()',     watch:'sb-polar'},
+  {id:'rb-gsnap',  tip:'Grid Snap',            key:'F9',  act:'toggleGridSnap()',  watch:'sb-gsnap'},
+  {id:'rb-otrack', tip:'Object Snap Tracking', key:'F11', act:'toggleOtrack()',    watch:'sb-otrack'},
+  {sep:true},
+  {id:'rb-modes',  tip:'Snap Modes',           key:'',    act:'openSnapSettings()'},
+];
+
+function toolBtnHTML(t, opts) {
+  opts = opts || {};
+  const cls = ['tool-btn'];
+  if (opts.weights && t.w === 2) cls.push('tb-w2');
+  if (t.danger) cls.push('danger');
+  const style = t.danger ? ' style="color:#ff4455;"' : '';
+  const lblStyle = t.danger ? ' style="color:#ff4455;"' : '';
+  return '<button class="' + cls.join(' ') + '" id="btn-' + t.id + '"' + style +
+         ' onclick="' + t.act.replace(/"/g, '&quot;') + '"' +
+         ' data-tip="' + t.tip + '" data-tip-key="' + t.key + '"' +
+         ' aria-label="' + t.tip + (t.key ? ' (' + t.key + ')' : '') + '">' +
+         '<div class="tool-icon">' + t.icon + '</div>' +
+         '<span class="tool-label"' + lblStyle + '>' + t.label + '</span>' +
+         '</button>';
+}
+
+function railItemHTML(it) {
+  if (it.sep) return '<div class="rail-sep"></div>';
+  return '<button class="tool-btn rail-item" id="' + it.id + '"' +
+         ' onclick="' + it.act.replace(/"/g, '&quot;') + '"' +
+         ' data-tip="' + it.tip + '" data-tip-key="' + (it.key || '') + '"' +
+         ' aria-label="' + it.tip + '">' +
+         '<div class="tool-icon">' + (it.icon || '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="8"/></svg>') + '</div>' +
+         '<span class="rail-item-label">' + (it.tip.split(' ')[0]) + '</span>' +
+         '</button>';
+}
+
+// Mirror the status bar's own state onto the bottom rail. Reading the spans
+// rather than the underlying variables keeps one source of truth: whatever
+// the status bar says is what the rail says, including for toggles whose
+// state variable is not exported to this scope.
+function railSyncModes() {
+  const rb = document.getElementById('rail-bottom');
+  if (!rb || !rb.firstChild) return;
+  for (const it of RAIL_BOTTOM_ITEMS) {
+    if (!it.watch) continue;
+    const src = document.getElementById(it.watch);
+    const btn = document.getElementById(it.id);
+    if (!src || !btn) continue;
+    btn.classList.toggle('on', (src.textContent || '').trim() === 'ON');
+  }
+}
+
+// Builds the tool DOM for the active layout. Called from setLayout() only —
+// this is markup creation, not a per-frame operation.
+// Keep the bottom rail in step with the status bar however the mode changed —
+// F8, the status bar itself, a KOMMAND verb or the rail button. Observing the
+// spans catches every route with one hook, where calling railSyncModes() from
+// each toggle would silently miss whichever route gets added next.
+(function watchModeSpans() {
+  if (typeof MutationObserver === 'undefined') return;
+  const start = () => {
+    const sb = document.getElementById('statusbar');
+    if (!sb) return;
+    new MutationObserver(() => { if (typeof railSyncModes === 'function') railSyncModes(); })
+      .observe(sb, {subtree:true, childList:true, characterData:true});
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
+})();
+
+function renderTools() {
+  const layout  = document.body.dataset.layout || 'touch';
+  const railed  = (layout === 'classic') && !document.body.classList.contains('mobile-mode');
+
+  const grid  = document.getElementById('tool-grid');
+  const gridB = document.getElementById('tool-grid-bottom');
+  const rl = document.getElementById('rail-left');
+  const rr = document.getElementById('rail-right');
+  const rt = document.getElementById('rail-top');
+  const rb = document.getElementById('rail-bottom');
+  if (!grid) return;
+
+  if (railed) {
+    // One mount at a time — the sidebar copies are removed, not hidden, so
+    // getElementById('btn-line') can only ever resolve to the rail button.
+    grid.innerHTML = '';
+    if (gridB) gridB.innerHTML = '';
+    const draw   = TOOLS.filter(t => t.group === 'draw'   && t.id !== 'select');
+    const modify = TOOLS.filter(t => t.group === 'modify');
+    const sel    = TOOLS.find(t => t.id === 'select');
+    rl.innerHTML = (sel ? toolBtnHTML(sel, {weights:true}) + '<div class="rail-sep"></div>' : '') +
+                   draw.map(t => toolBtnHTML(t, {weights:true})).join('');
+    rr.innerHTML = modify.map(t => toolBtnHTML(t, {weights:true})).join('') +
+                   '<div class="rail-sep"></div>' + toolBtnHTML(TOOL_DELETE, {weights:true});
+    rt.innerHTML = RAIL_TOP_ITEMS.map(railItemHTML).join('');
+    rb.innerHTML = RAIL_BOTTOM_ITEMS.map(railItemHTML).join('');
+  } else {
+    rl.innerHTML = ''; rr.innerHTML = ''; rt.innerHTML = ''; rb.innerHTML = '';
+    grid.innerHTML = TOOLS.map(t => toolBtnHTML(t, {weights:false})).join('');
+    if (gridB) gridB.innerHTML = toolBtnHTML(TOOL_DELETE, {weights:false});
+  }
+
+  // A re-render drops the .active class with the old markup. Re-assert it,
+  // or a layout switch silently leaves no tool highlighted.
+  if (typeof activeToolRequested !== 'undefined' && activeToolRequested) {
+    const el = document.getElementById('btn-' + activeToolRequested);
+    if (el) el.classList.add('active');
+  }
+  railSyncModes();
+}
+
 // ── THEME / GRID / LAYOUT CONTROLS ───────────────────────────────────────
 // Three independent, separately-persisted systems:
 //   • Color theme (data-theme)  — blueprint / parchment / classic-dark / classic-light
@@ -18573,7 +21017,8 @@ kInput.addEventListener('blur', () => {
 const THEME_GRID_DEFAULTS = { blueprint: 'lines', parchment: 'dots', 'classic-dark': 'dots', 'classic-light': 'void' };
 const THEME_LABELS  = { blueprint: 'BLUEPRINT', parchment: 'PARCHMENT', 'classic-dark': 'CLASSIC DARK', 'classic-light': 'CLASSIC LIGHT' };
 const GRID_LABELS   = { lines: 'LINES', dots: 'DOTS', void: 'VOID' };
-const LAYOUT_LABELS = { touch: 'TOUCH', classic: 'CLASSIC' };
+const LAYOUT_LABELS = { touch: 'TOUCH', compact: 'COMPACT', classic: 'CLASSIC' };
+const LAYOUTS = ['touch', 'compact', 'classic'];
 
 // Per-theme icon for the theme-toggle button. Was a single hardcoded ☾
 // before — always a moon regardless of theme, which is exactly the "always
@@ -18628,8 +21073,12 @@ function setGridStyle(style) {
 }
 
 function setLayout(layout) {
+  if (!LAYOUTS.includes(layout)) layout = 'touch';
   document.body.dataset.layout = layout;
-  try { localStorage.setItem('kad-layout', layout); } catch(e) {}
+  try {
+    localStorage.setItem('kad-layout', layout);
+    localStorage.setItem('kad-layout-v', '2');
+  } catch(e) {}
   const lbl = document.getElementById('layout-label');
   if (lbl) lbl.textContent = LAYOUT_LABELS[layout];
   document.querySelectorAll('#layout-dropdown .tb-dd-item').forEach(el => el.classList.remove('checked'));
@@ -18638,6 +21087,20 @@ function setLayout(layout) {
   // A layout switch can pull the hovered button out from under the cursor;
   // a tooltip left showing would then be pointing at nothing.
   if (typeof kadTipHide === 'function') kadTipHide();
+
+  // Rebuild the tool DOM for the new layout — the buttons live in the
+  // sidebar or in the rails, never both.
+  if (typeof renderTools === 'function') renderTools();
+
+  // Every layout changes how much width the canvas gets, and resizeCanvas()
+  // was bound to window.resize alone. Switching Touch (272px rail) to
+  // Compact (184px) therefore left the canvas backing store 88px wider than
+  // its container: geometry near the right edge was clipped and every mouse
+  // coordinate past that point mapped to the wrong world position. The
+  // canvas has to be told, because nothing else tells it.
+  if (typeof resizeCanvas === 'function' && typeof canvas !== 'undefined' && canvas) {
+    requestAnimationFrame(() => { resizeCanvas(); });
+  }
 }
 
 // ── DESKTOP HOVER TOOLTIP ──────────────────────────────────────────────
@@ -18788,17 +21251,28 @@ document.addEventListener('keydown', e => {
   // topbar menu they had no reason to open; a tablet user got the right
   // thing by accident. An explicit choice always wins and is remembered —
   // this only decides what happens before the user has expressed one.
-  let savedLayout = null;
-  try { savedLayout = localStorage.getItem('kad-layout'); } catch(e) {}
-  if (savedLayout === 'classic' || savedLayout === 'touch') {
+  let savedLayout = null, layoutVer = null;
+  try {
+    savedLayout = localStorage.getItem('kad-layout');
+    layoutVer   = localStorage.getItem('kad-layout-v');
+  } catch(e) {}
+
+  // Legacy migration. 'classic' used to mean the dense 184px sidebar, which
+  // is now called 'compact'; 'classic' now means the docked rails. Without
+  // the version stamp, everyone who had ever chosen the old Classic would be
+  // silently moved into a layout they have never seen and did not pick.
+  if (savedLayout === 'classic' && layoutVer !== '2') savedLayout = 'compact';
+
+  if (LAYOUTS.includes(savedLayout)) {
     setLayout(savedLayout);
   } else {
-    const desktop = window.matchMedia &&
-                    window.matchMedia('(hover: hover) and (pointer: fine)').matches &&
-                    window.innerWidth >= 1024;
+    const fine = window.matchMedia &&
+                 window.matchMedia('(hover: hover) and (pointer: fine)').matches;
     // setLayout persists, which is deliberate: the guess becomes the saved
     // preference so a later window resize can't silently re-guess mid-session.
-    setLayout(desktop ? 'classic' : 'touch');
+    // Rails need real width on both edges before they beat a single sidebar.
+    setLayout(!fine ? 'touch' : (window.innerWidth >= 1280 ? 'classic'
+                              : window.innerWidth >= 1024 ? 'compact' : 'touch'));
   }
 })();
 
