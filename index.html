@@ -175,6 +175,16 @@ body[data-theme="parchment"] #main-canvas { background: var(--void); }
   --green-dim:     #00aa66;
   --amber:         #ffaa00;
   --red:           #ff4455;
+  /* KAD brand identity — locked like green/amber/red above, but for the
+     mm/blue half of the mm-blue-vs-in-amber unit pairing (splash tiles +
+     #unit-seg-mm.active), not a status indicator. The KAD wordmark itself
+     stays on var(--accent) — cascades with theme, no functional payload
+     to justify locking it. #0e2038 is blueprint's own --panel value,
+     reused here as the fixed dark card both unit tiles sit on — already
+     proven to hold contrast against the unit-label text and the frozen
+     caption colors that pair with it (see STARTUP UNIT SPLASH). */
+  --kad-native-blue: #00d4ff;
+  --kad-native-navy: #0e2038;
   --t1:  #f0f4f8;
   --t2: #a8c4dc;
   --t3: #7391b0;  /* was #6888a8 at 4.43:1 on panel (WCAG AA fail); this
@@ -392,7 +402,7 @@ body.drafting-mode #app { pointer-events:auto; z-index:20; }
 
 /* ── TOPBAR ── */
 #topbar { grid-column:1/-1; display:flex; align-items:center; background:var(--panel); border-bottom:1px solid var(--border); padding:0 12px; position:relative; z-index:30; }
-.brand { display:flex; align-items:center; gap:8px; margin-right:20px; font-family:var(--fu); font-weight:700; font-size:15px; color:var(--accent); letter-spacing:0.04em; user-select:none; }
+.brand { display:flex; align-items:center; gap:8px; margin-right:20px; font-family:var(--fu); font-weight:700; font-size:15px; color:var(--kad-native-blue); letter-spacing:0.04em; user-select:none; }
 .brand-sub { font-size:12px; color:var(--t3); letter-spacing:0.12em; text-transform:uppercase; font-weight:400; }
 .tb-menu { display:flex; align-items:center; }
 .tb-menu-item { padding:0 12px; height:var(--toolbar-h); display:flex; align-items:center; font-size:14px; color:var(--t2); cursor:pointer; transition:color 0.15s,background 0.15s; letter-spacing:0.02em; position:relative; }
@@ -1305,7 +1315,31 @@ button, .tb-menu-item, .tb-dd-item, .layer-row, .tab-item, .sb-item.sb-toggle {
   box-shadow: 0 0 12px rgba(0,212,255,0.25);
 }
 .dlg-btn.commit:hover { background: #33ddff; box-shadow: 0 0 18px rgba(0,212,255,0.4); }
-/* ── STARTUP UNIT SPLASH ── */
+/* ── STARTUP UNIT SPLASH ──
+   Chrome (panel/border/body text/brand wordmark) cascades with the live
+   theme — this dialog shows on every load (see initSplash()), so it
+   should look like the workspace the user is actually in.
+
+   The mm and in tiles are the deliberate exception: both frozen to how
+   they already look in Blueprint (navy card, cyan or amber text) via
+   --kad-native-blue/--kad-native-navy, regardless of theme. Unlike the
+   wordmark, these carry real functional weight — the blue=metric /
+   amber=imperial pairing is a mnemonic used elsewhere in the app (see
+   #unit-seg-mm.active / #unit-seg-in.active), so it needs to hold
+   regardless of theme, not just look nice in Blueprint.
+
+   This can't be a plain color swap on the unit text alone: flat cyan or
+   amber text reads fine on Blueprint/Classic-Dark's dark panels but
+   drops to ~1.2–1.9:1 on Classic Light/Parchment's light panels — nowhere
+   near the 4.5:1 AA floor, and no single flat hex clears 4.5:1 against
+   panels spanning #ffffff to #161616 (verified against six candidate
+   blues before concluding this). So both tiles get their own fixed navy
+   backing instead of just recolored text, mirroring the fixed-pair idiom
+   #unit-seg-in.active already used (amber bg + dark ink, not amber-on-
+   whatever's-behind-it). Each tile's caption text is frozen to
+   Blueprint's own already-verified values for the same reason — once the
+   background stops cascading, var(--t3)/var(--t2) no longer read against
+   it in every theme either. */
 
 #splash-dialog {
   background: var(--panel);
@@ -1325,7 +1359,7 @@ button, .tb-menu-item, .tb-dd-item, .layer-row, .tab-item, .sb-item.sb-toggle {
 }
 .splash-brand {
   display: flex; align-items: center; gap: 10px;
-  font-size: 22px; font-weight: 700; color: var(--accent);
+  font-size: 22px; font-weight: 700; color: var(--kad-native-blue);
   letter-spacing: 0.06em; margin-bottom: 6px;
 }
 .splash-sub {
@@ -1355,13 +1389,32 @@ button, .tb-menu-item, .tb-dd-item, .layer-row, .tab-item, .sb-item.sb-toggle {
   transform: translateY(-1px);
   box-shadow: 0 4px 16px rgba(0,0,0,0.4);
 }
-.splash-unit-btn.mm-btn:hover  { border-color: var(--accent); box-shadow: 0 4px 16px rgba(0,212,255,0.15); }
-.splash-unit-btn.in-btn:hover  { border-color: var(--amber);  box-shadow: 0 4px 16px rgba(255,170,0,0.15); }
+/* Both tiles — fixed navy card, not just fixed text. Re-asserted on
+   :hover too so neither flashes to the theme's var(--hover) (light grey
+   in Classic Light) and back; only the border lights up brighter. */
+.splash-unit-btn.mm-btn, .splash-unit-btn.in-btn { background: var(--kad-native-navy); }
+.splash-unit-btn.mm-btn:hover {
+  background: var(--kad-native-navy);
+  border-color: var(--kad-native-blue);
+  box-shadow: 0 4px 16px rgba(0,212,255,0.15);
+}
+.splash-unit-btn.in-btn:hover {
+  background: var(--kad-native-navy);
+  border-color: var(--amber);
+  box-shadow: 0 4px 16px rgba(255,170,0,0.15);
+}
 .splash-unit-btn .sub-unit {
   font-size: 28px; font-weight: 700; letter-spacing: 0.02em;
 }
-.splash-unit-btn.mm-btn .sub-unit { color: var(--accent); }
-.splash-unit-btn.in-btn .sub-unit { color: var(--amber); }
+.splash-unit-btn.mm-btn .sub-unit    { color: var(--kad-native-blue); }
+.splash-unit-btn.mm-btn .sub-name    { color: #7391b0; }  /* blueprint --t3, frozen — see block comment */
+.splash-unit-btn.mm-btn .sub-example { color: #a8c4dc; }  /* blueprint --t2, frozen — see block comment */
+.splash-unit-btn.in-btn .sub-unit    { color: var(--amber); }
+.splash-unit-btn.in-btn .sub-name    { color: #7391b0; }  /* blueprint --t3, frozen — see block comment */
+.splash-unit-btn.in-btn .sub-example { color: #a8c4dc; }  /* blueprint --t2, frozen — see block comment */
+/* Shared fallback — no longer reached by mm/in now that both have their
+   own frozen colors above; left in place for font-size/spacing and as
+   the default should a third, non-frozen tile ever be added. */
 .splash-unit-btn .sub-name { font-size: 12px; color: var(--t3); letter-spacing: 0.1em; text-transform: uppercase; }
 .splash-unit-btn .sub-example { font-size: 13px; color: var(--t2); }
 .splash-note {
@@ -1851,7 +1904,7 @@ body.kanvas-mode { --accent: #0090a8; --accent-dim: #006888; --accent-glow: rgba
 /* ── UNIT TOGGLE TWO-TONE (cyan ↔ amber / KAD ↔ KAM) ──────── */
 #unit-seg-mm { color: rgba(0,212,255,0.50); }
 #unit-seg-in { color: rgba(255,170,0,0.50); }
-#unit-seg-mm.active { background: var(--accent); color: var(--void); font-weight:700; }
+#unit-seg-mm.active { background: var(--kad-native-blue); color: var(--kad-native-navy); font-weight:700; }
 #unit-seg-in.active { background: #ffaa00; color: #060e08; font-weight:700; }
 
 /* ── KOMMAND LINE ─────────────────────────────────────────────────────────── */
@@ -2748,7 +2801,7 @@ body.kanvas-mode #app {
     </div>
     <div class="tb-aux-wrap" id="crosshair-wrap">
       <button class="tb-aux-btn" id="crosshair-toggle" onclick="toggleAuxMenu(event,'crosshair')" title="Crosshair style">
-        <span class="t-icon" id="crosshair-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.6"><line x1="2" y1="12" x2="22" y2="12" stroke="#ff4444"/><line x1="12" y1="2" x2="12" y2="22" stroke="#40e074"/></svg></span>
+        <span class="t-icon" id="crosshair-icon"></span>
         <span class="t-label" id="crosshair-label">AXIS</span>
       </button>
       <div class="tb-dropdown" id="crosshair-dropdown">
@@ -4535,9 +4588,17 @@ function initSplash() {
   let saved = null;
   try { saved = localStorage.getItem(SPLASH_KEY); } catch(e){}
   if (saved === 'mm' || saved === 'in') {
-    // Returning user — apply remembered units without prompting
-    splashSelectUnit(saved, false);
-    return;
+    // Returning user — pre-apply the remembered unit to the workspace
+    // behind the dialog, so what's visible through the glass is already
+    // correct. Deliberately NOT calling splashSelectUnit() here: that
+    // function's job is "the user just chose a unit, so close the
+    // dialog" — reusing it would hide the overlay as a side effect. This
+    // does the same mechanical setup without the early return, since the
+    // splash is now a confirm-every-load gate, not a one-time prompt.
+    unitMode = saved;
+    applyUnitDisplay(saved);
+    resetScaledInputDefaults(saved);
+    render();
   }
   const splashEl = document.getElementById('splash-overlay');
   splashEl.style.display = 'flex';
@@ -10708,6 +10769,18 @@ let liveAim = false;
 // finds two colours noisy, and it is what the crosshair looked like before.
 let crosshairMode = 'axis';
 const CROSSHAIR_LABELS = { axis:'AXIS', mono:'MONO', off:'OFF' };
+
+// Toolbar icon always shows the axis-mode glyph (red X-arm / green Y-arm)
+// regardless of crosshairMode — it identifies the control, not the current
+// selection, the same way the theme-icon shows a swatch rather than a
+// checkmark. Reads C.xhairX/C.xhairY, the same palette fields
+// drawCursorCrosshair() uses, so the icon can never drift from the canvas.
+function buildCrosshairIcon() {
+  return '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.6">'
+    + '<line x1="2" y1="12" x2="22" y2="12" stroke="rgb(' + C.xhairX + ')"/>'
+    + '<line x1="12" y1="2" x2="12" y2="22" stroke="rgb(' + C.xhairY + ')"/>'
+    + '</svg>';
+}
 
 function drawCursorCrosshair() {
   if(crosshairMode === 'off') return;
@@ -21201,6 +21274,8 @@ function setTheme(theme) {
   if (lbl) lbl.textContent = THEME_LABELS[theme];
   const icon = document.getElementById('theme-icon');
   if (icon) icon.innerHTML = THEME_ICONS[theme];
+  const xhairIcon = document.getElementById('crosshair-icon');
+  if (xhairIcon) xhairIcon.innerHTML = buildCrosshairIcon();
   document.querySelectorAll('#theme-dropdown .tb-dd-item').forEach(el => el.classList.remove('checked'));
   const opt = document.getElementById('theme-opt-' + theme);
   if (opt) opt.classList.add('checked');
