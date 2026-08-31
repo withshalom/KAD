@@ -447,7 +447,7 @@ body.drafting-mode #app { pointer-events:auto; z-index:20; }
    one — makes the rail a deliberate dimension each layout sets for itself.
    min-width:0 keeps any future oversized child clipping inside the rail
    rather than shoving the whole column out over the canvas. */
-#sidebar { width:var(--sidebar-w); min-width:0; background:var(--panel); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; position:relative; z-index:10; height:100%; flex-shrink:0; }
+#sidebar { width:var(--sidebar-w); min-width:0; background:var(--panel); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; scrollbar-gutter:stable; position:relative; z-index:10; height:100%; flex-shrink:0; }
 .section-head { padding:8px 14px 5px; font-family:var(--fu); font-size:12px; font-weight:500; color:var(--t3); letter-spacing:0.14em; text-transform:uppercase; border-bottom:1px solid var(--border); flex-shrink:0; }
 .tool-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:1px; padding:6px; background:var(--border); border-bottom:1px solid var(--border); flex-shrink:0; }
 .tool-btn { background:var(--panel2); border:none; cursor:pointer; padding:8px 4px; display:flex; flex-direction:column; align-items:center; gap:3px; transition:background 0.15s,box-shadow 0.15s; position:relative; overflow:hidden; }
