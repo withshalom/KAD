@@ -2612,7 +2612,7 @@ body.kanvas-mode #app {
 
 </style>
 </head>
-<body class="drafting-mode">
+<body class="drafting-mode" data-theme="classic-dark">
 
 <div id="app">
 
@@ -2737,13 +2737,24 @@ body.kanvas-mode #app {
     <div class="tb-aux-wrap" id="theme-wrap">
       <button class="tb-aux-btn" id="theme-toggle" onclick="toggleAuxMenu(event,'theme')" title="Color theme">
         <span class="t-icon" id="theme-icon"></span>
-        <span class="t-label" id="theme-label">BLUEPRINT</span>
+        <span class="t-label" id="theme-label">CLASSIC DARK</span>
       </button>
       <div class="tb-dropdown" id="theme-dropdown">
         <div class="tb-dd-item" id="theme-opt-blueprint" onclick="setTheme('blueprint');closeAuxMenus()">Blueprint</div>
         <div class="tb-dd-item" id="theme-opt-parchment" onclick="setTheme('parchment');closeAuxMenus()">Parchment</div>
         <div class="tb-dd-item" id="theme-opt-classic-dark" onclick="setTheme('classic-dark');closeAuxMenus()">Classic Dark</div>
         <div class="tb-dd-item" id="theme-opt-classic-light" onclick="setTheme('classic-light');closeAuxMenus()">Classic Light</div>
+      </div>
+    </div>
+    <div class="tb-aux-wrap" id="crosshair-wrap">
+      <button class="tb-aux-btn" id="crosshair-toggle" onclick="toggleAuxMenu(event,'crosshair')" title="Crosshair style">
+        <span class="t-icon" id="crosshair-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.6"><line x1="2" y1="12" x2="22" y2="12" stroke="#ff4444"/><line x1="12" y1="2" x2="12" y2="22" stroke="#40e074"/></svg></span>
+        <span class="t-label" id="crosshair-label">AXIS</span>
+      </button>
+      <div class="tb-dropdown" id="crosshair-dropdown">
+        <div class="tb-dd-item" id="crosshair-opt-axis" onclick="setCrosshair('axis');closeAuxMenus()">Axis colours &mdash; X red, Y green</div>
+        <div class="tb-dd-item" id="crosshair-opt-mono" onclick="setCrosshair('mono');closeAuxMenus()">Single colour</div>
+        <div class="tb-dd-item" id="crosshair-opt-off"  onclick="setCrosshair('off');closeAuxMenus()">Off</div>
       </div>
     </div>
         <button id="unit-toggle" onclick="toggleUnits()" title="Toggle mm / inches (U)">
@@ -4356,14 +4367,32 @@ window.addEventListener('resize', () => {
 });
 
 // ── CAMERA ──────────────────────────────────────────────
-const cam = { panX:0, panY:0, zoom:3.0, minZoom:0.05, maxZoom:200 };
+// Zoom range. The old 0.05-200 was a 4000:1 window — 27 m across the screen
+// at one end, 6.8 mm at the other — which put architectural and civil work
+// out of reach and stopped short of any real tolerance inspection.
+//
+// That clamp was not arbitrary. GRID_STEPS_MM ends at 1000 mm, so below zoom
+// 0.038 no step satisfied the 38 px rule, spacing pinned to 1000 mm and
+// stopped adapting, and drawGrid's cell count then grew as zoom^-2: roughly
+// 9.2 BILLION cells at zoom 1e-5. minZoom sat just above that cliff. Opening
+// the clamp without making spacing generative first only moves the freeze.
+//
+// The new bounds come from two real floors rather than from taste:
+//   maxZoom 2e5 — GeoMemory rounds coordinates to 6 dp, so the finest value
+//     that can be represented is 1e-6 mm. At 2e5 that quantum is 0.2 screen
+//     px, still invisible. Past ~1e6 the storage lattice becomes visible and
+//     geometry appears to snap as you zoom.
+//   minZoom 1e-5 — 144 km across the screen. Further out, 6 dp at 1e8 mm is
+//     already past float64's significant digits, so nothing is gained.
+// Measured: world<->screen round-trip error is exactly 0 across this whole
+// range, so the transform itself is nowhere near being the limit.
+const cam = { panX:0, panY:0, zoom:3.0, minZoom:1e-5, maxZoom:2e5 };
 
 function initCamera() {
   cam.panX = canvas.clientWidth  / 2;
   cam.panY = canvas.clientHeight / 2;
   cam.zoom = 3.0;
-  document.getElementById('prop-zoom').textContent = cam.zoom.toFixed(2) + '×';
-  updateGridLabel();
+  document.getElementById('prop-zoom').textContent = fmtZoom(cam.zoom); updateGridLabel();
 }
 
 function worldToScreen(wx, wy) { return { x: wx*cam.zoom+cam.panX, y: -wy*cam.zoom+cam.panY }; }
@@ -8022,8 +8051,13 @@ function setTool(tool) {
   if (tool === 'pline') { lineMode = 'chain';  tool = 'line'; }
   else if (tool === 'line') { lineMode = 'single'; }
 
-  // Preserve selection when entering rotate tool so box-selected geometry rotates immediately
-  if (tool !== 'rotate') {
+  // Preserve selection for tools that OPERATE ON a selection rather than
+  // create from scratch. ROTATE needed this so box-selected geometry turns
+  // immediately; HATCH needs it for the same reason and did not have it —
+  // the advertised flow is "select your shapes, press Fill", and clearing
+  // here meant choosing the tool destroyed the very selection the tool was
+  // about to consume, so Fill could only ever answer "select shapes first".
+  if (tool !== 'rotate' && tool !== 'hatch') {
     selectedIds.clear();
     updateSelectionProps();
   }
@@ -8535,7 +8569,7 @@ canvas.addEventListener('touchmove', function(e) {
     cam.panX = mid.x - (pinchState.midX - pinchState.startPanX) * (nz / pinchState.startZoom);
     cam.panY = mid.y - (pinchState.midY - pinchState.startPanY) * (nz / pinchState.startZoom);
     cam.zoom = nz;
-    document.getElementById('prop-zoom').textContent = cam.zoom.toFixed(2) + '×';
+    document.getElementById('prop-zoom').textContent = fmtZoom(cam.zoom); updateGridLabel();
     updateGridLabel(); render();
   }
 }, {passive:false});
@@ -9426,7 +9460,7 @@ function onWheel(e) {
   cam.panX=mx-(mx-cam.panX)*(nz/cam.zoom);
   cam.panY=my-(my-cam.panY)*(nz/cam.zoom);
   cam.zoom=nz;
-  document.getElementById('prop-zoom').textContent=cam.zoom.toFixed(2)+'×';
+  document.getElementById('prop-zoom').textContent=fmtZoom(cam.zoom); updateGridLabel();
   updateGridLabel(); render();
 }
 
@@ -9755,19 +9789,72 @@ function zoomExtents() {
   cam.zoom=Math.max(cam.minZoom,Math.min(cam.maxZoom,zoom));
   cam.panX=canvas.clientWidth/2-((x0+x1)/2)*cam.zoom;
   cam.panY=canvas.height/2+((y0+y1)/2)*cam.zoom;
-  document.getElementById('prop-zoom').textContent=cam.zoom.toFixed(2)+'×';
+  document.getElementById('prop-zoom').textContent=fmtZoom(cam.zoom); updateGridLabel();
   updateGridLabel(); render(); showToast('Zoom Extents');
 }
 
 // ── GRID ────────────────────────────────────────────────
+const GRID_TARGET_PX = 38;   // aim for roughly this many screen px per cell
+// Text taller than any viewport conveys nothing more than text that fills it,
+// and rasterising a 700,000 px glyph is not free.
+const MAX_FONT_PX = 4000;
+
+// Smallest 1 / 2 / 5 x 10^n at or above v. Every CAD package walks this
+// sequence for grid and dimension steps because it keeps labels round at
+// every decade instead of drifting to values like 3.7 m.
+function niceStepAtLeast(v) {
+  if (!(v > 0) || !isFinite(v)) return 1;
+  const e = Math.floor(Math.log10(v));
+  const base = Math.pow(10, e);
+  for (const m of [1, 2, 5]) if (base * m >= v * (1 - 1e-9)) return base * m;
+  return base * 10;
+}
+
 function getGridSpacing() {
-  const steps = getGridStepsForUnit(); // returns mm values appropriate for current unit
-  for(const s of steps){ if(s*cam.zoom>=38) return s; }
-  return steps[steps.length-1];
+  const z = Math.max(cam.zoom, 1e-12);
+  const steps = getGridStepsForUnit();
+  const need = GRID_TARGET_PX / z;          // world units spanning ~38 px
+  const lo = steps[0], hi = steps[steps.length - 1];
+
+  // Inside the hand-picked table, behave exactly as before. Those steps were
+  // chosen to read well in each unit mode, and there is no reason to compute
+  // something almost-but-not-quite the same at ordinary working zooms.
+  if (need > lo && need <= hi) {
+    for (const s of steps) if (s >= need) return s;
+  }
+
+  // Outside it, CONTINUE the sequence rather than pinning to an endpoint.
+  // Pinning was the whole bug: spacing stopped adapting while the view kept
+  // growing, so the number of cells drawn grew without bound.
+  if (unitMode === 'in') {
+    // Keep imperial on units a drafter reads: feet once a cell is at least a
+    // foot, decimal inches (thou) below that.
+    const inch = MM_PER_IN, ft = inch * 12, mile = ft * 5280;
+    // Round in whatever unit the label will print, or the step is a round
+    // number of the wrong thing: 20,000 ft is tidy until it is shown as
+    // 3.78788 mi.
+    if (need >= mile) return niceStepAtLeast(need / mile) * mile;
+    if (need >= ft)   return niceStepAtLeast(need / ft)   * ft;
+    return niceStepAtLeast(need / inch) * inch;
+  }
+  return niceStepAtLeast(need);
 }
 // Called once at startup and after any mode change, so the bar can never show
 // a state the engine is not actually in.
 function initDraftBar() { syncDraftBar(); }
+// Grid steps are 1/2/5 decades so they divide cleanly, but 0.1*1000 in binary
+// floating point is 100.00000000000001 — and that is what would land in the
+// status bar. Six significant figures, then strip the trailing zeros.
+function trimNum(v) { return parseFloat(v.toPrecision(6)).toString(); }
+// cam.zoom.toFixed(2) was fine across 4000:1. Across 2e10:1 it prints
+// "0.00x" at one end and "200000.00x" at the other — the two zooms where
+// knowing the actual factor matters most.
+function fmtZoom(z) {
+  if (z >= 1000)  return trimNum(z/1000) + 'k\u00d7';
+  if (z >= 10)    return z.toFixed(0) + '\u00d7';
+  if (z >= 0.1)   return z.toFixed(2) + '\u00d7';
+  return z.toPrecision(2) + '\u00d7';
+}
 function updateGridLabel() {
   const s = getGridSpacing(); // always mm world units
   let txt;
@@ -9776,9 +9863,18 @@ function updateGridLabel() {
     // Express as fraction if it's a clean one, otherwise decimal
     const fracs = [[1/16,'1/16"'],[1/8,'1/8"'],[1/4,'1/4"'],[1/2,'1/2"'],[1,'1"'],[2,'2"'],[6,'6"'],[12,'1ft'],[24,'2ft'],[60,'5ft'],[120,'10ft']];
     const match = fracs.find(([v])=>Math.abs(v-inches)<1e-9);
-    txt = match ? match[1] : inches.toFixed(4)+'"';
+    // Spacing now reaches miles at one end and thou at the other, so the
+    // label has to follow it rather than print 196850.3937 inches.
+    txt = match ? match[1]
+        : inches >= 63360 ? trimNum(inches/63360)+'mi'
+        : inches >= 12    ? trimNum(inches/12)+'ft'
+        : trimNum(inches)+'\u2033';
   } else {
-    txt = s<1 ? `${s*1000}μm` : s<1000 ? `${s}mm` : `${s/1000}m`;
+    txt = s < 0.001 ? trimNum(s*1e6)+'nm'
+        : s < 1     ? trimNum(s*1000)+'\u03bcm'
+        : s < 1000  ? trimNum(s)+'mm'
+        : s < 1e6   ? trimNum(s/1000)+'m'
+        : trimNum(s/1e6)+'km';
   }
   document.getElementById('sb-grid').textContent=txt;
 }
@@ -9792,6 +9888,7 @@ function getTheme() {
 const THEME_PALETTES = {
   // Blueprint (default) — unchanged from the prior dark theme.
   blueprint: {
+    xhairX:'255,74,74', xhairY:'60,225,130',   // X = horizontal arm, Y = vertical arm
     bg:'#123259', grid:'#1a2840', gridMaj:'#253a58', axis:'#2a5080', tick:'#243550',
     entity:'#ffc94d', entitySel:'#ffaa00', point:'#ffaa00',
     rubberLine:'#ffc94d', startPt:'#00ff9d', originRgb:'0,212,255',
@@ -9800,12 +9897,14 @@ const THEME_PALETTES = {
   // graduated grays instead of blueprint's steel-blues so it doesn't just
   // read as "blueprint, darker."
   'classic-dark': {
+    xhairX:'255,68,68', xhairY:'64,224,116',   // X = horizontal arm, Y = vertical arm
     bg:'#0a0a0a', grid:'#232323', gridMaj:'#3a3a3a', axis:'#555555', tick:'#333333',
     entity:'#ffffff', entitySel:'#ffaa00', point:'#ffaa00',
     rubberLine:'#ffffff', startPt:'#00ff9d', originRgb:'255,255,255',
   },
   // Classic Light — black lines on white, per spec.
   'classic-light': {
+    xhairX:'200,0,0', xhairY:'0,140,60',   // X = horizontal arm, Y = vertical arm
     bg:'#ffffff', grid:'#d9d9d9', gridMaj:'#bbbbbb', axis:'#8a8a8a', tick:'#b8c0c8',
     entity:'#000000', entitySel:'#b35900', point:'#b35900',
     rubberLine:'#000000', startPt:'#00704a', originRgb:'0,0,0',
@@ -9814,6 +9913,7 @@ const THEME_PALETTES = {
   // sepia grid/axis instead of steel-blue, same accent identity (sepia ink
   // standing in for Blueprint's cyan).
   parchment: {
+    xhairX:'168,26,26', xhairY:'26,110,58',   // X = horizontal arm, Y = vertical arm
     bg:'#f2e8d0', grid:'#d9c9a3', gridMaj:'#c2ac7a', axis:'#c7ad80', tick:'#d1b98f',
     entity:'#5b3a1a', entitySel:'#8a4b12', point:'#8a4b12',
     rubberLine:'#5b3a1a', startPt:'#2f6b46', originRgb:'107,68,35',
@@ -10518,7 +10618,11 @@ function drawDimension(p1w, p2w, commit=false) {
 
   // Label
   const mx = (d1s.x+d2s.x)/2, my = (d1s.y+d2s.y)/2;
-  const fontSize = Math.max(10, 3.5*cam.zoom);
+  // Dimension text is 3.5 mm of world height, so it SHOULD grow with zoom —
+  // but at the new maxZoom that is a 700,000 px font, which is pointless
+  // (taller than the screen) and expensive to rasterise. Cap where the glyph
+  // already exceeds any viewport.
+  const fontSize = Math.min(Math.max(10, 3.5*cam.zoom), MAX_FONT_PX);
   ctx.font = `${fontSize}px JetBrains Mono,monospace`;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   const textAng = Math.atan2(d2s.y-d1s.y, d2s.x-d1s.x);
@@ -10596,27 +10700,75 @@ let cursorSeen = false;
 // segment on this, so the cast ray lives only while being aimed instead
 // of freezing at its last position after release.
 let liveAim = false;
+// 'axis' | 'mono' | 'off'. Axis is the default: the horizontal arm runs
+// along X and is red, the vertical arm runs along Y and is green — the same
+// convention as the UCS icon in AutoCAD, DraftSight and AERES, so the arm
+// colour tells you which axis you are moving along without reading the
+// coordinate box. 'mono' keeps the old single-colour hairline for anyone who
+// finds two colours noisy, and it is what the crosshair looked like before.
+let crosshairMode = 'axis';
+const CROSSHAIR_LABELS = { axis:'AXIS', mono:'MONO', off:'OFF' };
+
 function drawCursorCrosshair() {
+  if(crosshairMode === 'off') return;
   if(!cursorSeen || isPanning) return;
   const W=canvas.clientWidth, H=canvas.clientHeight;
   // Snap-aware: hairlines pass through the snapped point when snapping,
   // so the crosshair agrees with the ring and the coordinate readout.
   const p = (snapActive && snapPoint) ? worldToScreen(snapPoint.x, snapPoint.y) : mouseScreen;
   ctx.save();
-  ctx.strokeStyle = 'rgba(0,212,255,0.30)';
   ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(p.x, 0); ctx.lineTo(p.x, H);
-  ctx.moveTo(0, p.y); ctx.lineTo(W, p.y);
-  ctx.stroke();
+  if (crosshairMode === 'axis') {
+    // Two strokes rather than one path — a single path cannot carry two
+    // colours, and splitting them is cheaper than it looks because each is
+    // one line.
+    ctx.strokeStyle = 'rgba(' + C.xhairX + ',0.42)';
+    ctx.beginPath(); ctx.moveTo(0, p.y); ctx.lineTo(W, p.y); ctx.stroke();
+    ctx.strokeStyle = 'rgba(' + C.xhairY + ',0.42)';
+    ctx.beginPath(); ctx.moveTo(p.x, 0); ctx.lineTo(p.x, H); ctx.stroke();
+  } else {
+    ctx.strokeStyle = 'rgba(' + C.originRgb + ',0.30)';
+    ctx.beginPath();
+    ctx.moveTo(p.x, 0); ctx.lineTo(p.x, H);
+    ctx.moveTo(0, p.y); ctx.lineTo(W, p.y);
+    ctx.stroke();
+  }
   ctx.restore();
 }
+
+function setCrosshair(mode) {
+  if (!CROSSHAIR_LABELS[mode]) mode = 'axis';
+  crosshairMode = mode;
+  try { localStorage.setItem('kad-crosshair', mode); } catch(e) {}
+  const lbl = document.getElementById('crosshair-label');
+  if (lbl) lbl.textContent = CROSSHAIR_LABELS[mode];
+  document.querySelectorAll('#crosshair-dropdown .tb-dd-item').forEach(el => el.classList.remove('checked'));
+  const opt = document.getElementById('crosshair-opt-' + mode);
+  if (opt) opt.classList.add('checked');
+  render();
+}
+function cycleCrosshair() {
+  const order = ['axis','mono','off'];
+  setCrosshair(order[(order.indexOf(crosshairMode) + 1) % order.length]);
+}
+
+// Backstop. Generative spacing already holds the cell count near
+// (W/38)*(H/38) at every zoom, so this should never fire — which is exactly
+// why it is here. The failure mode it guards is not a slow frame: dot mode
+// issues a beginPath/arc/fill per cell, so a spacing bug costs the tab and
+// the user's unsaved drawing. A missing grid is a far cheaper failure than a
+// hung page, so the field is dropped and the axes still drawn.
+const GRID_MAX_CELLS = 20000;
 
 function drawGrid(W,H) {
   const spacing=getGridSpacing(), major=10;
   const tl=screenToWorld(0,0), br=screenToWorld(W,H);
   const x0=Math.floor(tl.x/spacing)*spacing, x1=Math.ceil(br.x/spacing)*spacing;
   const y0=Math.floor(br.y/spacing)*spacing, y1=Math.ceil(tl.y/spacing)*spacing;
+
+  const nx = Math.ceil((x1-x0)/spacing) + 1, ny = Math.ceil((y1-y0)/spacing) + 1;
+  const overrun = !isFinite(nx) || !isFinite(ny) || nx*ny > GRID_MAX_CELLS;
+  if (overrun) { drawAxes(W,H); return; }
 
   if (gridStyle === 'dots') {
     // Dots instead of lines. Same colors, same minor/major spacing — a dot
@@ -10660,7 +10812,12 @@ function drawGrid(W,H) {
   }
   // gridStyle === 'void': no grid drawn at all — axis + origin tick below
   // still render, so orientation isn't lost, just the field texture.
+  drawAxes(W,H);
+}
 
+// Split out so the cell-count backstop can still orient the user when it
+// drops the field: losing the grid is survivable, losing the origin is not.
+function drawAxes(W,H) {
   ctx.strokeStyle=C.axis; ctx.lineWidth=1.5; ctx.beginPath();
   const ox=worldToScreen(0,0).x, oy=worldToScreen(0,0).y;
   ctx.moveTo(ox,0); ctx.lineTo(ox,H); ctx.moveTo(0,oy); ctx.lineTo(W,oy); ctx.stroke();
@@ -10935,7 +11092,7 @@ function drawEntities() {
       drawDimension({x:o.x1,y:o.y1},{x:o.x2,y:o.y2},false);
     } else if(o.type==='TEXT'){
       const sp=worldToScreen(o.x,o.y);
-      const px=Math.max(8,o.height*cam.zoom);
+      const px=Math.min(Math.max(8,o.height*cam.zoom), MAX_FONT_PX);
       ctx.save();
       ctx.font=px+'px JetBrains Mono,monospace';
       ctx.fillStyle=_col;
@@ -21199,6 +21356,7 @@ const AUX_MENUS = {
   theme:  ['theme-dropdown', 'theme-toggle'],
   grid:   ['grid-dropdown', 'grid-toggle'],
   layout: ['layout-dropdown', 'layout-toggle'],
+  crosshair: ['crosshair-dropdown', 'crosshair-toggle'],
 };
 let openAuxName = null;
 
@@ -21243,7 +21401,14 @@ document.addEventListener('keydown', e => {
 (function() {
   let savedTheme = null;
   try { savedTheme = localStorage.getItem('kad-theme'); } catch(e) {}
-  setTheme(THEME_PALETTES[savedTheme] ? savedTheme : 'blueprint');
+  // Default is Classic Dark: white on black is what production drafting
+  // actually looks like. Blueprint stays available and unchanged — this is a
+  // change of default only, not of the theme set.
+  setTheme(THEME_PALETTES[savedTheme] ? savedTheme : 'classic-dark');
+
+  let savedXhair = null;
+  try { savedXhair = localStorage.getItem('kad-crosshair'); } catch(e) {}
+  setCrosshair(savedXhair || 'axis');
 
   // Layout default is chosen by pointer capability on first run, not by a
   // hardcoded preference for one input type. A desktop user opening KAD for
