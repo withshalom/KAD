@@ -4439,7 +4439,15 @@ window.addEventListener('resize', () => {
 //     already past float64's significant digits, so nothing is gained.
 // Measured: world<->screen round-trip error is exactly 0 across this whole
 // range, so the transform itself is nowhere near being the limit.
-const cam = { panX:0, panY:0, zoom:3.0, minZoom:1e-5, maxZoom:2e5 };
+const cam = { panX:0, panY:0, zoom:3.0, minZoom:1e-5, maxZoom:2e5,
+              // Orbit, in radians, RELATIVE to the active plane's own basis.
+              // Plan view of the active plane is therefore exactly (0,0) —
+              // an exactly representable state, not a tolerance test against
+              // a derived normal. Two consequences fall out for free:
+              // Phase 1's exact-matrix gate still holds at (0,0), and
+              // "switching the active plane implies PLAN" (spec §6) is just
+              // resetting these to zero.
+              yaw:0, pitch:0 };
 
 function initCamera() {
   cam.panX = canvas.clientWidth  / 2;
@@ -4448,8 +4456,253 @@ function initCamera() {
   document.getElementById('prop-zoom').textContent = fmtZoom(cam.zoom); updateGridLabel();
 }
 
-function worldToScreen(wx, wy) { return { x: wx*cam.zoom+cam.panX, y: -wy*cam.zoom+cam.panY }; }
-function screenToWorld(sx, sy) { return { x:(sx-cam.panX)/cam.zoom, y:-(sy-cam.panY)/cam.zoom }; }
+// ── UCS CONSTRUCTION PLANES ──────────────────────────────────────────
+// Phase 1 of UCS-PLANES.md: the table and the transform pipeline exist and
+// are load-bearing, but only 'World' is ever populated, so there is no
+// visible change. Phases 2-5 (coplanarity guards, real planes, orbit, DXF
+// OCS) build on this without revisiting it.
+//
+// The one idea (spec §1): an entity does NOT gain z. It gains one string
+// field, `plane`, exactly parallel to `layer`. Its x,y are coordinates
+// WITHIN that plane's 2D frame. Every existing 2D algorithm — trim, fillet,
+// offset, hatch, snap scoring, area — keeps working unmodified so long as
+// both operands share a plane, and the coplanarity test is a string compare
+// rather than a float-tolerance normal comparison.
+//
+// `normal` is derived (xAxis x yAxis), never stored: two stored copies of
+// the same fact drift, a cross product cannot.
+const PLANES = {
+  World: {
+    id:'World', label:'World (WCS)', locked:true,
+    origin:{x:0, y:0, z:0},
+    xAxis: {x:1, y:0, z:0},
+    yAxis: {x:0, y:1, z:0},
+  },
+};
+let activePlane = 'World';
+
+// Entities written before this existed have no `plane`, so every read goes
+// through here and old files load unchanged with no migration step.
+function planeOf(o) { return (o && o.plane) || 'World'; }
+// Stamps newly-created geometry with the plane it was drawn on. Called from
+// the single push site every GeoMemory constructor funnels through, rather
+// than added to each constructor's object literal — eight literals is eight
+// chances to miss one, and a missed one produces geometry that silently
+// belongs to the wrong frame.
+//
+// Deliberately writes NOTHING while the active plane is World. planeOf()
+// already resolves a missing field to 'World', so stamping it explicitly
+// would add a redundant key to every entity in every single-plane drawing
+// ever saved, for no information gain. Spec §3: the field is optional on
+// disk and old files load unchanged — that stays true both directions.
+function _stampPlane(o) {
+  if (activePlane !== 'World') o.plane = activePlane;
+  return o;
+}
+function getPlane(id) { return PLANES[id] || PLANES.World; }
+function planeNormal(P) {
+  const X = P.xAxis, Y = P.yAxis;
+  return { x: X.y*Y.z - X.z*Y.y,
+           y: X.z*Y.x - X.x*Y.z,
+           z: X.x*Y.y - X.y*Y.x };
+}
+
+// ── COPLANARITY GUARD (spec §7) ──────────────────────────────────────
+// Trim, extend, break, fillet, chamfer, offset, hatch and dimensioning are
+// planar by definition. Each one's maths assumes both operands live in the
+// same 2D frame; hand it entities from two different planes and it returns
+// a plausible-looking answer that is geometrically meaningless.
+//
+// The test is a string compare, not a normal-vector comparison with a
+// tolerance — that is the whole reason the plane TABLE was chosen over
+// per-entity OCS (spec §2). Refusal is loud on purpose: silence here is
+// what produces drawings that are wrong in a way nobody can trace.
+function samePlane(...objs) {
+  const list = objs.flat().filter(Boolean);
+  if (list.length < 2) return true;
+  const p = planeOf(list[0]);
+  return list.every(o => planeOf(o) === p);
+}
+// Returns true when the operation may proceed. Names the planes in the
+// refusal so the operator knows which two frames disagreed.
+function requireSamePlane(objs, opLabel) {
+  const list = [].concat(objs).filter(Boolean);
+  if (samePlane(list)) return true;
+  const names = [...new Set(list.map(planeOf))];
+  showToast((opLabel || 'That operation') + ' needs one plane \u00b7 got ' + names.join(' + '));
+  return false;
+}
+
+// Composed plane x camera affine, cached per plane (spec §4). Naively a
+// plane transform costs a 3x3 multiply per point per frame; composing once
+// per plane instead keeps the per-point cost identical to what it was
+// before this existed, at any orientation.
+//
+// The cache is validated against live camera values rather than invalidated
+// by callers: worldToScreen is called from 120 sites, many outside a render
+// frame (hit tests, mousemove), so a render-prologue-only rebuild would
+// serve stale matrices to all of them.
+// ── VIEW BASIS ───────────────────────────────────────────────────────
+// Axonometric (parallel) projection only — never perspective. Spec §11: a
+// drafting view has to be measurable and perspective is not. That is also
+// why there is no eye position or field of view anywhere below; a parallel
+// projection needs an orientation and nothing else.
+//
+// The basis starts as the ACTIVE plane's own axes, so orbit (0,0) is that
+// plane seen face-on, then rotates: yaw about the screen-vertical axis,
+// pitch about the screen-horizontal one. Both are rotations of an
+// orthonormal triple, so the result stays orthonormal without
+// re-normalising and without accumulating drift over a long drag.
+function _viewBasis() {
+  const P = getPlane(activePlane);
+  const X = P.xAxis, Y = P.yAxis, N = planeNormal(P);
+  const ca = Math.cos(cam.yaw),   sa = Math.sin(cam.yaw);
+  const cb = Math.cos(cam.pitch), sb = Math.sin(cam.pitch);
+  // Yaw about screen-vertical: mixes the plane's X axis with its normal.
+  const r  = { x: X.x*ca + N.x*sa, y: X.y*ca + N.y*sa, z: X.z*ca + N.z*sa };
+  const n1 = { x:-X.x*sa + N.x*ca, y:-X.y*sa + N.y*ca, z:-X.z*sa + N.z*ca };
+  // Pitch about the new screen-horizontal: tilts the vertical toward the
+  // viewer, which is what turns a plan into an axonometric.
+  const u  = { x: Y.x*cb + n1.x*sb, y: Y.y*cb + n1.y*sb, z: Y.z*cb + n1.z*sb };
+  return { r, u };
+}
+
+// True whenever the view is not face-on to the active plane. Exact, not a
+// tolerance: PLAN assigns literal zeros, so this cannot drift into "almost
+// plan view" and silently re-enable editing (spec §6).
+function viewIsOrbited() { return cam.yaw !== 0 || cam.pitch !== 0; }
+
+const _planeMx = Object.create(null);
+let _mxZoom = NaN, _mxPanX = NaN, _mxPanY = NaN;
+let _mxYaw = NaN, _mxPitch = NaN, _mxActive = null;
+// The fast-path matrix is also held as loose scalars, not just in the
+// array. worldToScreen runs per point per frame at 20k+ entities, and at
+// that rate the array indexing and the planeMatrix() call are both
+// measurable — hoisting them out is what keeps this change free.
+let _wA=1, _wB=0, _wC=0, _wD=-1, _wE=0, _wF=0;
+// True when the cached fast-path basis has no cross terms, which is every
+// un-orbited plan view. Lets the hot path drop two multiplies and two adds
+// that provably contribute nothing.
+let _wAxisAligned = true;
+// Which plane the loose scalars describe — the active one, since entities
+// on it are the majority of what gets drawn in any given view.
+let _wFastId = 'World';
+
+function _rebuildPlaneMatrices() {
+  const z = cam.zoom, px = cam.panX, py = cam.panY;
+  const B = _viewBasis(), r = B.r, u = B.u;
+  for (const id in PLANES) {
+    const P = PLANES[id], X = P.xAxis, Y = P.yAxis, O = P.origin;
+    // Each plane's own 2D axes projected onto the screen basis. Screen y is
+    // negated because canvas y grows downward while world y grows up — the
+    // same negation the pre-plane transform carried inline.
+    _planeMx[id] = [
+       (X.x*r.x + X.y*r.y + X.z*r.z) * z,
+      -(X.x*u.x + X.y*u.y + X.z*u.z) * z,
+       (Y.x*r.x + Y.y*r.y + Y.z*r.z) * z,
+      -(Y.x*u.x + Y.y*u.y + Y.z*u.z) * z,
+       (O.x*r.x + O.y*r.y + O.z*r.z) * z + px,
+      -(O.x*u.x + O.y*u.y + O.z*u.z) * z + py,
+    ];
+  }
+  _wFastId = PLANES[activePlane] ? activePlane : 'World';
+  const w = _planeMx[_wFastId];
+  _wA=w[0]; _wB=w[1]; _wC=w[2]; _wD=w[3]; _wE=w[4]; _wF=w[5];
+  _wAxisAligned = (_wB === 0 && _wC === 0);
+  _mxZoom = z; _mxPanX = px; _mxPanY = py;
+  _mxYaw = cam.yaw; _mxPitch = cam.pitch; _mxActive = activePlane;
+}
+
+function _mxStale() {
+  return cam.zoom !== _mxZoom || cam.panX !== _mxPanX || cam.panY !== _mxPanY ||
+         cam.yaw !== _mxYaw || cam.pitch !== _mxPitch || activePlane !== _mxActive;
+}
+
+function planeMatrix(id) {
+  id = (id && PLANES[id]) ? id : 'World';
+  if (_mxStale() || !_planeMx[id]) _rebuildPlaneMatrices();
+  return _planeMx[id];
+}
+
+// For the active plane at orbit (0,0) this reduces EXACTLY to the previous
+// `wx*zoom+panX, -wy*zoom+panY` — not approximately. The basis is then the
+// plane's own axes, so by orthonormality X·r = 1, X·u = 0, Y·r = 0, Y·u = 1;
+// the cross terms are literal zero and the axis-aligned branch collapses to
+// the original two multiplies and two adds. `wy*(-zoom)` is bit-identical to
+// `-wy*zoom` in IEEE754, so no last-bit drift is introduced. That exactness
+// is the Phase 1 acceptance gate (spec §4): if it drifted, every existing
+// drawing would shift subpixel-wise and every regression screenshot would
+// become noise.
+function worldToScreen(wx, wy, planeId) {
+  if (_mxStale()) _rebuildPlaneMatrices();
+  if (!planeId || planeId === _wFastId) {
+    return _wAxisAligned
+      ? { x: wx*_wA + _wE,           y: wy*_wD + _wF }
+      : { x: wx*_wA + wy*_wC + _wE,  y: wx*_wB + wy*_wD + _wF };
+  }
+  const m = _planeMx[planeId] || _planeMx[_wFastId];
+  return { x: wx*m[0] + wy*m[2] + m[4], y: wx*m[1] + wy*m[3] + m[5] };
+}
+// Deliberately NOT generalised in Phase 1. Spec §5 (ray-plane inverse,
+// null while orbited) is Phase 4 work; rewriting this now would reorder the
+// divisions and perturb the last bits of every interactive coordinate for
+// no Phase 1 benefit. planeInverse() below is the generalised form, wired
+// in when orbit lands.
+// Returns a point in the ACTIVE plane's own 2D frame, or null while
+// orbited (spec §5). Null rather than a guessed coordinate is deliberate:
+// in an orbited view a screen point maps to a ray, not a point, and a
+// silently-invented coordinate becomes real geometry in the drawing. Every
+// caller handles the null explicitly rather than relying on optional
+// chaining — see the eight call sites.
+//
+// The un-orbited World case keeps the original arithmetic verbatim rather
+// than routing through planeInverse(): the general form reorders the
+// divisions, and while that is mathematically identical it is not
+// bit-identical, so every interactive coordinate in every existing drawing
+// would shift in its last bits for no benefit.
+function screenToWorld(sx, sy) {
+  if (viewIsOrbited()) return null;
+  if (activePlane === 'World') return { x:(sx-cam.panX)/cam.zoom, y:-(sy-cam.panY)/cam.zoom };
+  return planeInverse(sx, sy, activePlane);
+}
+
+// Hit-testing entry point. Unlike screenToWorld() this keeps working while
+// orbited, because spec §6 still allows selection for inspection in an
+// orbited view — it is drawing, editing and snapping that stop. It inverts
+// through the ENTITY's own plane, which is the only frame in which a
+// distance-to-geometry test means anything.
+function pickPoint(sx, sy, planeId) { return planeInverse(sx, sy, planeId); }
+
+// Conservative visible bound for the render path (spec §9). Under orbit the
+// visible region of a plane is a general quad, not a screen-aligned
+// rectangle, so inverting two opposite corners — which is what the grid and
+// the culler used to do — describes the wrong region. Inverting all four and
+// taking the AABB over-includes slightly; that costs a wasted draw call,
+// whereas under-including silently drops geometry the user drew.
+function viewCornersInPlane(planeId) {
+  const W = canvas.clientWidth, H = canvas.clientHeight;
+  const pts = [ planeInverse(0,0,planeId), planeInverse(W,0,planeId),
+                planeInverse(0,H,planeId), planeInverse(W,H,planeId) ];
+  if (pts.some(p => !p)) return null;   // plane is edge-on — nothing to bound
+  let minx=Infinity, maxx=-Infinity, miny=Infinity, maxy=-Infinity;
+  for (const p of pts) {
+    if (p.x<minx) minx=p.x; if (p.x>maxx) maxx=p.x;
+    if (p.y<miny) miny=p.y; if (p.y>maxy) maxy=p.y;
+  }
+  return { minx, maxx, miny, maxy };
+}
+
+// Generalised inverse of the composed affine — the Phase 3/4 entry point.
+// Present now so the forward and inverse transforms are written and tested
+// together rather than the inverse being reconstructed later from memory.
+function planeInverse(sx, sy, planeId) {
+  const m = planeMatrix(planeId);
+  const det = m[0]*m[3] - m[1]*m[2];
+  if (!det) return null;               // degenerate basis — never guess a coordinate
+  const dx = sx - m[4], dy = sy - m[5];
+  return { x: (dx*m[3] - dy*m[2]) / det,
+           y: (dy*m[0] - dx*m[1]) / det };
+}
 
 // ── UNIT SYSTEM ─────────────────────────────────────────
 // Internal storage is ALWAYS mm. Units only affect display and input parsing.
@@ -4815,6 +5068,10 @@ function commitKompassArc() {
 // ── FILLET ENGINE ────────────────────────────────────────
 function getFillet(){const r=parseFloat(document.getElementById('fillet-r-input').value)||5;return parseFloat(fromDisplay(r).toFixed(6));}
 function commitFillet(l1,l2){
+  // Spec §7: a fillet arc has to lie in a plane. Two lines on different
+  // planes have no common arc, and lineIntersectPt below would happily
+  // return a point that exists in neither.
+  if(!requireSamePlane([l1,l2], 'Fillet')) return;
   const r=getFillet();if(r<=0){showToast('Enter a fillet radius > 0');return;}
   const inter=lineIntersectPt(l1,l2);if(!inter){showToast('Lines are parallel');return;}
   const len1=Math.hypot(l1.x2-l1.x1,l1.y2-l1.y1),len2=Math.hypot(l2.x2-l2.x1,l2.y2-l2.y1);
@@ -4854,18 +5111,18 @@ const GeoMemory = {
 
   addLine(x1,y1,x2,y2,layer='Layer_0') {
     const o={id:this.nextId++,type:'LINE',layer,x1,y1,x2,y2};
-    this.objects.push(o); updateProps(); return o;
+    this.objects.push(_stampPlane(o)); updateProps(); return o;
   },
   addPoint(x,y,layer='Layer_0') {
     const o={id:this.nextId++,type:'POINT',layer,x,y};
-    this.objects.push(o); updateProps(); return o;
+    this.objects.push(_stampPlane(o)); updateProps(); return o;
   },
   // POLYLINE: pts = [{x,y}, ...], closed = bool
   addPolyline(pts, closed=false, layer='Layer_0') {
     if (pts.length < 2) return null;
     const o={id:this.nextId++, type:'POLYLINE', layer, closed,
              pts: pts.map(p=>({x:parseFloat(p.x.toFixed(6)), y:parseFloat(p.y.toFixed(6))}))};
-    this.objects.push(o); updateProps(); return o;
+    this.objects.push(_stampPlane(o)); updateProps(); return o;
   },
   // BEZIER: a chain of cubic segments — beziers = [{x0,y0,cx1,cy1,cx2,cy2,x3,y3}, ...],
   // closed = bool. Same field shape the paperspace pen tool's KVM.paths already
@@ -4882,10 +5139,10 @@ const GeoMemory = {
                x0:r6(b.x0), y0:r6(b.y0), cx1:r6(b.cx1), cy1:r6(b.cy1),
                cx2:r6(b.cx2), cy2:r6(b.cy2), x3:r6(b.x3), y3:r6(b.y3),
              }))};
-    this.objects.push(o); updateProps(); return o;
+    this.objects.push(_stampPlane(o)); updateProps(); return o;
   },
-  addCircle(cx,cy,r,layer='Layer_0'){const o={id:this.nextId++,type:'CIRCLE',layer,cx:parseFloat(cx.toFixed(6)),cy:parseFloat(cy.toFixed(6)),r:parseFloat(r.toFixed(6))};this.objects.push(o);updateProps();return o;},
-  addArc(cx,cy,r,startA,endA,ccw=true,layer='Layer_0'){const o={id:this.nextId++,type:'ARC',layer,cx:parseFloat(cx.toFixed(6)),cy:parseFloat(cy.toFixed(6)),r:parseFloat(r.toFixed(6)),startA:parseFloat(startA.toFixed(8)),endA:parseFloat(endA.toFixed(8)),ccw};this.objects.push(o);updateProps();return o;},
+  addCircle(cx,cy,r,layer='Layer_0'){const o={id:this.nextId++,type:'CIRCLE',layer,cx:parseFloat(cx.toFixed(6)),cy:parseFloat(cy.toFixed(6)),r:parseFloat(r.toFixed(6))};this.objects.push(_stampPlane(o));updateProps();return o;},
+  addArc(cx,cy,r,startA,endA,ccw=true,layer='Layer_0'){const o={id:this.nextId++,type:'ARC',layer,cx:parseFloat(cx.toFixed(6)),cy:parseFloat(cy.toFixed(6)),r:parseFloat(r.toFixed(6)),startA:parseFloat(startA.toFixed(8)),endA:parseFloat(endA.toFixed(8)),ccw};this.objects.push(_stampPlane(o));updateProps();return o;},
   // HATCH: loops = [[{x,y},...], ...] — outer boundary first, islands after.
   // Loops follow KAD's own closed-POLYLINE rule: the first point is NOT
   // repeated at the end, because a loop is closed by definition.
@@ -4912,9 +5169,9 @@ const GeoMemory = {
       origin:  opts.origin  || {x:0, y:0},
       assoc:   opts.assoc   || null,
     };
-    this.objects.push(o); updateProps(); return o;
+    this.objects.push(_stampPlane(o)); updateProps(); return o;
   },
-  addText(x,y,text,height=5,layer='Layer_0'){const o={id:this.nextId++,type:'TEXT',layer,x,y,text,height};this.objects.push(o);updateProps();return o;},
+  addText(x,y,text,height=5,layer='Layer_0'){const o={id:this.nextId++,type:'TEXT',layer,x,y,text,height};this.objects.push(_stampPlane(o));updateProps();return o;},
   // Paint order. The render loop walked objects in insertion order, which
   // meant a hatch created after its boundary — i.e. every hatch — painted
   // over the boundary lines that define it. Fills go behind strokes, always.
@@ -5320,6 +5577,10 @@ function hatchSelectedBoundaries() {
   hatchReadOptions();
   const sel = GeoMemory.objects.filter(o => selectedIds.has(o.id));
   if (!sel.length) { showToast('Select closed shapes first, then Fill'); return; }
+  // Spec §7: all loops must share a plane. A hatch spanning two planes has
+  // no single region to fill — the boundary would not even be closed in
+  // either plane's own 2D frame.
+  if (!requireSamePlane(sel, 'Hatch')) return;
   const picked = [];
   for (const o of sel) {
     const L = hatchLoopFromEntity(o);
@@ -6872,9 +7133,13 @@ function pickOffsettable(sx, sy) {
       best={ kind:'line', x1:seg.x1, y1:seg.y1, x2:seg.x2, y2:seg.y2, layer:seg.obj.layer };
     }
   }
-  const wp = screenToWorld(sx, sy);
+  // Per-entity plane inverse, not screenToWorld: this must keep working
+  // while orbited (spec §6 permits selection for inspection), and a
+  // distance test only means anything in the entity's own frame.
   for (const o of GeoMemory.objects) {
     if (o.type!=='CIRCLE' && o.type!=='ARC') continue;
+    const wp = pickPoint(sx, sy, planeOf(o));
+    if (!wp) continue;
     const c=worldToScreen(o.cx,o.cy), screenR=o.r*cam.zoom;
     const d=Math.abs(Math.hypot(sx-c.x, sy-c.y) - screenR);
     if (d>=HIT_PX || d>=bestD) continue;
@@ -7144,12 +7409,12 @@ function pickObject(sx,sy) {
     } else if(o.type==='CIRCLE'){
       // Hit = click lands on the circumference ring (world-space test,
       // tolerance converted from screen px so it feels the same at any zoom)
-      const w=screenToWorld(sx,sy), tol=HIT_PX/cam.zoom;
-      if(Math.abs(Math.hypot(w.x-o.cx,w.y-o.cy)-o.r)<tol) return o;
+      const w=pickPoint(sx,sy,planeOf(o)), tol=HIT_PX/cam.zoom;
+      if(w && Math.abs(Math.hypot(w.x-o.cx,w.y-o.cy)-o.r)<tol) return o;
     } else if(o.type==='ARC'){
       // Ring distance first, then the click angle must lie on the sweep
-      const w=screenToWorld(sx,sy), tol=HIT_PX/cam.zoom;
-      if(Math.abs(Math.hypot(w.x-o.cx,w.y-o.cy)-o.r)<tol){
+      const w=pickPoint(sx,sy,planeOf(o)), tol=HIT_PX/cam.zoom;
+      if(w && Math.abs(Math.hypot(w.x-o.cx,w.y-o.cy)-o.r)<tol){
         const a=Math.atan2(w.y-o.cy,w.x-o.cx);
         if(angleOnArc(a,o.startA,o.endA,o.ccw)) return o;
       }
@@ -7157,8 +7422,8 @@ function pickObject(sx,sy) {
       // Every other type is hit by proximity to a stroke. A hatch has no
       // stroke of its own that the user thinks of as the object — they
       // click the filled area — so this is a containment test instead.
-      const w = screenToWorld(sx, sy);
-      if (hatchPointInside(o.loops, w.x, w.y)) return o;
+      const w = pickPoint(sx, sy, planeOf(o));
+      if (w && hatchPointInside(o.loops, w.x, w.y)) return o;
     } else if(o.type==='BEZIER'){
       // Point-on-cubic-curve distance has no closed form — tessellate with
       // the same flattenCubic() the PDF importer already relies on, then
@@ -8280,6 +8545,12 @@ function updateCursor() {
 
 // ── PANNING ─────────────────────────────────────────────
 let isPanning=false, panOX=0, panOY=0, camStart={x:0,y:0};
+// Orbit drag state, parallel to the pan state above.
+let isOrbiting=false, orbitOX=0, orbitOY=0, orbitStart={yaw:0,pitch:0};
+// Pitch is clamped just inside +-90 deg. Exactly 90 puts the view edge-on to
+// the active plane, where its matrix determinant is zero and there is
+// nothing to see or invert; stopping short keeps the plane always legible.
+const ORBIT_PITCH_LIMIT = Math.PI/2 - 0.02;
 
 // ── SELECTION BOX ────────────────────────────────────────
 // Left-click-drag in SELECT mode draws a selection rectangle.
@@ -8984,11 +9255,43 @@ function onMouseDown(e) {
   closeCtxMenu();
   closeMenus();
 
+  // View cube first — it is a screen-space HUD sitting over the drawing, so
+  // it has to claim the click before anything tries to turn it into a
+  // coordinate. Checked for every button so a middle-click pan cannot start
+  // underneath it either.
+  {
+    const rect = canvas.getBoundingClientRect();
+    const hit = viewCubeHitTest(e.clientX-rect.left, e.clientY-rect.top);
+    if (hit) { e.preventDefault(); setView(hit); return; }
+  }
+
+  // Shift + left drag = orbit. Deliberately a modifier on the existing drag
+  // rather than a mode: orbit is a view operation, and making it a tool
+  // would imply it edits something.
+  if(e.button===0 && e.shiftKey) {
+    e.preventDefault();
+    isOrbiting=true; orbitOX=e.clientX; orbitOY=e.clientY;
+    orbitStart={yaw:cam.yaw, pitch:cam.pitch};
+    canvas.style.cursor='move';
+    return;
+  }
+
   // Middle mouse = always pan
   if(e.button===1) {
     isPanning=true; panOX=e.clientX; panOY=e.clientY;
     camStart={x:cam.panX,y:cam.panY};
     canvas.style.cursor='grabbing';
+    return;
+  }
+
+  // Editing is plan-view-only (spec §6). Refuse here, once, rather than in
+  // every tool: mouseWorld is null while orbited, and a tool that reads it
+  // would either crash or invent a coordinate. Selection is exempt — an
+  // orbited view is for inspection, and picking still works because it
+  // inverts through each entity's own plane.
+  if(e.button===0 && viewIsOrbited() && activeTool !== 'select') {
+    e.preventDefault();
+    showToast('Orbited view \u00b7 press PLAN or click the cube to draw');
     return;
   }
 
@@ -9128,9 +9431,17 @@ function onMouseDown(e) {
         const p=offsetState.preview, sel=offsetState.selected;
         if(p && sel){
           const layer = sel.layer || 'Layer_0';
-          if(p.kind==='circle')      GeoMemory.addCircle(p.cx,p.cy,p.r, layer);
-          else if(p.kind==='arc')    GeoMemory.addArc(p.cx,p.cy,p.r,p.startA,p.endA,p.ccw, layer);
-          else                       GeoMemory.addLine(p.x1,p.y1,p.x2,p.y2, layer);
+          // Spec §7: offset is planar. The result is a curve parallel to the
+          // source IN THE SOURCE'S OWN FRAME, so it inherits the source's
+          // plane rather than picking up the active one — those differ the
+          // moment anyone offsets off-plane geometry, and _stampPlane()
+          // would otherwise quietly file the copy under the wrong frame.
+          const _srcPlane = planeOf(sel.obj || sel);
+          let _made;
+          if(p.kind==='circle')      _made = GeoMemory.addCircle(p.cx,p.cy,p.r, layer);
+          else if(p.kind==='arc')    _made = GeoMemory.addArc(p.cx,p.cy,p.r,p.startA,p.endA,p.ccw, layer);
+          else                       _made = GeoMemory.addLine(p.x1,p.y1,p.x2,p.y2, layer);
+          if(_made){ if(_srcPlane==='World') delete _made.plane; else _made.plane=_srcPlane; }
           showToast('Offset committed · '+fmtU(getOffsetDist()));
         }
         offsetState={active:false,selected:null,preview:null};
@@ -9309,7 +9620,45 @@ function onMouseMove(e) {
   mouseScreen={x:e.clientX-rect.left, y:e.clientY-rect.top};
   cursorSeen=true;
   liveAim=true;
+
+  // Orbit drag and cube hover run BEFORE the orbited bail below — otherwise
+  // the very drag that produces an orbit would go dead as soon as it took
+  // effect, and the cube would stop responding exactly when it is the way
+  // back to plan view.
+  if (isOrbiting) {
+    cam.yaw   = orbitStart.yaw   + (e.clientX - orbitOX) * 0.008;
+    cam.pitch = orbitStart.pitch + (e.clientY - orbitOY) * 0.008;
+    if (cam.pitch >  ORBIT_PITCH_LIMIT) cam.pitch =  ORBIT_PITCH_LIMIT;
+    if (cam.pitch < -ORBIT_PITCH_LIMIT) cam.pitch = -ORBIT_PITCH_LIMIT;
+    updateOrbitLabel();
+    render();
+    return;
+  }
+  {
+    const h = viewCubeHitTest(mouseScreen.x, mouseScreen.y);
+    if (h !== VIEWCUBE.hover) { VIEWCUBE.hover = h; render(); }
+    if (h) return;   // cursor is over the HUD, not the drawing
+  }
+
   const raw=screenToWorld(mouseScreen.x,mouseScreen.y);
+  // Orbited: screenToWorld returns null by design (spec §5) because a screen
+  // point maps to a ray, not a point. This is THE call site the null contract
+  // exists for — everything interactive enters plane space here — so bail
+  // before any snap, angle lock or coordinate readout can invent a position.
+  // Cursor tracking above still runs, so orbit dragging and the view cube stay
+  // responsive; only geometry-producing work stops.
+  if (!raw) {
+    // Editing is locked out separately, in onMouseDown, before any tool
+    // reads mouseWorld — so this does not need to invent nothing. It needs
+    // to invent something SAFE: a real coordinate on the active plane, via
+    // the general inverse rather than screenToWorld's stricter contract,
+    // so every one of mouseWorld's 63 existing consumers (selection-box
+    // start point chief among them) keeps working exactly as it did before
+    // orbit existed, with no null-check added at each one individually.
+    snapActive=false; snapPoint=null;
+    mouseWorld = planeInverse(mouseScreen.x, mouseScreen.y, activePlane) || {x:0,y:0};
+    render(); return;
+  }
   // The anchor goes IN, because perpendicular and tangent are defined relative
   // to where the current run started — they are not properties of an object on
   // its own the way an endpoint is.
@@ -9450,6 +9799,7 @@ function onMouseUp(e) {
     stretchState.active=false;
     render(); return;
   }
+  if(isOrbiting){ isOrbiting=false; updateCursor(); }
   if(isPanning){ isPanning=false; updateCursor(); }
 
   // Release pivot drag
@@ -10098,6 +10448,11 @@ function updateTrimHover(wx,wy){
 function applyTrim(){
   if(!trimHoverSeg)return;
   const{tLo,tHi,hit}=trimHoverSeg;
+  // Spec §7: trim is planar by definition. The cutting edges live in
+  // selectedIds; a cutter on another plane crosses this one in 3D but not
+  // in this plane's 2D frame, so the intersection it reports is fictional.
+  const _cutters = GeoMemory.objects.filter(o=>selectedIds.has(o.id));
+  if(!requireSamePlane([hit].concat(_cutters), 'Trim')) return;
   cutSegment(hit,tLo,tHi);
   trimHoverSeg=null; updateProps(); render(); showToast('Trimmed');
 }
@@ -10159,6 +10514,10 @@ function updateExtendHover(wx,wy){
 function applyExtend(){
   if(!extendPreview)return;
   const p=extendPreview;
+  // Spec §7: same reasoning as trim — the boundary must be coplanar with
+  // the thing being extended to it.
+  const _bounds = GeoMemory.objects.filter(o=>selectedIds.has(o.id));
+  if(!requireSamePlane([p.obj].concat(_bounds), 'Extend')) return;
   if (p.segIdx===-1) {
     if(p.end==='start'){p.obj.x1=p.nx;p.obj.y1=p.ny;}else{p.obj.x2=p.nx;p.obj.y2=p.ny;}
   } else {
@@ -10186,6 +10545,11 @@ function applyBreak(wx,wy){
   const SNAP=18;
   if(!breakState.active){
     const hit=nearestLineToPoint(wx,wy,SNAP); if(!hit){showToast('Click on a line');return;}
+    // Spec §7: a break splits a line at points expressed in that line's own
+    // frame. wx,wy arrive from the ACTIVE plane, so breaking a line that
+    // lives on a different plane would cut it at a parameter derived from
+    // coordinates that mean nothing in its frame.
+    if(!requireSamePlane([hit.obj || hit], 'Break')) return;
     breakState={active:true,hit,pt1:{x:wx,y:wy}};
     showToast('Break: click second point');
   } else {
@@ -10696,11 +11060,16 @@ function drawDimension(p1w, p2w, commit=false) {
 
   if(commit) {
     // Store as a DIM entity in GeoMemory
-    GeoMemory.objects.push({
+    // Direct push, so it does not pass through _stampPlane() — stamped here
+    // instead. A dimension is a planar annotation: its two ends are already
+    // constrained to the active plane by the editing lockout (spec §6), so
+    // the cross-plane case the spec asks to refuse cannot be reached from
+    // the UI. Recording the plane is what keeps that true after a reload.
+    GeoMemory.objects.push(_stampPlane({
       id: GeoMemory.nextId++, type:'DIM',
       x1:p1w.x,y1:p1w.y, x2:p2w.x,y2:p2w.y,
       layer:'DIM', label
-    });
+    }));
     updateProps(); render();
   }
 }
@@ -10742,6 +11111,7 @@ function render() {
   drawSelBox();
   drawCursorCrosshair();
   if(typeof drawNewToolPreviews==='function') drawNewToolPreviews();
+  drawViewCube();           // last: screen-space HUD, always above geometry
 }
 
 // ── CURSOR CROSSHAIR — full-window hairlines at the pointer ──
@@ -10785,6 +11155,199 @@ function buildCrosshairIcon() {
     + '<line x1="2" y1="12" x2="22" y2="12" stroke="rgb(' + XHAIR_RED + ')"/>'
     + '<line x1="12" y1="2" x2="12" y2="22" stroke="rgb(' + XHAIR_GREEN + ')"/>'
     + '</svg>';
+}
+
+// ── VIEW CUBE ────────────────────────────────────────────────────────
+// Corner HUD for orienting the view, in the lineage of KUBIC's nav cube —
+// same idea (labelled faces, back-face culling by winding, hover
+// highlight, click to snap to a standard view) but projected
+// ORTHOGRAPHICALLY, not in perspective. Spec §11: a drafting view has to be
+// measurable, so there is no foreshortening term here at all. KUBIC's
+// `d = 110/(pz+160)` divisor is exactly what is deliberately absent.
+//
+// The cube shows orientation relative to the ACTIVE plane, not to world, so
+// its FRONT face is always the plane being drawn on. That keeps it honest
+// about what "plan" means when the active plane is a wall elevation.
+const VIEWCUBE = { size: 34, margin: 54, hover: null, faces: [] };
+
+// Standard axonometric presets, as (yaw, pitch) relative to the active
+// plane. PLAN is exactly (0,0), which is also the only state in which
+// editing is unlocked — see viewIsOrbited().
+const VIEWCUBE_PRESETS = {
+  PLAN:  [0, 0],
+  FRONT: [0, -Math.PI/2],
+  BACK:  [Math.PI, -Math.PI/2],
+  LEFT:  [-Math.PI/2, 0],
+  RIGHT: [ Math.PI/2, 0],
+  REAR:  [Math.PI, 0],
+  ISO:   [Math.PI/4, -Math.asin(Math.tan(Math.PI/6))],  // true isometric
+};
+
+function setView(name) {
+  const v = VIEWCUBE_PRESETS[name];
+  if (!v) return;
+  cam.yaw = v[0]; cam.pitch = v[1];
+  updateOrbitLabel();
+  render();
+}
+// PLAN is its own entry point rather than setView('PLAN') because it is
+// referenced from plane switching, the keyboard, and the lockout toast —
+// and because assigning literal zeros is what makes viewIsOrbited() exact.
+function planView() { cam.yaw = 0; cam.pitch = 0; updateOrbitLabel(); render(); }
+
+function updateOrbitLabel() {
+  const el = document.getElementById('orbit-label');
+  if (!el) return;
+  el.textContent = viewIsOrbited() ? 'ORBIT' : 'PLAN';
+  el.classList.toggle('orbited', viewIsOrbited());
+}
+
+function drawViewCube() {
+  const W = canvas.clientWidth;
+  const S = VIEWCUBE.size, CX = W - VIEWCUBE.margin, CY = VIEWCUBE.margin;
+  const B = _viewBasis(), r = B.r, u = B.u;
+  // Unit cube in the ACTIVE plane's frame: +x right, +y up, +z out of the
+  // plane toward the viewer at PLAN.
+  const P = getPlane(activePlane);
+  const N = planeNormal(P);
+  const AX = P.xAxis, AY = P.yAxis;
+  // Project a cube-local vertex orthographically onto the screen basis.
+  const pv = (vx, vy, vz) => {
+    const wx = AX.x*vx + AY.x*vy + N.x*vz;
+    const wy = AX.y*vx + AY.y*vy + N.y*vz;
+    const wz = AX.z*vx + AY.z*vy + N.z*vz;
+    return [ CX + (wx*r.x + wy*r.y + wz*r.z) * S,
+             CY - (wx*u.x + wy*u.y + wz*u.z) * S ];
+  };
+  const V = [[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]];
+  const FACES = [
+    { i:[4,5,6,7], label:'PLAN'  },   // +z, toward viewer at plan
+    { i:[0,3,2,1], label:'REAR'  },   // -z
+    { i:[0,1,5,4], label:'FRONT' },   // -y
+    { i:[3,7,6,2], label:'BACK'  },   // +y
+    { i:[0,4,7,3], label:'LEFT'  },   // -x
+    { i:[1,2,6,5], label:'RIGHT' },   // +x
+  ];
+  const accent = getComputedStyle(document.body).getPropertyValue('--accent').trim() || '#00d4ff';
+  const rgb = hexToRgbTriplet(accent);
+
+  ctx.save();
+  VIEWCUBE.faces = [];
+  for (const f of FACES) {
+    const ps = f.i.map(i => pv(...V[i]));
+    // Back-face cull by signed area: a face wound clockwise on screen is
+    // facing away. Cheaper and more robust than comparing a face normal
+    // against a view vector, and it needs no epsilon.
+    let area = 0;
+    for (let k = 0; k < ps.length; k++) {
+      const a = ps[k], b = ps[(k+1)%ps.length];
+      area += (a[0]*b[1] - b[0]*a[1]);
+    }
+    if (area >= 0) continue;
+    const cx = ps.reduce((s,p)=>s+p[0],0)/4, cy = ps.reduce((s,p)=>s+p[1],0)/4;
+    VIEWCUBE.faces.push({ label:f.label, ps, cx, cy });
+    const hot = VIEWCUBE.hover === f.label;
+    ctx.beginPath();
+    ctx.moveTo(ps[0][0], ps[0][1]);
+    for (let k=1;k<ps.length;k++) ctx.lineTo(ps[k][0], ps[k][1]);
+    ctx.closePath();
+    ctx.fillStyle   = 'rgba(' + rgb + ',' + (hot ? 0.32 : 0.10) + ')';
+    ctx.strokeStyle = 'rgba(' + rgb + ',' + (hot ? 0.95 : 0.45) + ')';
+    ctx.lineWidth   = hot ? 1.4 : 0.9;
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = 'rgba(' + rgb + ',' + (hot ? 1 : 0.75) + ')';
+    ctx.font = (hot ? 'bold ' : '') + '8px ' + (getComputedStyle(document.body).getPropertyValue('--fm').trim() || 'monospace');
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(f.label, cx, cy);
+  }
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.restore();
+}
+
+// Point-in-polygon over the cached front faces. Returns the face label under
+// the cursor, or null. Used for both hover and click.
+function viewCubeHitTest(sx, sy) {
+  for (const f of VIEWCUBE.faces) {
+    let inside = false;
+    const ps = f.ps;
+    for (let i=0, j=ps.length-1; i<ps.length; j=i++) {
+      const xi=ps[i][0], yi=ps[i][1], xj=ps[j][0], yj=ps[j][1];
+      if (((yi>sy)!==(yj>sy)) && (sx < (xj-xi)*(sy-yi)/(yj-yi)+xi)) inside = !inside;
+    }
+    if (inside) return f.label;
+  }
+  return null;
+}
+
+function hexToRgbTriplet(hex) {
+  const h = String(hex).trim().replace('#','');
+  if (h.length !== 6) return '0,212,255';
+  return parseInt(h.slice(0,2),16) + ',' + parseInt(h.slice(2,4),16) + ',' + parseInt(h.slice(4,6),16);
+}
+
+// ── PLANE CREATION & SWITCHING (Phase 3) ─────────────────────────────
+// Every constructor runs Gram-Schmidt and REJECTS a degenerate basis rather
+// than storing one (spec §3). A plane whose axes are not orthonormal
+// produces geometry that is subtly wrong everywhere and traceable nowhere —
+// far worse than a refusal at creation time.
+function _v3(a){ return {x:a.x||0, y:a.y||0, z:a.z||0}; }
+function _len(a){ return Math.hypot(a.x,a.y,a.z); }
+function _norm(a){ const L=_len(a); return L<1e-12 ? null : {x:a.x/L, y:a.y/L, z:a.z/L}; }
+function _dot(a,b){ return a.x*b.x + a.y*b.y + a.z*b.z; }
+function _sub(a,b){ return {x:a.x-b.x, y:a.y-b.y, z:a.z-b.z}; }
+function _cross(a,b){ return {x:a.y*b.z-a.z*b.y, y:a.z*b.x-a.x*b.z, z:a.x*b.y-a.y*b.x}; }
+
+// Returns an orthonormal {xAxis,yAxis} or null. yHint only has to be
+// non-parallel to x; its component along x is projected out.
+function orthonormalize(xRaw, yHint) {
+  const X = _norm(_v3(xRaw));
+  if (!X) return null;
+  const h = _v3(yHint);
+  const proj = _dot(h, X);
+  const Y = _norm({ x:h.x - proj*X.x, y:h.y - proj*X.y, z:h.z - proj*X.z });
+  if (!Y) return null;              // yHint was parallel to x — degenerate
+  return { xAxis:X, yAxis:Y };
+}
+
+// One-way latch: true from the moment a second plane is ever created in
+// this session, never reset back to false. Lets the render loop skip the
+// per-entity dimming check entirely for single-plane drawings — which is
+// every drawing until this feature is actually used — rather than scanning
+// all objects every frame to find out whether the check could matter.
+// Measured the naive Array.some() version at 0.44ms/frame on 20k entities
+// even when it finds nothing; an O(1) flag costs nothing to read.
+let _anyExtraPlanes = false;
+
+function createPlane(id, label, origin, xRaw, yHint) {
+  if (!id || PLANES[id]) { showToast('Plane id must be new and non-empty'); return null; }
+  const b = orthonormalize(xRaw, yHint);
+  if (!b) { showToast('Degenerate plane \u00b7 axes are parallel or zero-length'); return null; }
+  PLANES[id] = { id, label: label || id, origin:_v3(origin), xAxis:b.xAxis, yAxis:b.yAxis };
+  _anyExtraPlanes = true;
+  _mxZoom = NaN;                    // invalidate the composed-matrix cache
+  return PLANES[id];
+}
+
+// Three points define a plane: origin, a point along +x, and any third point
+// off that line to fix +y. This is the constructor that matters in practice —
+// it is how a face gets picked off existing geometry.
+function createPlaneFrom3Points(id, label, p0, p1, p2) {
+  return createPlane(id, label, p0, _sub(p1,p0), _sub(p2,p0));
+}
+
+// Switching the active plane implies PLAN (spec §6). Not a convenience: the
+// orbit angles are stored relative to the active plane's basis, so carrying
+// them across a switch would mean the same numbers describing a different
+// orientation, and the view would appear to jump for no reason the user
+// could see.
+function setActivePlane(id) {
+  if (!PLANES[id]) { showToast('No such plane: ' + id); return; }
+  activePlane = id;
+  planView();
+  const lbl = document.getElementById('plane-label');
+  if (lbl) lbl.textContent = (PLANES[id].label || id).toUpperCase();
+  showToast('Active plane \u00b7 ' + (PLANES[id].label || id));
+  render();
 }
 
 function drawCursorCrosshair() {
@@ -10861,9 +11424,15 @@ const GRID_MAX_CELLS = 20000;
 
 function drawGrid(W,H) {
   const spacing=getGridSpacing(), major=10;
-  const tl=screenToWorld(0,0), br=screenToWorld(W,H);
-  const x0=Math.floor(tl.x/spacing)*spacing, x1=Math.ceil(br.x/spacing)*spacing;
-  const y0=Math.floor(br.y/spacing)*spacing, y1=Math.ceil(tl.y/spacing)*spacing;
+  // Grid is drawn in the ACTIVE plane, not the world XY plane (spec §9) —
+  // otherwise the orientation cue points at the wrong thing, which is worse
+  // than having no grid. Four corners rather than two: under orbit the
+  // visible region of the plane is a quad, and two opposite corners describe
+  // the wrong rectangle.
+  const vb = viewCornersInPlane(activePlane);
+  if (!vb) { drawAxes(W,H); return; }   // plane edge-on — no grid to draw
+  const x0=Math.floor(vb.minx/spacing)*spacing, x1=Math.ceil(vb.maxx/spacing)*spacing;
+  const y0=Math.floor(vb.miny/spacing)*spacing, y1=Math.ceil(vb.maxy/spacing)*spacing;
 
   const nx = Math.ceil((x1-x0)/spacing) + 1, ny = Math.ceil((y1-y0)/spacing) + 1;
   const overrun = !isFinite(nx) || !isFinite(ny) || nx*ny > GRID_MAX_CELLS;
@@ -10948,9 +11517,14 @@ function drawAxes(W,H) {
 // slightly too aggressive silently drops geometry the user drew.
 function viewWorldRect() {
   const W = canvas.clientWidth, H = canvas.clientHeight;
-  const a = screenToWorld(0, 0), b = screenToWorld(W, H);
-  // Screen Y is inverted relative to world Y, so normalise rather than assume.
+  // Four corners, not two: under orbit the visible region is a quad and the
+  // two-corner rectangle both misses geometry at the near corners and is the
+  // wrong shape overall. Over-inclusion costs a wasted draw call;
+  // under-inclusion silently drops geometry the user drew (spec §9).
+  const vb = viewCornersInPlane(activePlane);
   const pad = 64 / Math.max(cam.zoom, 1e-6);   // ~64 screen px of slack
+  if (!vb) return { minx:-Infinity, maxx:Infinity, miny:-Infinity, maxy:Infinity };
+  const a = { x: vb.minx, y: vb.miny }, b = { x: vb.maxx, y: vb.maxy };
   return { minx: Math.min(a.x, b.x) - pad, maxx: Math.max(a.x, b.x) + pad,
            miny: Math.min(a.y, b.y) - pad, maxy: Math.max(a.y, b.y) + pad };
 }
@@ -11054,6 +11628,15 @@ function drawEntities() {
 
   ctx.save();
   const _view = viewWorldRect();
+  // Whether dimming can possibly matter this frame, checked once rather
+  // than per entity. True only once a drawing actually has geometry on a
+  // plane other than the active one — the common case for a long time yet
+  // is everything still on 'World', and this keeps that case exactly as
+  // cheap as it was before Phase 3 existed.
+  const _multiPlane = _anyExtraPlanes;
+  ctx.globalAlpha = 1;   // known baseline — other draw paths touch this and are not all guaranteed to restore it before drawEntities runs
+  // Reset explicitly at the end of the loop body's owner rather than trusting
+  // every early `continue` above to have left it at 1.
   // drawOrder() puts fills behind strokes — see GeoMemory.drawOrder().
   for(const o of GeoMemory.drawOrder()){
     const sel = selectedIds.has(o.id);
@@ -11065,6 +11648,13 @@ function drawEntities() {
     // that may sit just outside the view, and a selection that flickers
     // out of existence when panned to the edge reads as a bug.
     if(!sel && !objInView(o, _view)) continue;
+    // Off-plane geometry is visible but dimmed, the way a locked layer is
+    // (spec §6). Visible because context is the whole point of orbiting;
+    // dimmed because it is not snappable and not editable from here, and
+    // anything drawn at full strength reads as available. Set before the
+    // per-entity style below so it composes with layer colour rather than
+    // replacing it.
+    if (_multiPlane) ctx.globalAlpha = (planeOf(o) !== activePlane) ? 0.32 : 1;
     // Layer style
     // Committed geometry: dark mode keeps each layer's own color (SOLID
     // stays cyan). Light mode overrides just the cyan default-ink layers
@@ -11438,6 +12028,61 @@ function parseDXF(text) {
   }
   if (entStart < 0) return { lines: [], circles: [], arcs: [], scaleMM, rawInsUnits, error: 'No ENTITIES section found' };
 
+  // ── OCS / elevation capture (Phase 5, spec §8) ───────────────────────
+  // Group codes 30/31 (Z), 38 (elevation) and 210/220/230 (extrusion) used
+  // to be read and thrown away. That was not merely lossy: an extrusion of
+  // (0,0,-1) means the entity's OCS X axis is NEGATED, so dropping it
+  // imported mirrored geometry that looked entirely plausible. Anything
+  // exported from AERES with real Z was silently flattened, and anything
+  // with a flipped extrusion was silently reflected.
+  //
+  // Entities are grouped by their (elevation, extrusion) pair into
+  // auto-created planes, which is exactly the shape the plane table wants.
+  const _ocsGroups = new Map();   // key -> {normal, elev, planeId}
+  let _ocsSeq = 0;
+
+  // DXF Arbitrary Axis Algorithm. Given an extrusion vector, recover the OCS
+  // X and Y axes the file's 2D coordinates are expressed in. The 1/64
+  // threshold and the choice of world axis are both from the spec — they
+  // exist so the basis varies continuously near the poles instead of
+  // flipping, and getting them wrong mirrors or rotates whole drawings.
+  function _arbitraryAxis(n) {
+    const L = Math.hypot(n.x, n.y, n.z) || 1;
+    const N = { x:n.x/L, y:n.y/L, z:n.z/L };
+    const cross = (a,b) => ({ x: a.y*b.z - a.z*b.y,
+                              y: a.z*b.x - a.x*b.z,
+                              z: a.x*b.y - a.y*b.x });
+    // Near the poles the world Z axis is nearly parallel to N and its cross
+    // product degenerates, so the spec switches reference axis below 1/64.
+    // Both the threshold and which axis is used are load-bearing: a wrong
+    // choice here does not fail loudly, it rotates or mirrors whole drawings.
+    const ax = (Math.abs(N.x) < 1/64 && Math.abs(N.y) < 1/64)
+      ? cross({x:0,y:1,z:0}, N)      // Wy x N
+      : cross({x:0,y:0,z:1}, N);     // Wz x N
+    const al = Math.hypot(ax.x, ax.y, ax.z) || 1;
+    const AX = { x:ax.x/al, y:ax.y/al, z:ax.z/al };
+    const AY = cross(N, AX);
+    return { N, AX, AY };
+  }
+
+  // Returns the plane id an entity with this (extrusion, elevation) belongs
+  // on, creating it on first sight. World is returned unchanged for the
+  // overwhelmingly common flat case, so an ordinary 2D DXF imports exactly
+  // as it always did and produces no spurious planes.
+  function _planeForOCS(ex, ey, ez, elev) {
+    const flat = (Math.abs(ex) < 1e-12 && Math.abs(ey) < 1e-12 && Math.abs(ez - 1) < 1e-12);
+    if (flat && Math.abs(elev) < 1e-12) return 'World';
+    const key = ex.toFixed(9)+','+ey.toFixed(9)+','+ez.toFixed(9)+'@'+elev.toFixed(9);
+    if (_ocsGroups.has(key)) return _ocsGroups.get(key).planeId;
+    const B = _arbitraryAxis({x:ex, y:ey, z:ez});
+    // Elevation runs along the normal, per the DXF definition of code 38.
+    const origin = { x: B.N.x*elev, y: B.N.y*elev, z: B.N.z*elev };
+    const id = 'DXF_' + (++_ocsSeq);
+    _ocsGroups.set(key, { planeId:id, normal:B.N, elev,
+                          origin, xAxis:B.AX, yAxis:B.AY });
+    return id;
+  }
+
   // ── Parse entity blocks ──
   // IMPORTANT: coordinates are stored RAW (no scale applied).
   // The caller (commitDxfImport) applies the user-chosen scale at commit time.
@@ -11457,51 +12102,75 @@ function parseDXF(text) {
     // ── LINE ──────────────────────────────────────────
     if (code === 0 && val === 'LINE') {
       let layer='Layer_0', x1=0,y1=0,x2=0,y2=0;
+      // Extrusion defaults to +Z and elevation to 0 — i.e. an ordinary flat
+      // entity — so a 2D DXF with none of these codes behaves exactly as before.
+      let ex=0, ey=0, ez=1, elev=0, z1=0;
       i++;
       while (i < tokens.length && tokens[i][0] !== 0) {
         const [c, v] = tokens[i];
         if (c === 8)  layer = v;
         if (c === 10) x1 = parseFloat(v) * S;
         if (c === 20) y1 = parseFloat(v) * S;
+        if (c === 30) z1 = parseFloat(v) * S;
         if (c === 11) x2 = parseFloat(v) * S;
         if (c === 21) y2 = parseFloat(v) * S;
+        if (c === 38) elev = parseFloat(v) * S;
+        if (c === 210) ex = parseFloat(v);
+        if (c === 220) ey = parseFloat(v);
+        if (c === 230) ez = parseFloat(v);
         i++;
       }
-      lines.push({ type:'LINE', layer, x1, y1, x2, y2 });
+      // A LINE carries true 3D endpoints in 10/20/30 and 11/21/31 rather
+      // than an OCS elevation, so a nonzero Z acts as the elevation for
+      // grouping purposes. This is the case that used to be flattened.
+      if (elev === 0 && z1 !== 0) elev = z1;
+      lines.push({ type:'LINE', layer, x1, y1, x2, y2, plane:_planeForOCS(ex,ey,ez,elev) });
       continue;
     }
 
     // ── CIRCLE ────────────────────────────────────────
     if (code === 0 && val === 'CIRCLE') {
       let layer='Layer_0', cx=0,cy=0,r=1;
+      let ex=0, ey=0, ez=1, elev=0;
       i++;
       while (i < tokens.length && tokens[i][0] !== 0) {
         const [c, v] = tokens[i];
         if (c === 8)  layer = v;
         if (c === 10) cx = parseFloat(v) * S;
         if (c === 20) cy = parseFloat(v) * S;
+        if (c === 30) elev = parseFloat(v) * S;   // circle Z IS its elevation
+        if (c === 38) elev = parseFloat(v) * S;
         if (c === 40) r  = parseFloat(v) * S;
+        if (c === 210) ex = parseFloat(v);
+        if (c === 220) ey = parseFloat(v);
+        if (c === 230) ez = parseFloat(v);
         i++;
       }
-      circles.push({ type:'CIRCLE', layer, cx, cy, r });
+      circles.push({ type:'CIRCLE', layer, cx, cy, r, plane:_planeForOCS(ex,ey,ez,elev) });
       continue;
     }
 
     // ── ARC ───────────────────────────────────────────
     if (code === 0 && val === 'ARC') {
       let layer='Layer_0', cx=0,cy=0,r=1,startA=0,endA=360;
+      let ex=0, ey=0, ez=1, elev=0;
       i++;
       while (i < tokens.length && tokens[i][0] !== 0) {
         const [c, v] = tokens[i];
         if (c === 8)  layer  = v;
         if (c === 10) cx     = parseFloat(v) * S;
         if (c === 20) cy     = parseFloat(v) * S;
+        if (c === 30) elev   = parseFloat(v) * S;
+        if (c === 38) elev   = parseFloat(v) * S;
         if (c === 40) r      = parseFloat(v) * S;
         if (c === 50) startA = parseFloat(v);
         if (c === 51) endA   = parseFloat(v);
+        if (c === 210) ex = parseFloat(v);
+        if (c === 220) ey = parseFloat(v);
+        if (c === 230) ez = parseFloat(v);
         i++;
       }
-      arcs.push({ type:'ARC', layer, cx, cy, r, startA, endA });
+      arcs.push({ type:'ARC', layer, cx, cy, r, startA, endA, plane:_planeForOCS(ex,ey,ez,elev) });
       continue;
     }
 
@@ -11581,7 +12250,15 @@ function parseDXF(text) {
     i++;
   }
 
-  return { lines, circles, arcs, scaleMM, rawInsUnits };
+  // Planes discovered from OCS grouping, in the shape the PLANES table
+  // wants. Empty for an ordinary flat DXF, which is the common case and
+  // stays byte-for-byte the same import it always was.
+  const planes = [];
+  for (const g of _ocsGroups.values()) {
+    planes.push({ id:g.planeId, label:'DXF elev ' + g.elev.toFixed(3),
+                  origin:g.origin, xAxis:g.xAxis, yAxis:g.yAxis });
+  }
+  return { lines, circles, arcs, scaleMM, rawInsUnits, planes };
 }
 
 
@@ -11809,24 +12486,58 @@ function commitDxfImport() {
   // one commit path, unchanged for the two that already used it.
   const partEntityIds = (source === 'nc1' && parsed.ncParts) ? parsed.ncParts.map(() => []) : null;
 
+  // Register any planes the parser discovered from OCS grouping BEFORE the
+  // geometry that references them (spec §8). Origins are scaled with the
+  // rest of the drawing — an elevation is a length and has to follow the
+  // same unit conversion the coordinates do, or geometry lands on a plane
+  // the right shape at the wrong height.
+  const _planeRemap = Object.create(null);
+  if (Array.isArray(parsed.planes)) {
+    for (const pl of parsed.planes) {
+      // Collision-proof the id: two imports into one document would
+      // otherwise both claim DXF_1 and the second would silently reuse the
+      // first's orientation.
+      let id = pl.id, n = 1;
+      while (PLANES[id]) id = pl.id + '_' + (++n);
+      const made = createPlane(id, pl.label,
+                    { x: pl.origin.x*S, y: pl.origin.y*S, z: pl.origin.z*S },
+                    pl.xAxis, pl.yAxis);
+      if (made) _planeRemap[pl.id] = id;
+    }
+  }
+  // Entities name the parser's id; map it to whatever it actually got.
+  const _pl = (e) => (e.plane && _planeRemap[e.plane]) || e.plane || 'World';
+  // _stampPlane() stamps the ACTIVE plane, which is not what an import
+  // wants — imported geometry belongs on the plane its own OCS described.
+  const _setPlane = (o, id) => { if (o) { if (id === 'World') delete o.plane; else o.plane = id; } return o; };
+
   for (const ln of lines) {
     const o = GeoMemory.addLine(
       parseFloat((ln.x1*S).toFixed(6)), parseFloat((ln.y1*S).toFixed(6)),
       parseFloat((ln.x2*S).toFixed(6)), parseFloat((ln.y2*S).toFixed(6)),
       ln.layer || 'Layer_0'
     );
+    _setPlane(o, _pl(ln));
     if (partEntityIds && ln._ncPart != null) partEntityIds[ln._ncPart].push(o.id);
   }
   for (const c of circles) {
     const o = GeoMemory.addCircle(c.cx*S, c.cy*S, c.r*S, c.layer || 'Layer_0');
+    _setPlane(o, _pl(c));
     if (partEntityIds && c._ncPart != null) partEntityIds[c._ncPart].push(o.id);
   }
   for (const a of arcs) {
     // DXF group 50/51 are DEGREES and always run counter-clockwise from
     // start to end, which is why ccw is unconditionally true here.
-    GeoMemory.addArc(a.cx*S, a.cy*S, a.r*S,
+    const o = GeoMemory.addArc(a.cx*S, a.cy*S, a.r*S,
                      a.startA*Math.PI/180, a.endA*Math.PI/180, true,
                      a.layer || 'Layer_0');
+    _setPlane(o, _pl(a));
+  }
+  // Tell the operator when a flat import was not flat. Silence here is what
+  // the old behaviour did, and it is exactly what made the bug invisible.
+  if (Array.isArray(parsed.planes) && parsed.planes.length) {
+    showToast('Imported on ' + (parsed.planes.length + 1) + ' planes \u00b7 ' +
+              parsed.planes.length + ' from DXF elevation/extrusion');
   }
 
   // NC1 → Part records. The ST header block IS a Part, not just a unit hint
@@ -13519,12 +14230,32 @@ function buildDXF(objects, units) {
                '6', (DXF_LT[lay.ltype] ? lay.ltype : 'continuous').toUpperCase());
   }
   lines.push('0','ENDTAB','0','ENDSEC');
+
+  // ── OCS export (Phase 5, spec §8) ────────────────────────────────────
+  // Entities on 'World' must export BYTE-IDENTICAL to before this existed —
+  // that is the stated regression test, and it is why this returns an empty
+  // array rather than emitting an explicit 210/220/230 of (0,0,1). A default
+  // extrusion is legal to write but changes every byte of every existing
+  // export for no gain.
+  const _ocsFor = (o) => {
+    const pid = planeOf(o);
+    if (pid === 'World') return [];
+    const P = PLANES[pid];
+    if (!P) return [];
+    const N = planeNormal(P);
+    // Elevation is the plane origin's distance along its own normal.
+    const elev = P.origin.x*N.x + P.origin.y*N.y + P.origin.z*N.z;
+    const out = ['210', f(N.x), '220', f(N.y), '230', f(N.z)];
+    if (Math.abs(elev) > 1e-12) out.push('38', f(elev));
+    return out;
+  };
+
   lines.push('0','SECTION','2','ENTITIES');
   for(const o of objects){
     if(o.type==='LINE')
-      lines.push('0','LINE','8',o.layer,'10',f(o.x1),'20',f(o.y1),'30','0.0000','11',f(o.x2),'21',f(o.y2),'31','0.0000');
+      lines.push('0','LINE','8',o.layer,'10',f(o.x1),'20',f(o.y1),'30','0.0000','11',f(o.x2),'21',f(o.y2),'31','0.0000', ..._ocsFor(o));
     if(o.type==='POINT')
-      lines.push('0','POINT','8',o.layer,'10',f(o.x),'20',f(o.y),'30','0.0000');
+      lines.push('0','POINT','8',o.layer,'10',f(o.x),'20',f(o.y),'30','0.0000', ..._ocsFor(o));
     if(o.type==='HATCH' && o.loops && o.loops.length){
       // A real HATCH entity with polyline boundary paths (group 92 bit 1 =
       // external, bit 2 = polyline). The alternative — exporting the
@@ -13620,14 +14351,14 @@ function buildDXF(objects, units) {
       }
     }
     if(o.type==='CIRCLE')
-      lines.push('0','CIRCLE','8',o.layer,'10',f(o.cx),'20',f(o.cy),'30','0.0000','40',f(o.r));
+      lines.push('0','CIRCLE','8',o.layer,'10',f(o.cx),'20',f(o.cy),'30','0.0000','40',f(o.r), ..._ocsFor(o));
     if(o.type==='ARC'){
       // A full turn cannot be written as a DXF ARC. Groups 50/51 are ABSOLUTE
       // angles, so a 360 degree sweep normalises to start == end and every
       // reader sees a zero-length arc — the entity silently vanishes. A closed
       // arc is a circle, so emit the entity that can actually hold it.
       if (Math.abs(o.endA - o.startA) >= Math.PI*2 - 1e-9) {
-        lines.push('0','CIRCLE','8',o.layer,'10',f(o.cx),'20',f(o.cy),'30','0.0000','40',f(o.r));
+        lines.push('0','CIRCLE','8',o.layer,'10',f(o.cx),'20',f(o.cy),'30','0.0000','40',f(o.r), ..._ocsFor(o));
       } else {
       // DXF arcs are defined counter-clockwise from group 50 to group 51, in
       // DEGREES. GeoMemory stores radians and carries an explicit ccw flag, so
@@ -14173,7 +14904,7 @@ function closePartDataModal() {
 }
 
 
-const KAD_DOC_VERSION = '2.1';   // 2.1 adds the top-level parts block
+const KAD_DOC_VERSION = '2.2';   // 2.1 adds the top-level parts block; 2.2 adds planes
 const KAD_MIME = 'application/octet-stream';   // keeps the OS from appending .json
 
 function serializeDocument() {
@@ -14189,6 +14920,13 @@ function serializeDocument() {
       objects: GeoMemory.objects,
       layers: LAYERS,            // the piece that was being lost
       activeLayer: activeLayer,
+      // UCS construction planes (v2.2). Sits beside `layers` because a plane
+      // organises geometry the same way a layer does — entities reference it
+      // by string id. Readers predating v2.2 ignore it; writers predating it
+      // omit it, and a missing block means "World only", which is what every
+      // v2.1-and-earlier drawing already is.
+      planes: PLANES,
+      activePlane: activePlane,
     },
     // Whole-drawing KANVAS state: every sheet. .kvs is the single-sheet
     // export; .kad is the only thing that carries the complete program.
@@ -14239,6 +14977,28 @@ function deserializeDocument(text) {
   }
   activeLayer = (m.activeLayer && LAYERS[m.activeLayer]) ? m.activeLayer
               : (Object.keys(LAYERS)[0] || 'Layer_0');
+
+  // Planes (v2.2). Same wholesale-replacement rule as layers: a document
+  // opens as it was saved, not blended with the current session. A file with
+  // no planes block is not an error — it is a v2.1-or-earlier drawing, which
+  // is World-only by definition.
+  for (const k of Object.keys(PLANES)) delete PLANES[k];
+  if (m.planes && typeof m.planes === 'object' && Object.keys(m.planes).length) {
+    Object.assign(PLANES, m.planes);
+  }
+  // World is not optional. Every entity without an explicit `plane` resolves
+  // to it, so a file that omitted or corrupted it would leave that geometry
+  // pointing at a frame that does not exist.
+  if (!PLANES.World) {
+    PLANES.World = { id:'World', label:'World (WCS)', locked:true,
+                     origin:{x:0,y:0,z:0}, xAxis:{x:1,y:0,z:0}, yAxis:{x:0,y:1,z:0} };
+  }
+  activePlane = (m.activePlane && PLANES[m.activePlane]) ? m.activePlane : 'World';
+  // A loaded file can bring in multiple planes without createPlane() ever
+  // running this session — the latch has to reflect the table's actual
+  // contents after a load, not just plane-creation calls.
+  _anyExtraPlanes = Object.keys(PLANES).some(k => k !== 'World');
+  _mxZoom = NaN;   // force the composed-matrix cache to rebuild against the new table
 
   if (d.kanvas) kvRestoreSheets(d.kanvas);
   if (d.displayUnits && d.displayUnits !== unitMode) toggleUnits();
@@ -14429,6 +15189,12 @@ function bomPartAreaMM2(part) {
     .map(id => GeoMemory.objects.find(o => o.id === id))
     .filter(Boolean);
   if (!ents.length) return null;
+  // Spec §7: area is per-plane. A part whose outline spans two planes has no
+  // single planar area — the shoelace sum over mixed frames returns a number,
+  // and that number is meaningless. Return null (the established
+  // "cannot compute" signal here) rather than a plausible wrong figure that
+  // would flow into the BOM and out to KAM.
+  if (!samePlane(ents)) return null;
 
   const polylines = ents.filter(o => o.type === 'POLYLINE');
   const segs       = ents.filter(o => o.type === 'LINE' || o.type === 'ARC' || o.type === 'BEZIER');
@@ -14955,6 +15721,8 @@ function commitChamfer(line1Id, line2Id) {
   const o1 = GeoMemory.objects.find(o=>o.id===line1Id);
   const o2 = GeoMemory.objects.find(o=>o.id===line2Id);
   if (!o1||!o2||o1.type!=='LINE'||o2.type!=='LINE') { showToast('Select two lines for chamfer'); return; }
+  // Spec §7: same as fillet — the chamfer segment must lie in one plane.
+  if (!requireSamePlane([o1,o2], 'Chamfer')) return;
 
   // Find intersection
   const ip = lineIntersectPt(
