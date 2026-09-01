@@ -2810,6 +2810,16 @@ body.kanvas-mode #app {
         <div class="tb-dd-item" id="crosshair-opt-off"  onclick="setCrosshair('off');closeAuxMenus()">Off</div>
       </div>
     </div>
+    <div class="tb-aux-wrap" id="plane-wrap">
+      <button class="tb-aux-btn" id="plane-toggle" onclick="toggleAuxMenu(event,'plane')" title="Construction plane &amp; view">
+        <span class="t-icon" id="plane-icon"></span>
+        <span class="t-label" id="plane-label">WORLD</span>
+      </button>
+      <!-- Rebuilt by refreshPlaneMenu(): unlike theme/crosshair the option
+           list is dynamic, since planes are created at runtime and imported
+           from DXF. -->
+      <div class="tb-dropdown" id="plane-dropdown"></div>
+    </div>
         <button id="unit-toggle" onclick="toggleUnits()" title="Toggle mm / inches (U)">
       <span class="unit-seg active" id="unit-seg-mm">mm</span>
       <span class="unit-divider"></span>
@@ -11111,6 +11121,7 @@ function render() {
   drawSelBox();
   drawCursorCrosshair();
   if(typeof drawNewToolPreviews==='function') drawNewToolPreviews();
+  drawUCSIcon();            // orientation cue, under the cube
   drawViewCube();           // last: screen-space HUD, always above geometry
 }
 
@@ -11196,10 +11207,15 @@ function setView(name) {
 function planView() { cam.yaw = 0; cam.pitch = 0; updateOrbitLabel(); render(); }
 
 function updateOrbitLabel() {
+  // The toolbar shows the PLANE name; whether the view is orbited is carried
+  // by the UCS icon's caption and the dropdown's checkmark, so there is no
+  // separate orbit chip to keep in sync here.
   const el = document.getElementById('orbit-label');
-  if (!el) return;
-  el.textContent = viewIsOrbited() ? 'ORBIT' : 'PLAN';
-  el.classList.toggle('orbited', viewIsOrbited());
+  if (el) {
+    el.textContent = viewIsOrbited() ? 'ORBIT' : 'PLAN';
+    el.classList.toggle('orbited', viewIsOrbited());
+  }
+  refreshPlaneMenu();
 }
 
 function drawViewCube() {
@@ -11325,6 +11341,7 @@ function createPlane(id, label, origin, xRaw, yHint) {
   PLANES[id] = { id, label: label || id, origin:_v3(origin), xAxis:b.xAxis, yAxis:b.yAxis };
   _anyExtraPlanes = true;
   _mxZoom = NaN;                    // invalidate the composed-matrix cache
+  refreshPlaneMenu();               // else a new plane exists but is unreachable from the UI
   return PLANES[id];
 }
 
@@ -11346,8 +11363,90 @@ function setActivePlane(id) {
   planView();
   const lbl = document.getElementById('plane-label');
   if (lbl) lbl.textContent = (PLANES[id].label || id).toUpperCase();
+  refreshPlaneMenu();
   showToast('Active plane \u00b7 ' + (PLANES[id].label || id));
   render();
+}
+
+// Rebuilds the plane dropdown. Called whenever the plane table or the view
+// changes, because unlike theme/crosshair this list is not fixed — planes
+// are created by the user and auto-created by DXF import.
+function refreshPlaneMenu() {
+  const dd = document.getElementById('plane-dropdown');
+  if (!dd) return;
+  const rows = [];
+  rows.push('<div class="tb-dd-item" style="opacity:.55;pointer-events:none">Active plane</div>');
+  for (const id in PLANES) {
+    const P = PLANES[id];
+    const on = (id === activePlane) ? ' checked' : '';
+    const label = String(P.label || id).replace(/</g,'&lt;');
+    rows.push('<div class="tb-dd-item' + on + '" onclick="setActivePlane(\'' +
+              id.replace(/'/g,"\\'") + '\');closeAuxMenus()">' + label + '</div>');
+  }
+  rows.push('<div class="tb-dd-item" style="opacity:.55;pointer-events:none;border-top:1px solid var(--border)">View</div>');
+  for (const name of ['PLAN','FRONT','RIGHT','LEFT','BACK','ISO']) {
+    const on = (!viewIsOrbited() && name === 'PLAN') ? ' checked' : '';
+    rows.push('<div class="tb-dd-item' + on + '" onclick="setView(\'' + name +
+              '\');closeAuxMenus()">' + name.charAt(0) + name.slice(1).toLowerCase() +
+              (name === 'PLAN' ? ' &mdash; editing enabled' : '') + '</div>');
+  }
+  dd.innerHTML = rows.join('');
+}
+
+// Toolbar icon: a small two-axis glyph, same fixed red-X / green-Y language
+// as the crosshair so the two can never disagree about which axis is which.
+function buildPlaneIcon() {
+  return '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.6">'
+    + '<path d="M4 20 L20 20" stroke="rgb(' + XHAIR_RED + ')"/>'
+    + '<path d="M4 20 L4 4"   stroke="rgb(' + XHAIR_GREEN + ')"/>'
+    + '<path d="M4 20 L11 15" stroke="rgba(' + XHAIR_RED + ',0.45)"/>'
+    + '</svg>';
+}
+
+// ── UCS ICON ─────────────────────────────────────────────────────────
+// The standard drafting orientation cue: a small axis tripod pinned to the
+// lower-left, drawn in the ACTIVE plane so it rotates with the view and
+// tells you which way X and Y actually run right now. Without it an orbited
+// view is ambiguous — two orientations can look identical for symmetric
+// geometry, and the operator has no way to tell which one they are in.
+function drawUCSIcon() {
+  const H = canvas.clientHeight;
+  const OX = 46, OY = H - 46, L = 26;
+  const m = planeMatrix(activePlane);
+  // Axis directions come from the composed matrix itself rather than being
+  // recomputed, so the icon cannot drift out of agreement with the geometry.
+  const ax = { x: m[0], y: m[1] }, ay = { x: m[2], y: m[3] };
+  const nx = Math.hypot(ax.x, ax.y) || 1, ny = Math.hypot(ay.x, ay.y) || 1;
+  const xe = { x: OX + ax.x/nx*L, y: OY + ax.y/nx*L };
+  const ye = { x: OX + ay.x/ny*L, y: OY + ay.y/ny*L };
+
+  ctx.save();
+  ctx.lineWidth = 1.6;
+  ctx.lineCap = 'round';
+  const arm = (end, rgb, label) => {
+    ctx.strokeStyle = 'rgb(' + rgb + ')';
+    ctx.beginPath(); ctx.moveTo(OX, OY); ctx.lineTo(end.x, end.y); ctx.stroke();
+    ctx.fillStyle = 'rgb(' + rgb + ')';
+    ctx.font = 'bold 9px ' + (getComputedStyle(document.body).getPropertyValue('--fm').trim() || 'monospace');
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const dx = end.x - OX, dy = end.y - OY, dl = Math.hypot(dx,dy) || 1;
+    ctx.fillText(label, OX + dx/dl*(L+8), OY + dy/dl*(L+8));
+  };
+  arm(xe, XHAIR_RED,   'X');
+  arm(ye, XHAIR_GREEN, 'Y');
+  // Origin dot, and the plane name so a non-World frame is never mistaken
+  // for World at a glance.
+  ctx.fillStyle = 'rgb(' + XHAIR_RED + ')';
+  ctx.beginPath(); ctx.arc(OX, OY, 2, 0, Math.PI*2); ctx.fill();
+  if (activePlane !== 'World' || viewIsOrbited()) {
+    ctx.fillStyle = 'rgba(' + C.originRgb + ',0.75)';
+    ctx.font = '9px ' + (getComputedStyle(document.body).getPropertyValue('--fm').trim() || 'monospace');
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText((PLANES[activePlane] && PLANES[activePlane].label || activePlane) +
+                 (viewIsOrbited() ? '  \u00b7 ORBITED' : ''), 14, H - 14);
+  }
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.restore();
 }
 
 function drawCursorCrosshair() {
@@ -12720,6 +12819,38 @@ function nc1SuggestGrade(gradeRaw) {
   };
 }
 
+// ── DSTV FACE PLANES (Phase 5, spec §8) ──────────────────────────────
+// DSTV face codes ARE construction planes: v = web/front, o = top flange,
+// u = bottom flange, h = back. NC1-SUPPORT.md documented a deliberate
+// one-plane import ("no plate/profile fork") — that was the right call when
+// planes did not exist, and this supersedes it now that they do.
+//
+// The stakes are why §8 calls this the strongest argument for the feature:
+// a flange hole imported onto the web is not a viewing nicety, it is a hole
+// in the wrong place on a real part. Previously such holes were counted as
+// unsupported and dropped entirely, which at least failed loudly; landing
+// them flat would be worse.
+//
+// DSTV convention: X runs along the member length on every face, so the
+// face planes share a common +X and differ in where they sit and which way
+// their local +Y points.
+function nc1FacePlanes(part) {
+  const h = Number(part.height) || 0;   // section depth
+  const b = Number(part.width)  || 0;   // flange width
+  const X = { x:1, y:0, z:0 };
+  return {
+    // Web / front: the reference face, local Y up the section depth.
+    v: { origin:{x:0,y:0,z:0},   xAxis:X, yAxis:{x:0,y:1,z:0} },
+    // Top flange: horizontal, sitting at the top of the section. Local Y
+    // runs across the flange width, which in 3D is the Z direction.
+    o: { origin:{x:0,y:h,z:0},   xAxis:X, yAxis:{x:0,y:0,z:1} },
+    // Bottom flange: same orientation, at y = 0.
+    u: { origin:{x:0,y:0,z:0},   xAxis:X, yAxis:{x:0,y:0,z:1} },
+    // Back: parallel to the web, offset across the flange width.
+    h: { origin:{x:0,y:0,z:b},   xAxis:X, yAxis:{x:0,y:1,z:0} },
+  };
+}
+
 function parseNC1(text) {
   const rawLines = text.split(/\r?\n/);
 
@@ -12780,6 +12911,7 @@ function parseNC1(text) {
       stRaw:           st.raw,
       primaryFace:     null,
       otherFaceRaw:    [],
+      facesSeen:       {},
       arcsFlattened:   0,
       malformedLines:  0,
       lines:           [],
@@ -12808,12 +12940,18 @@ function parseNC1(text) {
         }
         if (pts.length >= 2) {
           if (part.primaryFace == null) part.primaryFace = pts[0].face;
-          if (pts[0].face !== part.primaryFace) {
-            part.otherFaceRaw.push({ block: kw, face: pts[0].face, points: pts.length });
-          } else {
+          {
+            // Non-primary faces are now DRAWN, on their own plane, rather
+            // than being counted as unsupported and dropped. Still recorded
+            // in otherFaceRaw so the passthrough and the dialog's count stay
+            // truthful about what the file contained.
+            const _face = pts[0].face;
+            const _fp = (_face !== part.primaryFace) ? ('NC1_' + _face) : null;
+            if (_fp) part.otherFaceRaw.push({ block: kw, face: _face, points: pts.length });
+            part.facesSeen[_face] = true;
             for (let k = 0; k < pts.length - 1; k++) {
               if (pts[k].r) part.arcsFlattened++;
-              part.lines.push({ type:'LINE', layer:'Layer_0', x1:pts[k].x, y1:pts[k].y, x2:pts[k+1].x, y2:pts[k+1].y });
+              part.lines.push({ type:'LINE', layer:'Layer_0', x1:pts[k].x, y1:pts[k].y, x2:pts[k+1].x, y2:pts[k+1].y, _face });
             }
             // AK/IK contours are implicitly closed — DSTV does not repeat
             // the first point to close the loop, matching how KAD's own
@@ -12837,11 +12975,12 @@ function parseNC1(text) {
             const x = parseFloat(toks[1]), y = parseFloat(toks[2]), d = parseFloat(toks[3]);
             if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(d) && d > 0) {
               if (part.primaryFace == null) part.primaryFace = face;
-              if (face === part.primaryFace) {
-                part.circles.push({ type:'CIRCLE', layer:'Layer_0', cx:x, cy:y, r:d/2 });
-              } else {
-                part.otherFaceRaw.push({ block:'BO', face, x, y, d });
-              }
+              // A flange hole now lands on the flange. Previously it was
+              // dropped — safe, but it meant a beam's bolt pattern simply
+              // was not there. Still recorded in otherFaceRaw.
+              if (face !== part.primaryFace) part.otherFaceRaw.push({ block:'BO', face, x, y, d });
+              part.facesSeen[face] = true;
+              part.circles.push({ type:'CIRCLE', layer:'Layer_0', cx:x, cy:y, r:d/2, _face:face });
             } else {
               part.malformedLines++;
             }
@@ -12889,14 +13028,47 @@ function parseNC1(text) {
   parts.forEach((p, pi) => {
     for (const ln of p.lines)   lines.push(Object.assign({}, ln, { _ncPart: pi }));
     for (const c  of p.circles) circles.push(Object.assign({}, c,  { _ncPart: pi }));
-    totalMalformed += p.malformedLines + p.otherFaceRaw.length;
+    // otherFaceRaw no longer counts as skipped: those features are now DRAWN
+    // on their own plane rather than dropped, so counting them as
+    // "unsupported entities" would report a loss that no longer happens.
+    // Genuinely malformed lines still count.
+    totalMalformed += p.malformedLines;
   });
+
+  // Turn the per-entity _face tags into real planes. Only faces actually
+  // present in the file get a plane, and a plate — which is 'v' only — gets
+  // none at all, so the overwhelmingly common flat case imports exactly as
+  // it always did with no spurious planes.
+  const ncPlanes = [];
+  const _faceSeen = Object.create(null);
+  parts.forEach(p => {
+    const geom = nc1FacePlanes(p);
+    for (const fc in p.facesSeen) {
+      if (fc === p.primaryFace) continue;      // primary face IS the World plane here
+      const g = geom[fc];
+      if (!g) continue;                        // unknown face letter — leave it flat
+      const id = 'NC1_' + fc;
+      if (_faceSeen[id]) continue;
+      _faceSeen[id] = true;
+      ncPlanes.push({ id, label: 'DSTV face ' + fc, origin:g.origin, xAxis:g.xAxis, yAxis:g.yAxis });
+    }
+  });
+  // Re-tag geometry with the plane id the importer will register, and drop
+  // the transient _face marker.
+  const _assign = (arr) => arr.forEach(e => {
+    if (e._face && e._face !== (parts[0] && parts[0].primaryFace)) {
+      if (_faceSeen['NC1_' + e._face]) e.plane = 'NC1_' + e._face;
+    }
+    delete e._face;
+  });
+  _assign(lines); _assign(circles);
 
   return {
     lines, circles, arcs: [],
     rawInsUnits: 4,      // DSTV is unambiguously millimetres — reuses the DXF label path
     skipped:     totalMalformed,
     ncParts:     parts,
+    planes:      ncPlanes,
   };
 }
 
@@ -14999,6 +15171,9 @@ function deserializeDocument(text) {
   // contents after a load, not just plane-creation calls.
   _anyExtraPlanes = Object.keys(PLANES).some(k => k !== 'World');
   _mxZoom = NaN;   // force the composed-matrix cache to rebuild against the new table
+  const _pl = document.getElementById('plane-label');
+  if (_pl) _pl.textContent = String((PLANES[activePlane] || {}).label || activePlane).toUpperCase();
+  refreshPlaneMenu();
 
   if (d.kanvas) kvRestoreSheets(d.kanvas);
   if (d.displayUnits && d.displayUnits !== unitMode) toggleUnits();
@@ -15700,6 +15875,11 @@ requestAnimationFrame(()=>{
     // That's the real reason switching layers wasn't discoverable: there
     // was no list, not just a hard-to-find one.
     buildLayerPanel();
+    // Same reasoning as buildLayerPanel above, and the same bug if omitted:
+    // refreshPlaneMenu only ran from setActivePlane/createPlane, so the plane
+    // dropdown rendered empty at boot with nothing in it to click — including
+    // the World entry that makes the control discoverable at all.
+    refreshPlaneMenu();
     // The status bar reads live state, so it has to be painted once at boot —
     // otherwise it shows whatever the markup was authored with until the first
     // toggle, and OSNAP prefs restored from localStorage never show at all.
@@ -22070,6 +22250,8 @@ function setTheme(theme) {
   if (icon) icon.innerHTML = THEME_ICONS[theme];
   const xhairIcon = document.getElementById('crosshair-icon');
   if (xhairIcon) xhairIcon.innerHTML = buildCrosshairIcon();
+  const planeIcon = document.getElementById('plane-icon');
+  if (planeIcon) planeIcon.innerHTML = buildPlaneIcon();
   document.querySelectorAll('#theme-dropdown .tb-dd-item').forEach(el => el.classList.remove('checked'));
   const opt = document.getElementById('theme-opt-' + theme);
   if (opt) opt.classList.add('checked');
