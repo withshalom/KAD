@@ -9949,7 +9949,6 @@ function getTheme() {
 const THEME_PALETTES = {
   // Blueprint (default) — unchanged from the prior dark theme.
   blueprint: {
-    xhairX:'255,74,74', xhairY:'60,225,130',   // X = horizontal arm, Y = vertical arm
     bg:'#123259', grid:'#1a2840', gridMaj:'#253a58', axis:'#2a5080', tick:'#243550',
     entity:'#ffc94d', entitySel:'#ffaa00', point:'#ffaa00',
     rubberLine:'#ffc94d', startPt:'#00ff9d', originRgb:'0,212,255',
@@ -9958,14 +9957,12 @@ const THEME_PALETTES = {
   // graduated grays instead of blueprint's steel-blues so it doesn't just
   // read as "blueprint, darker."
   'classic-dark': {
-    xhairX:'255,68,68', xhairY:'64,224,116',   // X = horizontal arm, Y = vertical arm
     bg:'#0a0a0a', grid:'#232323', gridMaj:'#3a3a3a', axis:'#555555', tick:'#333333',
     entity:'#ffffff', entitySel:'#ffaa00', point:'#ffaa00',
     rubberLine:'#ffffff', startPt:'#00ff9d', originRgb:'255,255,255',
   },
   // Classic Light — black lines on white, per spec.
   'classic-light': {
-    xhairX:'200,0,0', xhairY:'0,140,60',   // X = horizontal arm, Y = vertical arm
     bg:'#ffffff', grid:'#d9d9d9', gridMaj:'#bbbbbb', axis:'#8a8a8a', tick:'#b8c0c8',
     entity:'#000000', entitySel:'#b35900', point:'#b35900',
     rubberLine:'#000000', startPt:'#00704a', originRgb:'0,0,0',
@@ -9974,7 +9971,6 @@ const THEME_PALETTES = {
   // sepia grid/axis instead of steel-blue, same accent identity (sepia ink
   // standing in for Blueprint's cyan).
   parchment: {
-    xhairX:'168,26,26', xhairY:'26,110,58',   // X = horizontal arm, Y = vertical arm
     bg:'#f2e8d0', grid:'#d9c9a3', gridMaj:'#c2ac7a', axis:'#c7ad80', tick:'#d1b98f',
     entity:'#5b3a1a', entitySel:'#8a4b12', point:'#8a4b12',
     rubberLine:'#5b3a1a', startPt:'#2f6b46', originRgb:'107,68,35',
@@ -10770,15 +10766,24 @@ let liveAim = false;
 let crosshairMode = 'axis';
 const CROSSHAIR_LABELS = { axis:'AXIS', mono:'MONO', off:'OFF' };
 
+// Fixed, not theme-tuned: originally each theme had its own shade of
+// axis red/green (four variants), which turned out to be one variable
+// too many — composited at low alpha over Classic Dark's near-black in
+// particular, the muted per-theme red read as a dark neutral gray, not
+// red. One pair, used identically in every theme, is simpler and reads
+// consistently everywhere; see the alpha bump in drawCursorCrosshair()
+// below for the other half of that same fix.
+const XHAIR_RED = '255,68,68';
+const XHAIR_GREEN = '64,224,116';
+
 // Toolbar icon always shows the axis-mode glyph (red X-arm / green Y-arm)
 // regardless of crosshairMode — it identifies the control, not the current
 // selection, the same way the theme-icon shows a swatch rather than a
-// checkmark. Reads C.xhairX/C.xhairY, the same palette fields
-// drawCursorCrosshair() uses, so the icon can never drift from the canvas.
+// checkmark. Fixed colors now, so this no longer varies with theme at all.
 function buildCrosshairIcon() {
   return '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.6">'
-    + '<line x1="2" y1="12" x2="22" y2="12" stroke="rgb(' + C.xhairX + ')"/>'
-    + '<line x1="12" y1="2" x2="12" y2="22" stroke="rgb(' + C.xhairY + ')"/>'
+    + '<line x1="2" y1="12" x2="22" y2="12" stroke="rgb(' + XHAIR_RED + ')"/>'
+    + '<line x1="12" y1="2" x2="12" y2="22" stroke="rgb(' + XHAIR_GREEN + ')"/>'
     + '</svg>';
 }
 
@@ -10794,11 +10799,32 @@ function drawCursorCrosshair() {
   if (crosshairMode === 'axis') {
     // Two strokes rather than one path — a single path cannot carry two
     // colours, and splitting them is cheaper than it looks because each is
-    // one line.
-    ctx.strokeStyle = 'rgba(' + C.xhairX + ',0.42)';
+    // one line. Alpha raised from the old 0.42 to 0.65: fixed colors have
+    // to hold their own hue against all four canvas backgrounds instead of
+    // being individually tuned per theme, and 0.42 wasn't enough weight
+    // for that on the darkest ones — composited red measured barely more
+    // saturated than plain gray. 0.65 reads clearly as red/green on every
+    // theme without going fully opaque.
+    ctx.strokeStyle = 'rgba(' + XHAIR_RED + ',0.65)';
     ctx.beginPath(); ctx.moveTo(0, p.y); ctx.lineTo(W, p.y); ctx.stroke();
-    ctx.strokeStyle = 'rgba(' + C.xhairY + ',0.42)';
+    ctx.strokeStyle = 'rgba(' + XHAIR_GREEN + ',0.65)';
     ctx.beginPath(); ctx.moveTo(p.x, 0); ctx.lineTo(p.x, H); ctx.stroke();
+    // Traditional CAD pickbox — a small square at the intersection, drawn
+    // only in axis mode, so its presence alone signals "this is color
+    // mode" even at a glance. Top/bottom edges in the X color, left/right
+    // in the Y color: the box is built from the same two-color language
+    // as the arms passing through it, rather than an arbitrary third color.
+    const s = 4; // half-size in px — deliberately tiny, a signature not a target box
+    ctx.strokeStyle = 'rgba(' + XHAIR_RED + ',0.65)';
+    ctx.beginPath();
+    ctx.moveTo(p.x - s, p.y - s); ctx.lineTo(p.x + s, p.y - s); // top
+    ctx.moveTo(p.x - s, p.y + s); ctx.lineTo(p.x + s, p.y + s); // bottom
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(' + XHAIR_GREEN + ',0.65)';
+    ctx.beginPath();
+    ctx.moveTo(p.x - s, p.y - s); ctx.lineTo(p.x - s, p.y + s); // left
+    ctx.moveTo(p.x + s, p.y - s); ctx.lineTo(p.x + s, p.y + s); // right
+    ctx.stroke();
   } else {
     ctx.strokeStyle = 'rgba(' + C.originRgb + ',0.30)';
     ctx.beginPath();
