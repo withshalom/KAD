@@ -2741,6 +2741,7 @@ body.kanvas-mode #app {
         <div class="tb-dd-item" onclick="toggleGrid();closeMenus()">Toggle Grid<span class="dd-key">G</span></div>
         <div class="tb-dd-item" onclick="toggleSnap();closeMenus()">Toggle Snap<span class="dd-key">F3</span></div>
         <div class="tb-dd-item" onclick="openSnapSettings();closeMenus()">Snap Settings&#8230;</div>
+        <div class="tb-dd-item" onclick="startM2P();closeMenus()">Mid Between 2 Points<span class="dd-key">M2P</span></div>
         <div class="tb-dd-item" onclick="toggleOrtho();closeMenus()">Toggle Ortho<span class="dd-key">F8</span></div>
         <div class="tb-dd-item" onclick="toggleGridSnap();closeMenus()">Snap to Grid<span class="dd-key">F9</span></div>
         <div class="tb-dd-item" onclick="togglePolar();closeMenus()">Polar Tracking<span class="dd-key">F10</span></div>
@@ -3676,7 +3677,7 @@ body.kanvas-mode #app {
 <div id="statusbar">
   <div class="sb-item"><span>MODE</span><span class="sb-val act" id="sb-mode">PLINE</span></div>
   <div class="sb-item sb-toggle" onclick="toggleSnap()" title="Object snap (F3)"><span>OSNAP</span><span class="sb-val ok" id="sb-snap">ON</span></div>
-  <div class="sb-item sb-toggle" onclick="openSnapSettings()" title="Which snaps are running"><span>MODES</span><span class="sb-val act" id="sb-osnap-count">10/12</span></div>
+  <div class="sb-item sb-toggle" onclick="openSnapSettings()" title="Which snaps are running"><span>MODES</span><span class="sb-val act" id="sb-osnap-count">11/14</span></div>
   <div class="sb-item sb-toggle" onclick="toggleOrtho()" title="Ortho \u2014 lock to 0\u00b0/90\u00b0 (F8)"><span>ORTHO</span><span class="sb-val" id="sb-ortho">OFF</span></div>
   <div class="sb-item sb-toggle" onclick="togglePolar()" title="Polar tracking (F10)"><span>POLAR</span><span class="sb-val" id="sb-polar">OFF</span></div>
   <div class="sb-item sb-toggle" onclick="toggleGridSnap()" title="Snap to grid (F9)"><span>GSNAP</span><span class="sb-val" id="sb-gsnap">OFF</span></div>
@@ -5964,6 +5965,14 @@ const OSNAP_DEFS = [
   { key:'intersection',  label:'Intersection',       pen:2,  def:true  },
   { key:'midpoint',      label:'Midpoint',           pen:3,  def:true  },
   { key:'center',        label:'Centre',             pen:4,  def:true  },
+  // Distinct from Centre on purpose, the way AutoCAD splits GCEN from CEN.
+  // The centroid maths already existed but reported as 'center', so a plate's
+  // area centre and a hole's axis centre shared one toggle and one glyph —
+  // and they are wanted at different times. Snapping a dimension to a bolt
+  // hole wants Centre; positioning a part marker on a plate wants this.
+  // Penalised just above Centre: where both are offered for the same pick,
+  // the hole wins, because a hole is a feature and a centroid is derived.
+  { key:'gcenter',       label:'Geometric centre',   pen:5,  def:true  },
   { key:'quadrant',      label:'Quadrant',           pen:6,  def:true  },
   { key:'insertion',     label:'Insertion',          pen:7,  def:true  },
   { key:'perpendicular', label:'Perpendicular',      pen:8,  def:true  },
@@ -6151,6 +6160,26 @@ function kadCirc(o) {
 }
 
 /* ── Free snaps: points an object offers on its own ──────────────────────── */
+
+// Area centroid of a closed ring, by the shoelace formula. Returns null for
+// anything that cannot have one: fewer than three points, or a degenerate
+// ring whose signed area is zero (all points collinear, or a shape that
+// doubles back on itself exactly). Null rather than a fallback average,
+// because the average of the vertices is NOT the centroid of the area — for
+// an L-shaped plate the two differ by a visible amount, and a snap that is
+// confidently near the right answer is worse than no snap.
+function kadCentroid(pts) {
+  if (!pts || pts.length < 3) return null;
+  let a2 = 0, cx = 0, cy = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i], q = pts[(i+1) % pts.length];
+    const f = p.x*q.y - q.x*p.y;
+    a2 += f; cx += (p.x+q.x)*f; cy += (p.y+q.y)*f;
+  }
+  if (Math.abs(a2) < 1e-9) return null;
+  return { x: cx/(3*a2), y: cy/(3*a2) };
+}
+
 function kadObjSnaps(o, out) {
   if (o.type === 'LINE') {
     out.push({x:o.x1, y:o.y1, kind:'endpoint'});
@@ -6161,16 +6190,27 @@ function kadObjSnaps(o, out) {
       out.push({x:(a.x+b.x)/2, y:(a.y+b.y)/2, kind:'midpoint'});
     for (const p of o.pts) out.push({x:p.x, y:p.y, kind:'endpoint'});
     // Geometric centre of a closed outline, which is what you want when the
-    // polyline is a plate or a bolt pattern rather than a path.
-    if (o.closed && o.pts.length > 2) {
-      let a2 = 0, cx = 0, cy = 0;
-      for (let i = 0; i < o.pts.length; i++) {
-        const p = o.pts[i], q = o.pts[(i+1) % o.pts.length];
-        const f = p.x*q.y - q.x*p.y;
-        a2 += f; cx += (p.x+q.x)*f; cy += (p.y+q.y)*f;
+    // polyline is a plate or a bolt pattern rather than a path. Reported as
+    // 'gcenter' rather than 'center' so it can be toggled and read apart from
+    // a circle's axis centre — see OSNAP_DEFS.
+    const g = kadCentroid(o.closed ? o.pts : null);
+    if (g) out.push({x:g.x, y:g.y, kind:'gcenter'});
+  } else if (o.type === 'HATCH') {
+    // A hatch had no snaps at all, which is wrong for the thing it usually
+    // represents: a hatch IS a closed region, so its boundary carries the same
+    // vertices and midpoints as the polyline that would outline it, and its
+    // centroid is the natural place to hang a part marker or a leader.
+    // Only the outer loop gets a centroid — inner loops are holes, and the
+    // centroid of a hole is not a point anyone wants to snap to.
+    for (const L of (o.loops || [])) {
+      for (let i = 0; i < L.length; i++) {
+        out.push({x:L[i].x, y:L[i].y, kind:'endpoint'});
+        const q = L[(i+1) % L.length];
+        out.push({x:(L[i].x+q.x)/2, y:(L[i].y+q.y)/2, kind:'midpoint'});
       }
-      if (Math.abs(a2) > 1e-9) out.push({x:cx/(3*a2), y:cy/(3*a2), kind:'center'});
     }
+    const gh = kadCentroid((o.loops && o.loops[0]) || null);
+    if (gh) out.push({x:gh.x, y:gh.y, kind:'gcenter'});
   } else if (o.type === 'CIRCLE') {
     out.push({x:o.cx, y:o.cy, kind:'center'});
     for (const a of [0, Math.PI/2, Math.PI, -Math.PI/2])
@@ -6719,6 +6759,34 @@ function closeMenus() {
 }
 
 (function bindTopbarMenus() {
+  // ── Move every dropdown out of the topbar and onto <body> ──
+  //
+  // .tb-dropdown is position:fixed and JS-positioned, so it never needed to
+  // live inside the header it belongs to — and living there is what broke it.
+  //
+  // A `position:fixed` element is normally laid out against the viewport and
+  // is immune to ancestor overflow. It stops being immune the moment any
+  // ancestor becomes its containing block, which per spec happens for
+  // transform, perspective, filter, backdrop-filter, contain, will-change of
+  // those — and for MASK. The mobile scroll-fade added
+  // `-webkit-mask-image` to `.mobile-mode .tb-menu`, so on phones every File/
+  // Edit/View/Draw/Tools panel started resolving `top: <viewport y>` against
+  // a 48px-tall strip AND being clipped by that strip's `overflow-x:auto`.
+  // The panel opened correctly, reported the right rect, and was invisible.
+  // Desktop was unaffected because the mask is inside a .mobile-mode rule.
+  //
+  // Reparenting fixes it at the root rather than by dropping the mask, and it
+  // also retires the older latent version of the same bug: iOS Safari's
+  // `-webkit-overflow-scrolling:touch` clips fixed descendants for the same
+  // containing-block reason, which was a hazard on that strip long before the
+  // mask arrived. Nothing here depends on nesting — every open/close path
+  // works by getElementById and sets left/top itself — so the only knock-on
+  // is the document-level dismiss handlers below, which can no longer ask
+  // "is the click inside .tb-menu" and must ask about the panel as well.
+  for (const dd of document.querySelectorAll('.tb-dropdown')) {
+    if (dd.parentElement !== document.body) document.body.appendChild(dd);
+  }
+
   document.querySelectorAll('.tb-menu-item').forEach(item => {
     const name = item.dataset.menu;
     if (!name) return;
@@ -6737,7 +6805,10 @@ function closeMenus() {
   document.addEventListener('click', e => {
     // .tb-menu rather than #topbar: pressing SHARE or the unit toggle should
     // dismiss an open menu, and both of those live in the topbar too.
-    if (!(e.target instanceof Element) || !e.target.closest('.tb-menu')) closeMenus();
+    // .tb-dropdown is listed separately now that the panels are children of
+    // <body> rather than of the header — without it, the first tap on any menu
+    // ROW would be read as a click outside the menu.
+    if (!(e.target instanceof Element) || !e.target.closest('.tb-menu, .tb-dropdown')) closeMenus();
   });
   document.addEventListener('keydown', e => {
     if (openMenuName && e.key === 'Escape') closeMenus();
@@ -8234,6 +8305,10 @@ function drawOtrackPath() {
 // a ring that only appears once you are already on top of the point.
 const SNAP_COLORS = {
   endpoint:'0,212,255', midpoint:'0,255,157', center:'255,179,71',
+  // Same hue family as centre, shifted cooler: the two are related ideas
+  // and should read as siblings, but never be mistaken for each other
+  // when both are lit near the same pick.
+  gcenter:'255,214,140',
   quadrant:'180,140,255', intersection:'255,68,102', node:'0,212,255',
   perpendicular:'120,220,120', tangent:'255,140,200', extension:'160,200,255',
   apparent:'255,120,90', nearest:'190,190,190', insertion:'255,210,120',
@@ -8254,6 +8329,13 @@ function drawSnapGlyph(sp, kind, bright) {
     ctx.lineTo(sp.x-r, sp.y+r); ctx.closePath();
   } else if (kind === 'center') {
     ctx.arc(sp.x, sp.y, r, 0, Math.PI*2);
+  } else if (kind === 'gcenter') {
+    // Centre's circle with a centroid dot inside it — reads as "centre, but
+    // of the area" rather than as a different concept entirely. Distinct at a
+    // glance from plain centre, which is an empty circle.
+    ctx.arc(sp.x, sp.y, r, 0, Math.PI*2);
+    ctx.moveTo(sp.x + r*0.35, sp.y);
+    ctx.arc(sp.x, sp.y, r*0.35, 0, Math.PI*2);
   } else if (kind === 'quadrant') {
     ctx.moveTo(sp.x, sp.y-r); ctx.lineTo(sp.x+r, sp.y);
     ctx.lineTo(sp.x, sp.y+r); ctx.lineTo(sp.x-r, sp.y); ctx.closePath();
@@ -8631,6 +8713,12 @@ function drawRotatePreview() {
 
 // ── TOOL MANAGEMENT ─────────────────────────────────────
 function cancelTool() {
+  // An armed MID-2-POINTS is a pending pick, so it belongs to the command in
+  // progress and dies with it. Hooked here rather than on the Escape key
+  // directly because every cancel route in the app funnels through this —
+  // the key, the mobile ESC FAB, and any tool change — so one line covers all
+  // three instead of three that can drift apart.
+  cancelM2P(true);
   // A half-built hatch boundary is invisible until it is filled, so leaving
   // one alive past a cancel means the next fill silently includes shapes the
   // user picked minutes ago.
@@ -9559,6 +9647,15 @@ function onMouseDown(e) {
     const rect = canvas.getBoundingClientRect();
     const hit = viewCubeHitTest(e.clientX-rect.left, e.clientY-rect.top);
     if (hit) { e.preventDefault(); setView(hit); return; }
+  }
+
+  // MID BETWEEN 2 POINTS, if armed. Sits after the view-cube test so a HUD
+  // click still wins, and before any tool sees the coordinate. Uses the
+  // already-resolved snap point when there is one, so both picks can snap to
+  // real geometry — which is the whole reason to use the command.
+  if (m2pState.active && e.button === 0) {
+    const sp = (snapActive && snapPoint) ? snapPoint : mouseWorld;
+    if (m2pHandleClick(sp.x, sp.y)) { e.preventDefault(); return; }
   }
 
   // Shift + left drag = orbit. Deliberately a modifier on the existing drag
@@ -11020,6 +11117,7 @@ function openArrayDialog(){
 
 // Draw previews hook
 function drawNewToolPreviews(){
+  drawM2PPreview();
   drawTrimPreview();
   drawExtendPreview();
   if(activeTool==='break'&&breakState.active&&breakState.pt1){
@@ -22075,6 +22173,10 @@ const KOMMANDS = {
   'SCALE':   () => openScaleDialog(),
   'AR':      () => openArrayDialog(),
   'ARRAY':   () => openArrayDialog(),
+  // Both spellings: AutoCAD documents MTP and accepts M2P, and muscle memory
+  // splits about evenly between them.
+  'M2P':     () => startM2P(),
+  'MTP':     () => startM2P(),
   'ST':      () => setTool('stretch'),
   'STRETCH': () => setTool('stretch'),
   'F':       () => setTool('fillet'),
@@ -22572,6 +22674,81 @@ function applyKommandCoord(parsed) {
 }
 
 // Simulate a drawing click at world coordinates
+// ── MID BETWEEN 2 POINTS (AutoCAD M2P / MTP) ──────────────────────────
+// Not a running snap and deliberately not in OSNAP_DEFS. Every other entry
+// there is passive — the engine offers candidates near the cursor and the
+// best one wins. M2P is the opposite: it asks the operator for two points and
+// then supplies a third that no entity offers. Modelling it as a checkbox
+// would mean a snap that is "on" but never fires until you do something else,
+// which is exactly the kind of toggle the OSNAP dialog comment warns against.
+//
+// So it is a one-shot override, the way AutoCAD has it: invoke it mid-command,
+// pick two points, and the midpoint is fed to whatever command was already
+// running. Both picks go through the normal snap engine, so the usual case —
+// midway between two endpoints — is two snapped clicks.
+//
+// Scoped as tightly as possible on purpose: this is the only thing in this
+// change that touches onMouseDown, which is the most safety-critical path in
+// the app. The interception is a single early return guarded by a flag that
+// nothing sets unless the command is explicitly invoked, so when M2P is not
+// running the click path is byte-for-byte what it was.
+let m2pState = { active:false, p1:null, prevTool:null };
+
+function startM2P() {
+  // Re-invoking while armed restarts rather than nesting.
+  m2pState = { active:true, p1:null, prevTool:activeTool };
+  showToast('MID 2 POINTS \u00b7 pick the first point \u00b7 Esc to cancel');
+  if (typeof kecho === 'function') kecho('M2P: first point', 'dim');
+  render();
+}
+
+function cancelM2P(quiet) {
+  if (!m2pState.active) return false;
+  m2pState = { active:false, p1:null, prevTool:null };
+  if (!quiet) showToast('MID 2 POINTS cancelled');
+  render();
+  return true;
+}
+
+// Returns true when it consumed the click.
+function m2pHandleClick(wx, wy) {
+  if (!m2pState.active) return false;
+  if (!m2pState.p1) {
+    m2pState.p1 = { x:wx, y:wy };
+    if (typeof kecho === 'function') kecho('M2P: second point', 'dim');
+    render();
+    return true;
+  }
+  const mx = (m2pState.p1.x + wx) / 2;
+  const my = (m2pState.p1.y + wy) / 2;
+  // Clear BEFORE feeding the point back in. simulateWorldClick() re-enters
+  // onMouseDown, which asks this function again — leaving the flag set would
+  // make the synthesised click get eaten as a fresh first pick and the command
+  // would never receive anything.
+  m2pState = { active:false, p1:null, prevTool:null };
+  simulateWorldClick(mx, my);
+  showToast('Midpoint placed');
+  return true;
+}
+
+function drawM2PPreview() {
+  if (!m2pState.active || !m2pState.p1) return;
+  const a = worldToScreen(m2pState.p1.x, m2pState.p1.y);
+  const b = worldToScreen(mouseWorld.x, mouseWorld.y);
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,214,140,0.75)';
+  ctx.lineWidth = 1.2;
+  ctx.setLineDash([5,4]);
+  ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+  ctx.setLineDash([]);
+  // The midpoint it would produce, live — the whole point of the command is
+  // a point you cannot otherwise see, so showing it before committing is what
+  // makes it usable rather than a guess.
+  const m = { x:(a.x+b.x)/2, y:(a.y+b.y)/2 };
+  drawSnapGlyph(m, 'midpoint', true);
+  ctx.restore();
+}
+
 function simulateWorldClick(wx, wy) {
   // Set the globals onMouseDown reads — clientX/clientY are never used by the handler
   mouseWorld  = { x: wx, y: wy };
@@ -23105,7 +23282,10 @@ function closeAuxMenus() {
 
 document.addEventListener('click', e => {
   if (!openAuxName) return;
-  if (!(e.target instanceof Element) || !e.target.closest('.tb-aux-wrap')) closeAuxMenus();
+  // .tb-dropdown for the same reason as the topbar handler: the aux panels
+  // are on <body> too now, so a tap on one of their rows is no longer inside
+  // .tb-aux-wrap and would otherwise dismiss the menu before the row acted.
+  if (!(e.target instanceof Element) || !e.target.closest('.tb-aux-wrap, .tb-dropdown')) closeAuxMenus();
 });
 document.addEventListener('keydown', e => {
   if (openAuxName && e.key === 'Escape') closeAuxMenus();
