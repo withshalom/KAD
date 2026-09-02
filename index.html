@@ -12304,36 +12304,56 @@ function drawGrid(W,H) {
     // every dot — minor vs. major is carried by color (C.grid/C.gridMaj)
     // alone; mixing in a second radius on top of that read as visual
     // noise rather than a clean two-tier grid.
+    //
+    // Each dot is transformed as a POINT. This used to take the screen-x of
+    // (x,0) and the screen-y of (0,y) — two different points — and pair them,
+    // which is only valid while the view matrix has no cross terms. Under any
+    // orbit it laid the dots out on a screen-aligned lattice that did not
+    // correspond to the plane at all: an isometric view showed a square grid.
+    // Same call count as before, since the old version already called
+    // worldToScreen once per dot.
     const DOT_R = 1.8;
     ctx.fillStyle = C.grid;
     for (let x=x0; x<=x1; x+=spacing) {
-      const xMaj = Math.round(x/spacing)%major===0, sx = worldToScreen(x,0).x;
+      const xMaj = Math.round(x/spacing)%major===0;
       for (let y=y0; y<=y1; y+=spacing) {
         if (xMaj || Math.round(y/spacing)%major===0) continue; // majors drawn below, on top
-        const sy = worldToScreen(0,y).y;
-        ctx.beginPath(); ctx.arc(sx,sy,DOT_R,0,Math.PI*2); ctx.fill();
+        const p = worldToScreen(x,y);
+        ctx.beginPath(); ctx.arc(p.x,p.y,DOT_R,0,Math.PI*2); ctx.fill();
       }
     }
     ctx.fillStyle = C.gridMaj;
     for (let x=x0; x<=x1; x+=spacing) {
-      const xMaj = Math.round(x/spacing)%major===0, sx = worldToScreen(x,0).x;
+      const xMaj = Math.round(x/spacing)%major===0;
       for (let y=y0; y<=y1; y+=spacing) {
         const yMaj = Math.round(y/spacing)%major===0;
         if (!xMaj && !yMaj) continue;
-        const sy = worldToScreen(0,y).y;
-        ctx.beginPath(); ctx.arc(sx,sy,DOT_R,0,Math.PI*2); ctx.fill();
+        const p = worldToScreen(x,y);
+        ctx.beginPath(); ctx.arc(p.x,p.y,DOT_R,0,Math.PI*2); ctx.fill();
       }
     }
   } else if (gridStyle === 'lines') {
+    // Both endpoints transformed, so a constant-x line is the image of the
+    // segment (x,y0)-(x,y1) on the plane rather than a screen-vertical stroke
+    // at that x. Under orbit those images are sheared and converge; drawing
+    // them vertical is what made an isometric view show a square grid.
+    //
+    // Spanning the plane-space rect rather than the full canvas is also what
+    // keeps the two consistent: the rect already covers the visible quad with
+    // ~64px of slack, so the lines still reach the edges at plan view.
+    const seg = (ax, ay, bx, by) => {
+      const a = worldToScreen(ax, ay), b = worldToScreen(bx, by);
+      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+    };
     ctx.lineWidth=1;
     ctx.strokeStyle=C.grid; ctx.beginPath();
-    for(let x=x0;x<=x1;x+=spacing){ if(Math.round(x/spacing)%major!==0){ const sx=worldToScreen(x,0).x; ctx.moveTo(sx,0); ctx.lineTo(sx,H); } }
-    for(let y=y0;y<=y1;y+=spacing){ if(Math.round(y/spacing)%major!==0){ const sy=worldToScreen(0,y).y; ctx.moveTo(0,sy); ctx.lineTo(W,sy); } }
+    for(let x=x0;x<=x1;x+=spacing){ if(Math.round(x/spacing)%major!==0) seg(x,y0,x,y1); }
+    for(let y=y0;y<=y1;y+=spacing){ if(Math.round(y/spacing)%major!==0) seg(x0,y,x1,y); }
     ctx.stroke();
 
     ctx.lineWidth=1.2; ctx.strokeStyle=C.gridMaj; ctx.beginPath();
-    for(let x=x0;x<=x1;x+=spacing){ if(Math.round(x/spacing)%major===0){ const sx=worldToScreen(x,0).x; ctx.moveTo(sx,0); ctx.lineTo(sx,H); } }
-    for(let y=y0;y<=y1;y+=spacing){ if(Math.round(y/spacing)%major===0){ const sy=worldToScreen(0,y).y; ctx.moveTo(0,sy); ctx.lineTo(W,sy); } }
+    for(let x=x0;x<=x1;x+=spacing){ if(Math.round(x/spacing)%major===0) seg(x,y0,x,y1); }
+    for(let y=y0;y<=y1;y+=spacing){ if(Math.round(y/spacing)%major===0) seg(x0,y,x1,y); }
     ctx.stroke();
   }
   // gridStyle === 'void': no grid drawn at all — axis + origin tick below
@@ -12344,10 +12364,32 @@ function drawGrid(W,H) {
 // Split out so the cell-count backstop can still orient the user when it
 // drops the field: losing the grid is survivable, losing the origin is not.
 function drawAxes(W,H) {
+  const o = worldToScreen(0,0);
+  // The axes are the images of the plane's X and Y through the origin, not a
+  // screen cross at the origin's position. Drawing them screen-aligned was
+  // the same separable assumption drawGrid had: correct only while the view
+  // matrix has no cross terms, and under orbit it drew a vertical and a
+  // horizontal line that pointed at nothing.
+  //
+  // Extent comes from the visible rect in plane space so the axes still reach
+  // the edges at plan view. If the plane is edge-on there is no finite rect —
+  // fall back to a span generous enough to cross any viewport, since an
+  // edge-on plane projects to a line and the axes collapse onto it anyway.
+  const vb = viewCornersInPlane(activePlane);
+  const span = vb
+    ? { x0: vb.minx, x1: vb.maxx, y0: vb.miny, y1: vb.maxy }
+    : (() => { const r = (W + H) / Math.max(cam.zoom, 1e-6);
+               return { x0:-r, x1:r, y0:-r, y1:r }; })();
+  const ax0 = worldToScreen(span.x0, 0), ax1 = worldToScreen(span.x1, 0);
+  const ay0 = worldToScreen(0, span.y0), ay1 = worldToScreen(0, span.y1);
   ctx.strokeStyle=C.axis; ctx.lineWidth=1.5; ctx.beginPath();
-  const ox=worldToScreen(0,0).x, oy=worldToScreen(0,0).y;
-  ctx.moveTo(ox,0); ctx.lineTo(ox,H); ctx.moveTo(0,oy); ctx.lineTo(W,oy); ctx.stroke();
+  ctx.moveTo(ax0.x, ax0.y); ctx.lineTo(ax1.x, ax1.y);
+  ctx.moveTo(ay0.x, ay0.y); ctx.lineTo(ay1.x, ay1.y);
+  ctx.stroke();
 
+  // The origin tick stays a screen-space cross on purpose — it marks a POINT,
+  // and a point has no orientation to inherit from the plane.
+  const ox = o.x, oy = o.y;
   ctx.strokeStyle = C.tick;
   ctx.lineWidth=1; ctx.beginPath();
   ctx.moveTo(ox-6,oy); ctx.lineTo(ox+6,oy); ctx.moveTo(ox,oy-6); ctx.lineTo(ox,oy+6); ctx.stroke();
