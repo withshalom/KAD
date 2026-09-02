@@ -4457,6 +4457,12 @@ function resizeCanvas() {
   canvas.style.width  = cssW + 'px';
   canvas.style.height = cssH + 'px';
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // The LOCK pill's position depends on the viewport (--fab-rail-top carries a
+  // safe-area inset) and on whether mobile-mode is on, and both only change
+  // with the window. Dropping the cached measurement here is what keeps the
+  // cube clear of it across rotation and breakpoint changes without paying a
+  // forced layout every frame.
+  if (typeof invalidateCubeClearance === 'function') invalidateCubeClearance();
   render();
 }
 window.addEventListener('resize', resizeCanvas);
@@ -9661,7 +9667,16 @@ function onMouseDown(e) {
   {
     const rect = canvas.getBoundingClientRect();
     const hit = viewCubeHitTest(e.clientX-rect.left, e.clientY-rect.top);
-    if (hit) { e.preventDefault(); setView(hit); return; }
+    if (hit) {
+      e.preventDefault();
+      // The region carries its own angles, derived from the direction it
+      // stands for, so edges and corners work through the same path as faces
+      // and no preset lookup can disagree with the geometry that was clicked.
+      cam.yaw = hit.yaw; cam.pitch = hit.pitch;
+      updateOrbitLabel();
+      render();
+      return;
+    }
   }
 
   // MID BETWEEN 2 POINTS, if armed. Sits after the view-cube test so a HUD
@@ -10048,7 +10063,13 @@ function onMouseMove(e) {
   }
   {
     const h = viewCubeHitTest(mouseScreen.x, mouseScreen.y);
-    if (h !== VIEWCUBE.hover) { VIEWCUBE.hover = h; render(); }
+    // Regions are rebuilt every frame, so identity comparison would redraw
+    // forever. Compare what the region MEANS instead — same label and kind is
+    // the same pick, whatever object represents it this frame.
+    const hp = VIEWCUBE.hover;
+    if (!h !== !hp || (h && hp && (h.label !== hp.label || h.kind !== hp.kind))) {
+      VIEWCUBE.hover = h; render();
+    } else { VIEWCUBE.hover = h; }
     if (h) return;   // cursor is over the HUD, not the drawing
   }
 
@@ -11688,14 +11709,62 @@ const VIEWCUBE = { size: 34, margin: 54, hover: null, faces: [] };
 // Standard axonometric presets, as (yaw, pitch) relative to the active
 // plane. PLAN is exactly (0,0), which is also the only state in which
 // editing is unlocked — see viewIsOrbited().
+// Turn a cube-local outward direction into the (yaw, pitch) that brings it
+// round to face the viewer.
+//
+// From _viewBasis(), screen-right is r and screen-up is u, so the direction
+// out of the screen toward the viewer is r x u. Expanding that in the active
+// plane's frame gives
+//     d = ( -sin(yaw)cos(pitch),  -sin(pitch),  cos(yaw)cos(pitch) )
+// in (X, Y, N) components, which inverts to the two lines below.
+//
+// Deriving the angles instead of looking them up is what lets edges and
+// corners work at all: there are 6 faces but 26 pickable directions, and a
+// table of 26 hand-written angle pairs is 26 chances to get one wrong. It
+// also fixed three that WERE wrong — see VIEWCUBE_PRESETS.
+//
+// The `+ 0` normalises -0 to 0. asin(0) and atan2(-0, 1) both yield -0, and
+// planView()/viewIsOrbited() treat literal zero as the definition of "not
+// orbited"; -0 compares equal under ===, but leaving it would make the two
+// paths differ under Object.is for no reason.
+function viewAnglesForDir(dx, dy, dz) {
+  const L = Math.hypot(dx, dy, dz) || 1;
+  dx /= L; dy /= L; dz /= L;
+  const pitch = -Math.asin(Math.max(-1, Math.min(1, dy)));
+  const yaw   = Math.atan2(-dx, dz);
+  return [yaw + 0, pitch + 0];
+}
+
+// Name a direction by the faces it touches: one component for a face, two for
+// an edge, three for a corner. 0.5 separates them cleanly — a face component
+// is 1, an edge's are 0.707, a corner's 0.577.
+function viewDirName(dx, dy, dz) {
+  const L = Math.hypot(dx, dy, dz) || 1;
+  dx /= L; dy /= L; dz /= L;
+  const p = [];
+  if (dz >  0.5) p.push('PLAN');  else if (dz < -0.5) p.push('REAR');
+  if (dy >  0.5) p.push('BACK');  else if (dy < -0.5) p.push('FRONT');
+  if (dx >  0.5) p.push('RIGHT'); else if (dx < -0.5) p.push('LEFT');
+  return p.join('-') || 'PLAN';
+}
+
+// Derived rather than hand-written, so a preset cannot disagree with the face
+// that carries the same name. Three of these previously did:
+//   RIGHT was [ PI/2, 0], which is the direction -X — it showed the LEFT face.
+//   LEFT  was [-PI/2, 0], likewise reversed.
+//   FRONT was [0, -PI/2], the direction +Y — it showed the BACK face, and
+//         BACK was [PI, -PI/2], the SAME direction differing only in roll, so
+//         both menu entries and both cube faces landed on the rear view.
+// Clicking a labelled face now always brings that face round to the front,
+// because the angles come from the face's own outward normal.
 const VIEWCUBE_PRESETS = {
-  PLAN:  [0, 0],
-  FRONT: [0, -Math.PI/2],
-  BACK:  [Math.PI, -Math.PI/2],
-  LEFT:  [-Math.PI/2, 0],
-  RIGHT: [ Math.PI/2, 0],
-  REAR:  [Math.PI, 0],
-  ISO:   [Math.PI/4, -Math.asin(Math.tan(Math.PI/6))],  // true isometric
+  PLAN:  [0, 0],                        // literal, so viewIsOrbited() is exact
+  REAR:  viewAnglesForDir(0, 0, -1),
+  FRONT: viewAnglesForDir(0, -1, 0),
+  BACK:  viewAnglesForDir(0,  1, 0),
+  LEFT:  viewAnglesForDir(-1, 0, 0),
+  RIGHT: viewAnglesForDir( 1, 0, 0),
+  ISO:   viewAnglesForDir(-1, 1, 1),    // the corner the old ISO preset picked
 };
 
 function setView(name) {
@@ -11743,24 +11812,54 @@ function updateOrbitLabel() {
 // PLAN would let the cube slide back under the pill the moment it is
 // rotated. This also retires the separate bug where the ISO projection
 // clipped off the top edge of the canvas.
+// Cached vertical clearance for the cube, in canvas-local px.
+//
+// viewCubeCenter() runs once per render, and getBoundingClientRect() forces a
+// synchronous layout, so measuring the pill every frame meant two forced
+// layouts per frame for a value that only changes when the window does.
+// null means "not measured yet"; resizeCanvas() resets it.
+let _cubeClearance = null;
+function invalidateCubeClearance() { _cubeClearance = null; }
+
 function viewCubeCenter(W) {
   let cx = W - VIEWCUBE.margin;
   let cy = VIEWCUBE.margin;
-  const lock = document.getElementById('angle-lock-toggle');
-  if (lock && canvas) {
-    try {
-      // offsetParent is null for display:none, which is the desktop case —
-      // cheaper and more reliable than reading computed styles every frame.
-      if (lock.offsetParent !== null) {
+  if (_cubeClearance === null) {
+    const lock = document.getElementById('angle-lock-toggle');
+    if (lock && canvas) {
+      try {
         const lr = lock.getBoundingClientRect();
         const cr = canvas.getBoundingClientRect();
-        if (lr.width && lr.height) {
-          const clearance = lr.bottom - cr.top + VIEWCUBE.size * 1.7 + 10;
-          if (cy < clearance) cy = clearance;
+        // Visibility is decided by the rect alone. A display:none element
+        // reports 0x0, a laid-out one reports real numbers, and that holds
+        // whatever its position property is.
+        //
+        // This deliberately does NOT use offsetParent. Per CSSOM offsetParent
+        // is null for ANY position:fixed element, not only hidden ones, and
+        // this pill is position:fixed — so the gate that used to be here could
+        // never pass and the clearance never applied. The cube stayed exactly
+        // where it was on a real phone while the unit test passed, because the
+        // test stubbed offsetParent to a truthy value and so asserted the
+        // assumption instead of checking it.
+        if (lr.width > 0 && lr.height > 0) {
+          // Sized for the ISO half-extent, not PLAN: the projection is ~1.7x
+          // taller rotated, so a PLAN-sized gap would let the cube slide back
+          // under the pill the moment it was turned.
+          _cubeClearance = lr.bottom - cr.top + VIEWCUBE.size * 1.7 + 10;
+        } else {
+          // Laid out and genuinely hidden — desktop. Cache the no-op so this
+          // does not re-measure every frame there either.
+          _cubeClearance = 0;
         }
+      } catch (err) {
+        // Rect unavailable mid-layout. Leave the cache null rather than
+        // storing a wrong value, so the next frame measures again.
       }
-    } catch (err) { /* rect unavailable mid-layout — keep the default */ }
+    } else {
+      _cubeClearance = 0;
+    }
   }
+  if (_cubeClearance && cy < _cubeClearance) cy = _cubeClearance;
   return { cx, cy };
 }
 
@@ -11796,6 +11895,7 @@ function drawViewCube() {
 
   ctx.save();
   VIEWCUBE.faces = [];
+  VIEWCUBE.regions = [];
   for (const f of FACES) {
     const ps = f.i.map(i => pv(...V[i]));
     // Back-face cull by signed area: a face wound clockwise on screen is
@@ -11809,35 +11909,96 @@ function drawViewCube() {
     if (area >= 0) continue;
     const cx = ps.reduce((s,p)=>s+p[0],0)/4, cy = ps.reduce((s,p)=>s+p[1],0)/4;
     VIEWCUBE.faces.push({ label:f.label, ps, cx, cy });
-    const hot = VIEWCUBE.hover === f.label;
+
+    // ── Pickable regions: the face split 3x3 ──
+    // A cube has 6 faces but 26 orientations worth reaching — 6 faces, 12
+    // edges, 8 corners. Splitting each visible face into nine cells gets all
+    // of them from the geometry already on screen: the middle cell is the
+    // face itself, the four side cells are the edges it shares with its
+    // neighbours, the four corner cells are the corners. An edge or corner
+    // appears on two or three faces at once, and every copy resolves to the
+    // same direction, so which one the finger lands on does not matter.
+    //
+    // Derived from the projected quad rather than from a separate table, so
+    // the pick regions cannot drift away from the drawing — the same reason
+    // the hit test already reuses the drawn polygons.
+    const c0 = V[f.i[0]], c1 = V[f.i[1]], c3 = V[f.i[3]];
+    // Half-edge vectors in cube-local space, and the outward normal.
+    const av = [ (c1[0]-c0[0])/2, (c1[1]-c0[1])/2, (c1[2]-c0[2])/2 ];
+    const bv = [ (c3[0]-c0[0])/2, (c3[1]-c0[1])/2, (c3[2]-c0[2])/2 ];
+    const nv = [ av[1]*bv[2]-av[2]*bv[1], av[2]*bv[0]-av[0]*bv[2], av[0]*bv[1]-av[1]*bv[0] ];
+    const ctr = [ c0[0]+av[0]+bv[0], c0[1]+av[1]+bv[1], c0[2]+av[2]+bv[2] ];
+    for (let iu = 0; iu < 3; iu++) {
+      for (let iv = 0; iv < 3; iv++) {
+        const u0 = -1 + iu*(2/3), u1 = u0 + (2/3);
+        const v0 = -1 + iv*(2/3), v1 = v0 + (2/3);
+        const at = (uu, vv) => pv(
+          ctr[0] + av[0]*uu + bv[0]*vv,
+          ctr[1] + av[1]*uu + bv[1]*vv,
+          ctr[2] + av[2]*uu + bv[2]*vv);
+        const qs = [ at(u0,v0), at(u1,v0), at(u1,v1), at(u0,v1) ];
+        // The direction this cell stands for: the face normal, pushed toward
+        // whichever edges the cell sits against.
+        const su = iu - 1, sv = iv - 1;
+        const dir = [ nv[0] + av[0]*su + bv[0]*sv,
+                      nv[1] + av[1]*su + bv[1]*sv,
+                      nv[2] + av[2]*su + bv[2]*sv ];
+        const ang = viewAnglesForDir(dir[0], dir[1], dir[2]);
+        VIEWCUBE.regions.push({
+          ps: qs, yaw: ang[0], pitch: ang[1],
+          label: viewDirName(dir[0], dir[1], dir[2]),
+          kind: (su === 0 && sv === 0) ? 'face' : (su !== 0 && sv !== 0) ? 'corner' : 'edge',
+        });
+      }
+    }
+  }
+  // Hover highlight is drawn per REGION, so an edge or corner lights up on
+  // its own rather than lighting the whole face and lying about what a tap
+  // would do. Drawn under the face outlines so the wireframe stays crisp.
+  const hov = VIEWCUBE.hover;
+  if (hov && hov.ps) {
+    ctx.beginPath();
+    ctx.moveTo(hov.ps[0][0], hov.ps[0][1]);
+    for (let k = 1; k < hov.ps.length; k++) ctx.lineTo(hov.ps[k][0], hov.ps[k][1]);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(' + rgb + ',0.42)';
+    ctx.fill();
+  }
+  for (const face of VIEWCUBE.faces) {
+    const ps = face.ps;
+    const hot = hov && hov.kind === 'face' && hov.label === face.label;
     ctx.beginPath();
     ctx.moveTo(ps[0][0], ps[0][1]);
     for (let k=1;k<ps.length;k++) ctx.lineTo(ps[k][0], ps[k][1]);
     ctx.closePath();
-    ctx.fillStyle   = 'rgba(' + rgb + ',' + (hot ? 0.32 : 0.10) + ')';
+    ctx.fillStyle   = 'rgba(' + rgb + ',' + (hot ? 0.20 : 0.10) + ')';
     ctx.strokeStyle = 'rgba(' + rgb + ',' + (hot ? 0.95 : 0.45) + ')';
     ctx.lineWidth   = hot ? 1.4 : 0.9;
     ctx.fill(); ctx.stroke();
     ctx.fillStyle = 'rgba(' + rgb + ',' + (hot ? 1 : 0.75) + ')';
     ctx.font = (hot ? 'bold ' : '') + '8px ' + (getComputedStyle(document.body).getPropertyValue('--fm').trim() || 'monospace');
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(f.label, cx, cy);
+    ctx.fillText(face.label, face.cx, face.cy);
   }
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   ctx.restore();
 }
 
-// Point-in-polygon over the cached front faces. Returns the face label under
-// the cursor, or null. Used for both hover and click.
+// Point-in-polygon over the cached pick regions. Returns the region under the
+// cursor, or null. Used for both hover and click.
+//
+// Regions are tested before faces and in emission order. Cells never overlap
+// within a face, and cells from different visible faces meet only along the
+// silhouette, so the first hit is unambiguous.
 function viewCubeHitTest(sx, sy) {
-  for (const f of VIEWCUBE.faces) {
+  for (const f of VIEWCUBE.regions) {
     let inside = false;
     const ps = f.ps;
     for (let i=0, j=ps.length-1; i<ps.length; j=i++) {
       const xi=ps[i][0], yi=ps[i][1], xj=ps[j][0], yj=ps[j][1];
       if (((yi>sy)!==(yj>sy)) && (sx < (xj-xi)*(sy-yi)/(yj-yi)+xi)) inside = !inside;
     }
-    if (inside) return f.label;
+    if (inside) return f;
   }
   return null;
 }
