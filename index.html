@@ -4501,6 +4501,21 @@ function initCamera() {
   cam.panX = canvas.clientWidth  / 2;
   cam.panY = canvas.clientHeight / 2;
   cam.zoom = 3.0;
+  // Orientation as well as pan and zoom. A "Reset View" that leaves you in an
+  // axonometric projection has not reset the view, and on mobile that was a
+  // one-way door: there is no touch orbit gesture, so the ONLY way out of an
+  // orbited state was tapping the PLAN face of a 34px cube — which the
+  // angle-lock pill was covering. Tapping FRONT or LEFT puts the drawing
+  // edge-on, where it collapses to a line, and every escape route ran through
+  // that same covered cube.
+  //
+  // Safe at all five call sites: boot, Home, both Reset View entries, and the
+  // empty-drawing branch of zoom-extents. Every one of them means "put me back
+  // somewhere known", and none is a resize handler, where discarding the
+  // user's orientation would be wrong.
+  cam.yaw = 0;
+  cam.pitch = 0;
+  if (typeof updateOrbitLabel === 'function') updateOrbitLabel();
   document.getElementById('prop-zoom').textContent = fmtZoom(cam.zoom); updateGridLabel();
 }
 
@@ -11707,9 +11722,52 @@ function updateOrbitLabel() {
   refreshPlaneMenu();
 }
 
+// Where the cube sits, in canvas-local pixels.
+//
+// The cube is painted INTO the canvas; the angle-lock pill is a
+// position:fixed overlay at z-index 210 anchored to the same top-right
+// corner. Nothing coordinated the two — the cube's margin is measured from
+// the canvas edge, the pill's from the viewport — so on a phone the pill
+// covered 53% of the cube at PLAN, including the whole upper band, and won
+// both the paint and the taps. With the plane/view dropdown hidden pending
+// Phase 3, this cube is the only view control left on mobile, so being
+// covered made it the only view control and unreachable at once.
+//
+// Measured from the pill's live rect rather than given a hardcoded mobile
+// margin: --fab-rail-top is itself built from --toolbar-h plus a safe-area
+// inset, so any constant here would be right on one device and wrong on the
+// next, and would silently rot if either value changed.
+//
+// The clearance uses the ISO half-extent, not the PLAN one. The projection
+// is ~1.7x taller at ISO than the flat square at PLAN, so sizing the gap for
+// PLAN would let the cube slide back under the pill the moment it is
+// rotated. This also retires the separate bug where the ISO projection
+// clipped off the top edge of the canvas.
+function viewCubeCenter(W) {
+  let cx = W - VIEWCUBE.margin;
+  let cy = VIEWCUBE.margin;
+  const lock = document.getElementById('angle-lock-toggle');
+  if (lock && canvas) {
+    try {
+      // offsetParent is null for display:none, which is the desktop case —
+      // cheaper and more reliable than reading computed styles every frame.
+      if (lock.offsetParent !== null) {
+        const lr = lock.getBoundingClientRect();
+        const cr = canvas.getBoundingClientRect();
+        if (lr.width && lr.height) {
+          const clearance = lr.bottom - cr.top + VIEWCUBE.size * 1.7 + 10;
+          if (cy < clearance) cy = clearance;
+        }
+      }
+    } catch (err) { /* rect unavailable mid-layout — keep the default */ }
+  }
+  return { cx, cy };
+}
+
 function drawViewCube() {
   const W = canvas.clientWidth;
-  const S = VIEWCUBE.size, CX = W - VIEWCUBE.margin, CY = VIEWCUBE.margin;
+  const _c = viewCubeCenter(W);
+  const S = VIEWCUBE.size, CX = _c.cx, CY = _c.cy;
   const B = _viewBasis(), r = B.r, u = B.u;
   // Unit cube in the ACTIVE plane's frame: +x right, +y up, +z out of the
   // plane toward the viewer at PLAN.
