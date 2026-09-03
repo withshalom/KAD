@@ -4436,6 +4436,351 @@ body.kanvas-mode #app {
 <script>
 
 'use strict';
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  00 BOOT — APPLICATION ROOT
+//  ────────────────────────────────────────────────────────────────────────────
+//  One owner for application state (§5). KAD.* is authoritative; the bare
+//  identifiers that already exist throughout the file (activeTool, unitMode,
+//  selectedIds, …) are kept alive as accessor properties on the global object
+//  so that no call site had to change to establish the boundary. They read and
+//  write through to the buckets below — there is no second copy of the value.
+//
+//  Why accessors and not `let`: a top-level `let` is a lexical binding and
+//  cannot be given a getter/setter, so the declarations for the bridged names
+//  were demoted from `let X = v` to plain `X = v` at their original lines.
+//  Initialisation order and initial values are unchanged; the only difference
+//  is that reading one of these before its original declaration line now
+//  yields undefined instead of throwing a TDZ error.
+//
+//  Reversing this: delete this block and restore the `let ` prefixes.
+// ══════════════════════════════════════════════════════════════════════════════
+
+const KAD_APP_VERSION = '0.1.0';   // application build; distinct from
+                                   // KAD_DOC_VERSION, which versions the .kad file
+
+const KAD = {
+  version: KAD_APP_VERSION,
+
+  // Persistent CAD state — the things that belong in a .kad (§6.1).
+  document: {
+    activeLayer: undefined,
+    revision:    undefined,
+  },
+
+  // Transient interaction state — never serialised (§6.2).
+  session: {
+    activeTool:          undefined,
+    activeToolRequested: undefined,
+    selectedIds:         undefined,
+    unitMode:            undefined,
+    activePlane:         undefined,
+    _savedActivePlane:   undefined,
+    measureState:        undefined,
+    mouseWorld:          undefined,
+    mouseScreen:         undefined,
+    showGrid:            undefined,
+    orthoMode:           undefined,
+    gridSnapOn:          undefined,
+    polarOn:             undefined,
+  },
+
+  // Camera / world-screen (§14). Populated lazily below.
+  view: {},
+
+  // Snapping (§18). Populated lazily below.
+  snap: {},
+};
+
+// Bridge: bare identifier <-> owner field. One value, two names.
+function _kadOwn(host, name) {
+  Object.defineProperty(globalThis, name, {
+    configurable: true,
+    enumerable:   true,
+    get() { return host[name]; },
+    set(v) { host[name] = v; },
+  });
+}
+for (const k of Object.keys(KAD.document)) _kadOwn(KAD.document, k);
+for (const k of Object.keys(KAD.session))  _kadOwn(KAD.session,  k);
+
+// `revision` has no bare-identifier twin of its own name; modelRev is the
+// existing counter and stays the writable one.
+Object.defineProperty(globalThis, 'modelRev', {
+  configurable: true, enumerable: true,
+  get() { return KAD.document.revision; },
+  set(v) { KAD.document.revision = v; },
+});
+delete globalThis.revision;
+
+// Read-only pointers at structures declared further down the file. These are
+// getters rather than assignments because the targets are `const` bindings in
+// temporal dead zone at this point — the getter body runs after they exist.
+Object.defineProperties(KAD.document, {
+  objects: { enumerable: true, get: () => GeoMemory.objects },
+  nextId:  { enumerable: true, get: () => GeoMemory.nextId  },
+  layers:  { enumerable: true, get: () => LAYERS            },
+  planes:  { enumerable: true, get: () => PLANES            },
+  parts:   { enumerable: true, get: () => PartLibrary.parts },
+  store:   { enumerable: true, get: () => GeoMemory         },
+});
+
+// ── KAD.geometry / KAD.math (§9) ────────────────────────────────────────────
+// Alias layer over pure functions already defined below in this file. No
+// function moved and no call site changed — every existing caller keeps
+// calling the bare name directly. This block exists so new code, and code
+// touched in later phases, has one place to reach for these instead of
+// rediscovering that e.g. circle-circle intersection already exists under
+// the name `kadCircCirc`.
+//
+// Populated lazily via getters: the functions below (normAngle, arcBBox,
+// lineLineIntersect, kadSegSeg, …) are `function` declarations later in this
+// same script, hoisted to the top of the scope, so they are actually
+// reachable here — but a plain object literal evaluated at this line would
+// still be capturing them before the section comments above them suggest.
+// Getters make that non-issue explicit rather than relying on hoisting to be
+// remembered correctly by the next person editing this file.
+//
+// NOT included: the large majority of this file's vector/matrix arithmetic,
+// which is written inline at each call site rather than factored into named
+// functions (trim, extend, offset, the render transform pipeline, etc). That
+// is a tool-by-tool rewrite, not a boundary extraction, and is intentionally
+// out of scope here — see the Phase 3 report.
+Object.defineProperties(KAD.geometry = {}, {
+  // Bounds
+  arcBBox:            { enumerable: true, get: () => arcBBox },
+  hatchLoopsBBox:      { enumerable: true, get: () => hatchLoopsBBox },
+
+  // Intersection
+  intersect: { enumerable: true, get: () => ({
+    lineLine:    lineLineIntersect,   // infinite lines -> point | null
+    lineIntersectPt: lineIntersectPt, // same, {x1,y1,x2,y2}-shaped args
+    segSeg:      kadSegSeg,           // bounded segments, snap-engine form
+    segCircle:   kadSegCirc,
+    circleCircle: kadCircCirc,
+    segCrosses:  segIntersects,       // boolean segment-crosses-segment
+    segCrossesBox: segIntersectsBox,
+  }) },
+
+  // Distance / projection
+  ptSegDist:  { enumerable: true, get: () => ptSegDist },
+  ptOnSegT:   { enumerable: true, get: () => ptOnSegT },
+
+  // Angle / arc predicates
+  normAngle:    { enumerable: true, get: () => normAngle },
+  angleOnArc:   { enumerable: true, get: () => angleOnArc },
+  angleInArc:   { enumerable: true, get: () => kadAngInArc },
+
+  // Construction
+  circumscribedCircle: { enumerable: true, get: () => circumscribedCircle },
+  centroid:            { enumerable: true, get: () => kadCentroid },
+
+  // Entity shape adapters (used by the OSNAP engine to treat LINE/POLYLINE/
+  // CIRCLE/ARC uniformly as segment lists / circle records)
+  segmentsOf: { enumerable: true, get: () => kadSegs },
+  circleOf:   { enumerable: true, get: () => kadCirc },
+});
+
+Object.defineProperties(KAD.math = {}, {
+  rotatePoint:  { enumerable: true, get: () => rotatePoint },
+  mirrorPoint:  { enumerable: true, get: () => mirrorPoint },
+});
+
+// The document API (§7, §60). Defined after the bridging loop above so these
+// method names are never mistaken for globals to bridge.
+Object.assign(KAD.document, {
+  get:        (id)        => GeoMemory.get(id),
+  add:        (o)         => GeoMemory.add(o),
+  update:     (id, c)     => GeoMemory.update(id, c),
+  remove:     (id)        => GeoMemory.remove(id),
+  removeMany: (ids, opt)  => GeoMemory.removeMany(ids, opt),
+  query:      (fn)        => GeoMemory.query(fn),
+  clear:      ()          => GeoMemory.clear(),
+  replaceAll: (o, n)      => GeoMemory.replaceAll(o, n),
+  commit:     ()          => commitDocumentChange(),
+});
+
+Object.defineProperty(KAD.view, 'camera', { enumerable: true, get: () => cam });
+
+// ── KAD.view (§14) ───────────────────────────────────────────────────────────
+// Alias layer, same discipline as KAD.geometry/KAD.math in Phase 3: these
+// getters point at the existing functions by identity, not copies. Deferred
+// to getters for the same hoisting reason as Phase 3 — worldToScreen,
+// screenToWorld, initCamera and zoomExtents are declared later in this file.
+//
+// reset() is initCamera() under an architectural name: the file's own
+// comment at initCamera()'s definition documents it as the canonical
+// "put the camera back to a known state" function with five deliberate
+// call sites (boot, Home, both Reset View menu entries, empty-drawing
+// zoom-extents) — exactly what §14 asks reset() to be. Renaming the
+// underlying function was rejected in favor of aliasing it, per Rule 3.
+
+// ── KAD.tools (§20) ──────────────────────────────────────────────────────────
+// See the Phase 6 patch header for the scope decision: this is a registry
+// and two lifecycle aliases, not a KADTool class hierarchy. Deferred to
+// getters for the same hoisting reason as every prior phase — setTool,
+// cancelTool and btnMap are declared later in this script.
+//
+// activate/cancel are identity aliases to the real functions, same as
+// every phase so far. list is derived from btnMap AT CALL TIME (not
+// captured once), so it stays correct if a tool is ever added or removed
+// from that map later — no second copy to fall out of sync.
+
+// ── KAD.commands / KAD.history (§22-24, §60) ─────────────────────────────────
+// See the Phase 7 patch header for why this is a transaction wrapper over
+// the existing snapshot history, not a parallel do()/undo() command stack.
+// Deferred to getters for the usual hoisting reason: undoSpace, redoSpace,
+// captureHistory and History are declared later in this script.
+
+// ── KAD.renderer (§15, §60) ──────────────────────────────────────────────────
+// See the Phase 8 patch header for the full audit and naming decisions.
+// Identity aliases only, deferred to getters for the usual hoisting reason.
+
+// ── KAD.formats (§25, §60) ───────────────────────────────────────────────────
+// See the Phase 9 patch header for the full audit and the deliberate
+// exclusions (PDF, STEP, SVG). Identity aliases only, deferred to getters
+// for the usual hoisting reason.
+Object.defineProperties(KAD.formats = {}, {
+  kad: { enumerable: true, get: () => ({
+    serialize:   serializeDocument,
+    deserialize: deserializeDocument,
+  }) },
+  dxf: { enumerable: true, get: () => ({
+    parse:  parseDXF,
+    build:  buildDXF,
+    import: importDXF,
+    export: exportDXF,
+  }) },
+  nc1: { enumerable: true, get: () => ({
+    parse: parseNC1,   // import-only format — no export exists, see header
+  }) },
+  dwg: { enumerable: true, get: () => ({
+    normalize: kadDwgNormalize,
+    import:    importDWG,        // import-only — no export exists, see header
+  }) },
+  scad: { enumerable: true, get: () => ({
+    build: buildSCAD,            // export-only — no parse exists, see header
+  }) },
+});
+
+Object.defineProperties(KAD.renderer = {}, {
+  render:       { enumerable: true, get: () => render },
+  model:        { enumerable: true, get: () => drawEntities },
+  grid:         { enumerable: true, get: () => drawGrid },
+  // The live drag-selection marquee — NOT entity-selection highlighting,
+  // which is interleaved inside model rendering itself. See patch header.
+  selectionBox: { enumerable: true, get: () => drawSelBox },
+});
+
+Object.defineProperties(KAD.commands = {}, {
+  undo: { enumerable: true, get: () => undoSpace },
+  redo: { enumerable: true, get: () => redoSpace },
+
+  // transaction(label, fn): run fn(), then guarantee the whole thing lands
+  // as exactly one history entry, however long fn() takes internally —
+  // closing the one gap the 220ms debounce doesn't already cover (see
+  // patch header). `label` is accepted per the directive's own
+  // KAD.commands.transaction('Offset', () => {...}) shape but is not
+  // surfaced anywhere today — there is no undo-history list UI to show it
+  // in. Recorded as a no-op placeholder rather than silently dropped, so
+  // it's honest about doing nothing yet rather than pretending to log it.
+  // fn may be sync or async. Awaiting fn before capturing is necessary but
+  // not sufficient: every GeoMemory mutation inside fn() independently
+  // calls scheduleCapture(), which arms its OWN 220ms timer — for an async
+  // fn with gaps longer than that, one of those timers fires and records a
+  // premature mid-transaction snapshot before this wrapper ever gets to
+  // force its own capture at the end. Reusing _histSuspend (the same flag
+  // restoreSnapshot() uses) for the duration of fn() blocks every one of
+  // those intermediate captures, then a single forced captureHistory()
+  // after fn() resolves records the net effect as one entry — correct
+  // because captureHistory() diffs against the pre-transaction baseline
+  // (H.last), so it doesn't matter how many mutations happened in between,
+  // only what changed overall.
+  //
+  // Known limitation, honestly documented rather than hidden: _histSuspend
+  // is one global flag. If an async fn's own await yields to unrelated code
+  // that would otherwise have legitimately recorded its own history entry
+  // during that window, this suppresses it too. No caller does that today
+  // — nothing in this file calls transaction() with an async fn yet — so
+  // this is forward-looking infrastructure, not a fix for an active bug.
+  //
+  // Sync callers get a synchronous return, matching the directive's own
+  // KAD.commands.transaction('Offset', () => {...}) shape; async callers
+  // get a promise back.
+  transaction: { enumerable: true, get: () => function (label, fn) {
+    if (typeof fn !== 'function') { fn = label; label = undefined; }
+    const space = 'model';
+    const H = History[space];
+    clearTimeout(H.timer);
+    const finish = (v) => { _histSuspend = false; captureHistory(space); return v; };
+    const fail   = (e) => { _histSuspend = false; throw e; };
+    _histSuspend = true;
+    try {
+      const result = fn();
+      if (result && typeof result.then === 'function') {
+        return result.then(finish, fail);
+      }
+      return finish(result);
+    } catch (e) { return fail(e); }
+  } },
+});
+
+Object.defineProperty(KAD, 'history', {
+  enumerable: true, get: () => History,
+});
+
+Object.defineProperties(KAD.tools = {}, {
+  activate: { enumerable: true, get: () => setTool },
+  cancel:   { enumerable: true, get: () => cancelTool },
+  list:     { enumerable: true, get: () => Object.keys(btnMap) },
+});
+
+Object.defineProperties(KAD.view, {
+  worldToScreen: { enumerable: true, get: () => worldToScreen },
+  screenToWorld: { enumerable: true, get: () => screenToWorld },
+  reset:         { enumerable: true, get: () => initCamera },
+  zoomToExtents: { enumerable: true, get: () => zoomExtents },
+});
+
+Object.defineProperty(KAD.snap,  'modes',  { enumerable: true, get: () => OSNAP });
+
+// ── KAD.input (§17) ──────────────────────────────────────────────────────────
+// Alias layer, same discipline as KAD.geometry/KAD.math (Phase 3) and
+// KAD.view (Phase 4): identity getters over functions/state that already
+// exist below in this file, deferred for the same hoisting reason.
+//
+// pointer.screen / pointer.world are NOT new state — they read straight
+// through to KAD.session.mouseScreen / KAD.session.mouseWorld, which
+// onMouseMove() (the actual normalization point) already writes on every
+// pointer/touch move. This is the second alias onto that state, after the
+// bare globals from Phase 1; still one value.
+//
+// handlers.* names the five functions every input source ultimately
+// dispatches through: real mouse events call them directly; single-finger
+// touch synthesizes fake mouse events and calls them directly too (see the
+// SINGLE-FINGER SWIPE section, further down); keyboard has its own single
+// entry point. Pinch-zoom and long-press are NOT included here — they
+// drive the camera and a context menu respectively, never a tool, so they
+// are not part of the tool-input boundary this section names.
+Object.defineProperties(KAD.input = {}, {
+  pointer: { enumerable: true, get: () => ({
+    get screen() { return mouseScreen; },
+    get world()  { return mouseWorld;  },
+  }) },
+  handlers: { enumerable: true, get: () => ({
+    pointerDown: onMouseDown,
+    pointerMove: onMouseMove,
+    pointerUp:   onMouseUp,
+    wheel:       onWheel,
+    keyDown:     onKeyDown,
+  }) },
+});
+
+Object.defineProperty(KAD.snap,  'enabled', {
+  enumerable: true,
+  get() { return snapEnabled; },
+  set(v) { snapEnabled = v; },
+});
 // ═══════════════════════════════════════════════════════════
 //  KAD v0.0  — Kernel-Aided Design
 // ═══════════════════════════════════════════════════════════
@@ -4548,13 +4893,13 @@ const PLANES = {
     yAxis: {x:0, y:1, z:0},
   },
 };
-let activePlane = 'World';
+activePlane = 'World';
 // The active plane the CURRENT document was saved with. While the phase gate
 // is off, activePlane is pinned to 'World' regardless of what the file said,
 // so this carries the file's own value through to the next save. Without it,
 // opening and re-saving a v2.2 drawing would quietly rewrite its active plane
 // to World — a lossy round-trip caused purely by a feature being disabled.
-let _savedActivePlane = 'World';
+_savedActivePlane = 'World';
 
 // ── PHASE GATE ───────────────────────────────────────────────────────
 // Phase 3 of the spec is NOT finished. worldToScreen() accepts a planeId but
@@ -4969,7 +5314,7 @@ function planeInverse(sx, sy, planeId) {
 // ── UNIT SYSTEM ─────────────────────────────────────────
 // Internal storage is ALWAYS mm. Units only affect display and input parsing.
 const MM_PER_IN = 25.4;
-let unitMode = 'mm'; // 'mm' or 'in'
+unitMode = 'mm'; // 'mm' or 'in'
 
 // Convert a raw mm world value → display value in current unit
 function toDisplay(mm)   { return unitMode === 'in' ? mm / MM_PER_IN : mm; }
@@ -5375,18 +5720,18 @@ const GeoMemory = {
 
   addLine(x1,y1,x2,y2,layer='Layer_0') {
     const o={id:this.nextId++,type:'LINE',layer,x1,y1,x2,y2};
-    this.objects.push(_stampPlane(o)); updateProps(); return o;
+    this.objects.push(_stampPlane(o)); commitDocumentChange(); return o;
   },
   addPoint(x,y,layer='Layer_0') {
     const o={id:this.nextId++,type:'POINT',layer,x,y};
-    this.objects.push(_stampPlane(o)); updateProps(); return o;
+    this.objects.push(_stampPlane(o)); commitDocumentChange(); return o;
   },
   // POLYLINE: pts = [{x,y}, ...], closed = bool
   addPolyline(pts, closed=false, layer='Layer_0') {
     if (pts.length < 2) return null;
     const o={id:this.nextId++, type:'POLYLINE', layer, closed,
              pts: pts.map(p=>({x:parseFloat(p.x.toFixed(6)), y:parseFloat(p.y.toFixed(6))}))};
-    this.objects.push(_stampPlane(o)); updateProps(); return o;
+    this.objects.push(_stampPlane(o)); commitDocumentChange(); return o;
   },
   // BEZIER: a chain of cubic segments — beziers = [{x0,y0,cx1,cy1,cx2,cy2,x3,y3}, ...],
   // closed = bool. Same field shape the paperspace pen tool's KVM.paths already
@@ -5403,10 +5748,10 @@ const GeoMemory = {
                x0:r6(b.x0), y0:r6(b.y0), cx1:r6(b.cx1), cy1:r6(b.cy1),
                cx2:r6(b.cx2), cy2:r6(b.cy2), x3:r6(b.x3), y3:r6(b.y3),
              }))};
-    this.objects.push(_stampPlane(o)); updateProps(); return o;
+    this.objects.push(_stampPlane(o)); commitDocumentChange(); return o;
   },
-  addCircle(cx,cy,r,layer='Layer_0'){const o={id:this.nextId++,type:'CIRCLE',layer,cx:parseFloat(cx.toFixed(6)),cy:parseFloat(cy.toFixed(6)),r:parseFloat(r.toFixed(6))};this.objects.push(_stampPlane(o));updateProps();return o;},
-  addArc(cx,cy,r,startA,endA,ccw=true,layer='Layer_0'){const o={id:this.nextId++,type:'ARC',layer,cx:parseFloat(cx.toFixed(6)),cy:parseFloat(cy.toFixed(6)),r:parseFloat(r.toFixed(6)),startA:parseFloat(startA.toFixed(8)),endA:parseFloat(endA.toFixed(8)),ccw};this.objects.push(_stampPlane(o));updateProps();return o;},
+  addCircle(cx,cy,r,layer='Layer_0'){const o={id:this.nextId++,type:'CIRCLE',layer,cx:parseFloat(cx.toFixed(6)),cy:parseFloat(cy.toFixed(6)),r:parseFloat(r.toFixed(6))};this.objects.push(_stampPlane(o));commitDocumentChange();return o;},
+  addArc(cx,cy,r,startA,endA,ccw=true,layer='Layer_0'){const o={id:this.nextId++,type:'ARC',layer,cx:parseFloat(cx.toFixed(6)),cy:parseFloat(cy.toFixed(6)),r:parseFloat(r.toFixed(6)),startA:parseFloat(startA.toFixed(8)),endA:parseFloat(endA.toFixed(8)),ccw};this.objects.push(_stampPlane(o));commitDocumentChange();return o;},
   // HATCH: loops = [[{x,y},...], ...] — outer boundary first, islands after.
   // Loops follow KAD's own closed-POLYLINE rule: the first point is NOT
   // repeated at the end, because a loop is closed by definition.
@@ -5433,9 +5778,9 @@ const GeoMemory = {
       origin:  opts.origin  || {x:0, y:0},
       assoc:   opts.assoc   || null,
     };
-    this.objects.push(_stampPlane(o)); updateProps(); return o;
+    this.objects.push(_stampPlane(o)); commitDocumentChange(); return o;
   },
-  addText(x,y,text,height=5,layer='Layer_0'){const o={id:this.nextId++,type:'TEXT',layer,x,y,text,height};this.objects.push(_stampPlane(o));updateProps();return o;},
+  addText(x,y,text,height=5,layer='Layer_0'){const o={id:this.nextId++,type:'TEXT',layer,x,y,text,height};this.objects.push(_stampPlane(o));commitDocumentChange();return o;},
   // Paint order. The render loop walked objects in insertion order, which
   // meant a hatch created after its boundary — i.e. every hatch — painted
   // over the boundary lines that define it. Fills go behind strokes, always.
@@ -5450,10 +5795,75 @@ const GeoMemory = {
     return h.concat(r);
   },
 
-  remove(id) {
-    this.objects = this.objects.filter(o=>o.id!==id); updateProps();
+
+  // ── DOCUMENT API (§7) ───────────────────────────────────────────────────
+  // Phase 2. The store had creation helpers (addLine, addArc, …) but no way
+  // to read, edit or bulk-replace without reaching for the raw array, so
+  // every caller that needed one of those reached for the raw array. These
+  // are the doors those callers now use.
+  //
+  // Every mutating door ends at commitDocumentChange(); read-only doors do
+  // not, so a query cannot mark the drawing dirty.
+
+  get(id) {
+    for (const o of this.objects) if (o.id === id) return o;
+    return null;
   },
-  clear() { this.objects=[]; this.nextId=1; updateProps(); },
+
+  // Read-only. §19's query boundary: today a linear scan, but every caller
+  // now goes through one function, so a measured spatial index later is one
+  // change here instead of a sweep of the whole file.
+  query(fn) { return this.objects.filter(fn); },
+
+  // Insert an already-shaped object. Assigns the id and stamps the active
+  // plane exactly as the addX() helpers do — passing an object that already
+  // carries a `plane` keeps it, matching _inheritPlane()'s contract.
+  add(o) {
+    if (!o) return null;
+    o.id = this.nextId++;
+    if (o.plane === undefined) _stampPlane(o);
+    this.objects.push(o);
+    commitDocumentChange();
+    return o;
+  },
+
+  update(id, changes) {
+    const o = this.get(id);
+    if (!o) return null;
+    Object.assign(o, changes);
+    commitDocumentChange();
+    return o;
+  },
+
+  // silent:true is for callers that delete an entity only to immediately
+  // re-add its pieces (trim, break). Those already commit via the addX()
+  // call that follows, and a second commit here would bump the document
+  // revision twice for one user action — which KLOUD's revision-gated poll
+  // reads as two edits.
+  removeMany(ids, opts) {
+    const s = (ids instanceof Set) ? ids : new Set(ids);
+    const before = this.objects.length;
+    this.objects = this.objects.filter(o => !s.has(o.id));
+    const n = before - this.objects.length;
+    if (n && !(opts && opts.silent)) commitDocumentChange();
+    return n;
+  },
+
+  // Wholesale swap: load, history restore, import. Deliberately silent —
+  // all three callers already drive their own updateProps()/render() once
+  // the rest of the document (layers, planes, parts) is in place, and
+  // committing here would fire mid-restore against a half-loaded document.
+  replaceAll(objects, nextId) {
+    this.objects = Array.isArray(objects) ? objects : [];
+    this.nextId  = nextId || (this.objects.reduce((x, o) => Math.max(x, o.id || 0), 0) + 1);
+    return this.objects.length;
+  },
+
+  remove(id) {
+    this.removeMany([id]);
+    commitDocumentChange();   // fires even when nothing matched, as it always has
+  },
+  clear() { this.objects=[]; this.nextId=1; commitDocumentChange(); },
 
   allEndpoints() {
     const pts=[];
@@ -5490,7 +5900,7 @@ const GeoMemory = {
       this.objects=d.objects||[];
       this.nextId=d.nextId||1;
       if(d.displayUnits && d.displayUnits!==unitMode) toggleUnits();
-      updateProps();
+      commitDocumentChange();
       return true;
     }catch(e){ return false; }
   },
@@ -6038,9 +6448,9 @@ function snapAperture() {
 }
 
 // ── Drafting modes ──────────────────────────────────────────────────────────
-let orthoMode  = false;     // F8  — lock to 0/90
-let gridSnapOn = false;     // F9  — land on grid intersections
-let polarOn    = false;     // F10 — persistent angle lock, the Shift you don't hold
+orthoMode  = false;     // F8  — lock to 0/90
+gridSnapOn = false;     // F9  — land on grid intersections
+polarOn    = false;     // F10 — persistent angle lock, the Shift you don't hold
 
 /* ── SPATIAL INDEX ──────────────────────────────────────────────────────────
    kadNearObjects used to walk every object in the drawing on every mouse move,
@@ -6530,12 +6940,12 @@ function applyGridSnap(w) {
 }
 
 // ── STATE ───────────────────────────────────────────────
-let activeToolRequested = 'pline';
-let activeTool   = 'select';
-let mouseWorld   = {x:0,y:0};
-let mouseScreen  = {x:0,y:0};
-let selectedIds  = new Set(); // selection set
-let showGrid     = true;
+activeToolRequested = 'pline';
+activeTool   = 'select';
+mouseWorld   = {x:0,y:0};
+mouseScreen  = {x:0,y:0};
+selectedIds  = new Set(); // selection set
+showGrid     = true;
 
 // Line tool
 let lineState = { active:false, x1:0, y1:0 };
@@ -6567,7 +6977,7 @@ let polyState = { active:false, cx:0, cy:0 };
 // change. Two counters, not one, so a KANVAS mark doesn't force a resend of
 // model geometry or the reverse — which matters because ink is point-heavy
 // where model geometry is four numbers a line.
-let modelRev = 0, kanvasRev = 0;
+modelRev = 0; let kanvasRev = 0;
 function markModelDirty()  { modelRev++;  scheduleCapture('model');  }
 function markKanvasDirty() { kanvasRev++; scheduleCapture('kanvas'); }
 
@@ -6622,8 +7032,7 @@ function restoreSnapshot(space, s) {
       kvRebuildEraseCanvas();
       kvScheduleDraw();
     } else {
-      GeoMemory.objects = _clone(s.objects);
-      GeoMemory.nextId  = s.nextId;
+      GeoMemory.replaceAll(_clone(s.objects), s.nextId);
       for (const k of Object.keys(LAYERS)) delete LAYERS[k];
       Object.assign(LAYERS, _clone(s.layers));
       activeLayer = s.activeLayer;
@@ -8769,6 +9178,11 @@ function cancelTool() {
   document.getElementById('rect-preview').style.display='none';
 }
 
+// Phase 6: hoisted out of setTool() so KAD.tools.list (above) and setTool()
+// itself read the same manifest. Literal is byte-for-byte what setTool()
+// used to declare locally on every call — moved, not rewritten.
+const btnMap={select:'btn-select',pline:'btn-pline',line:'btn-line',rect:'btn-rect',polygon:'btn-polygon',offset:'btn-offset',rotate:'btn-rotate',circle:'btn-circle',arc:'btn-arc',kompass:'btn-kompass',fillet:'btn-fillet',chamfer:'btn-chamfer',mirror:'btn-mirror',dim:'btn-dim',trim:'btn-trim',extend:'btn-extend',break:'btn-break',scale:'btn-scale',stretch:'btn-stretch',text:'btn-text',hatch:'btn-hatch'};
+
 function setTool(tool) {
   cancelTool();
   kommandClear();
@@ -8805,7 +9219,7 @@ function setTool(tool) {
   // does not match the tool name. Everything else resolves by convention,
   // so a new tool no longer has to be registered in two places — which is
   // exactly how HATCH shipped without lighting its own button.
-  const btnMap={select:'btn-select',pline:'btn-pline',line:'btn-line',rect:'btn-rect',polygon:'btn-polygon',offset:'btn-offset',rotate:'btn-rotate',circle:'btn-circle',arc:'btn-arc',kompass:'btn-kompass',fillet:'btn-fillet',chamfer:'btn-chamfer',mirror:'btn-mirror',dim:'btn-dim',trim:'btn-trim',extend:'btn-extend',break:'btn-break',scale:'btn-scale',stretch:'btn-stretch',text:'btn-text',hatch:'btn-hatch'};
+  // (Hoisted to module scope in Phase 6 — see the const above setTool().)
   const btnEl = document.getElementById(btnMap[requested] || ('btn-' + requested));
   if(btnEl) btnEl.classList.add('active');
   
@@ -10826,7 +11240,7 @@ function cutSegment(hit, tLo, tHi) {
   const lay = obj.layer || 'Layer_0';
 
   if (segIdx === -1) {
-    GeoMemory.objects = GeoMemory.objects.filter(o => o.id !== obj.id);
+    GeoMemory.removeMany([obj.id], {silent:true});
     // Pieces of a cut entity are that entity, so they keep its frame. The
     // guard in applyTrim() has already forced obj onto the active plane when
     // planes are live; inheriting is still what is correct while they are
@@ -10849,7 +11263,7 @@ function cutSegment(hit, tLo, tHi) {
     for (let k = segIdx+1; k < n; k++) afterPts.push(obj.pts[k]);
   }
 
-  GeoMemory.objects = GeoMemory.objects.filter(o => o.id !== obj.id);
+  GeoMemory.removeMany([obj.id], {silent:true});
   const addPiece = (pts) => {
     if (pts.length < 2) return;
     if (pts.length === 2) _inheritPlane(GeoMemory.addLine(pts[0].x, pts[0].y, pts[1].x, pts[1].y, lay), obj);
@@ -11143,7 +11557,11 @@ function openArrayDialog(){
       const dx=col*colSp,dy=r*rowSp;
       for(const o of src){
         if(o.type==='LINE')_inheritPlane(GeoMemory.addLine(o.x1+dx,o.y1-dy,o.x2+dx,o.y2-dy,o.layer||'Layer_0'), o);
-        else if(o.cx!==undefined)GeoMemory.objects.push({...o,id:GeoMemory.nextId++,cx:o.cx+dx,cy:o.cy-dy});
+        else if(o.cx!==undefined)GeoMemory.add({...o,cx:o.cx+dx,cy:o.cy-dy});
+        // NOTE: POLYLINE, BEZIER, HATCH, TEXT and POINT fall through both
+        // branches and are silently dropped by Array. Pre-existing; left as
+        // found because fixing it is a scope change to the tool, not a
+        // refactor (§3.3). See the Phase 2 report.
       }
     }
     selectedIds.clear();updateProps();render();el.remove();
@@ -11280,7 +11698,7 @@ const LAYERS = {
   'DIM':    { name:'DIM',    color:'#39ff14', ltype:'continuous', weight:1.5, visible:true, locked:false },
   'Layer_0':{ name:'Layer_0',color:'#00d4ff', ltype:'continuous', weight:2.6, visible:true, locked:false },
 };
-let activeLayer = 'SOLID'; // default active layer
+activeLayer = 'SOLID'; // default active layer
 
 function getLayer(name) {
   return LAYERS[name] || LAYERS['Layer_0'];
@@ -11595,17 +12013,19 @@ function drawDimension(p1w, p2w, commit=false) {
 
   if(commit) {
     // Store as a DIM entity in GeoMemory
-    // Direct push, so it does not pass through _stampPlane() — stamped here
-    // instead. A dimension is a planar annotation: its two ends are already
-    // constrained to the active plane by the editing lockout (spec §6), so
-    // the cross-plane case the spec asks to refuse cannot be reached from
-    // the UI. Recording the plane is what keeps that true after a reload.
-    GeoMemory.objects.push(_stampPlane({
-      id: GeoMemory.nextId++, type:'DIM',
+    // Phase 2: was a direct push with a hand-rolled id and an explicit
+    // _stampPlane() call, because the store had no door for an already-shaped
+    // object. GeoMemory.add() now does all three. A dimension is a planar
+    // annotation: its two ends are already constrained to the active plane by
+    // the editing lockout (spec §6), so the cross-plane case the spec asks to
+    // refuse cannot be reached from the UI. Recording the plane is what keeps
+    // that true after a reload.
+    GeoMemory.add({
+      type:'DIM',
       x1:p1w.x,y1:p1w.y, x2:p2w.x,y2:p2w.y,
       layer:'DIM', label
-    }));
-    updateProps(); render();
+    });
+    render();
   }
 }
 
@@ -15645,7 +16065,7 @@ function mirrorSelected() {
 }
 
 // ── MEASURE TOOL ────────────────────────────────────────
-let measureState = { active: false, p1: null };
+measureState = { active: false, p1: null };
 
 function updateMeasureDisplay(p1, p2) {
   const dx = p2.x - p1.x, dy = p2.y - p1.y;
@@ -16109,8 +16529,7 @@ function deserializeDocument(text) {
   if (d.format !== 'KAD') return false;
 
   const m = d.model || {};
-  GeoMemory.objects = Array.isArray(m.objects) ? m.objects : [];
-  GeoMemory.nextId  = m.nextId || (GeoMemory.objects.reduce((x,o)=>Math.max(x,o.id||0),0) + 1);
+  GeoMemory.replaceAll(Array.isArray(m.objects) ? m.objects : [], m.nextId);
   // Replace the layer table wholesale: a document should open as it was saved,
   // not blended with whatever the current session happened to define.
   if (m.layers && typeof m.layers === 'object' && Object.keys(m.layers).length) {
@@ -16847,8 +17266,24 @@ function newDocument() {
 }
 
 // ── UI HELPERS ──────────────────────────────────────────
-function updateProps() {
-  markModelDirty();   // single choke point for every GeoMemory mutation
+// ── DOCUMENT MUTATION BOUNDARY (§36) ─────────────────────────────────────────
+// updateProps() was doing two unrelated jobs: bumping the document revision /
+// scheduling history capture, and writing counts into the props panel. A
+// function named for the second was the choke point for the first, which is
+// the entanglement §36 names. They are now separate, and updateProps() is a
+// compatibility wrapper (§55 Rule 4) so none of its 28 call sites had to move.
+//
+// New code should call the one it means:
+//   commitDocumentChange()  — the document changed
+//   renderPropsPanel()      — repaint the counts, change nothing
+function commitDocumentChange() {
+  markModelDirty();
+  renderPropsPanel();
+}
+
+function updateProps() { commitDocumentChange(); }
+
+function renderPropsPanel() {
   const lines    = GeoMemory.objects.filter(o=>o.type==='LINE').length;
   const hatches  = GeoMemory.objects.filter(o=>o.type==='HATCH').length;
   const polys    = GeoMemory.objects.filter(o=>o.type==='POLYLINE').length;
@@ -20717,8 +21152,7 @@ function kvDeserialize(text) {
   // into an empty model space, which is exactly the standalone case.
   if (d.modelRef && Array.isArray(d.modelRef.objects) && d.modelRef.objects.length
       && GeoMemory.objects.length === 0) {
-    GeoMemory.objects = d.modelRef.objects;
-    GeoMemory.nextId  = d.modelRef.objects.reduce((m,o)=>Math.max(m,o.id||0),0) + 1;
+    GeoMemory.replaceAll(d.modelRef.objects);
     updateProps();
     if (typeof render === 'function') render();
     showToast('Sheet opened with its reference geometry');
