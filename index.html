@@ -325,7 +325,7 @@ body.drafting-mode #app { pointer-events:auto; z-index:20; }
 #sidebar { width:var(--sidebar-w); min-width:0; background:var(--panel); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; position:relative; z-index:10; height:100%; flex-shrink:0; }
 .section-head { padding:8px 14px 5px; font-family:var(--fu); font-size:12px; font-weight:500; color:var(--t3); letter-spacing:0.14em; text-transform:uppercase; border-bottom:1px solid var(--border); flex-shrink:0; }
 .tool-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:1px; padding:6px; background:var(--border); border-bottom:1px solid var(--border); flex-shrink:0; }
-.tool-btn { background:var(--panel2); border:none; cursor:pointer; padding:8px 4px; display:flex; flex-direction:column; align-items:center; gap:3px; transition:background 0.15s,box-shadow 0.15s; position:relative; overflow:hidden; }
+.tool-btn { background:var(--panel2); border:none; cursor:pointer; padding:8px 4px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; transition:background 0.15s,box-shadow 0.15s; position:relative; overflow:hidden; aspect-ratio:1/1; }
 .tool-btn:hover { background:var(--hover); }
 .tool-btn.active { background:var(--hover); box-shadow:inset 0 0 0 1px var(--accent); }
 .tool-btn.active::after { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:var(--accent); box-shadow:0 0 8px var(--accent); }
@@ -347,13 +347,13 @@ body:not([data-layout="classic"]):not([data-layout="compact"]) #sidebar .tool-bt
 body:not([data-layout="classic"]):not([data-layout="compact"]) #sidebar .op-btn  { min-height:40px; }
 body:not([data-layout="classic"]):not([data-layout="compact"]) .tb-dd-item       { min-height:38px; }
 body:not([data-layout="classic"]):not([data-layout="compact"]) .layer-row        { min-height:38px; }
-:root { --rail-w: 44px; --rail-h: 40px; }
+:root { --rail-w: 44px; --rail-h: 44px; }
 
 .rail { display:none; background:var(--panel); }
 .rail-v { flex-direction:column; overflow-y:auto; overflow-x:hidden; }
 .rail-h { flex-direction:row; overflow-x:auto; overflow-y:hidden; align-items:stretch; }
 
-body[data-layout="classic"]:not(.mobile-mode) #model-pane {
+body[data-layout="classic"] #model-pane {
   display:grid;
   grid-template-columns: var(--rail-w) 1fr var(--rail-w);
   grid-template-rows: var(--rail-h) 1fr var(--rail-h);
@@ -362,17 +362,17 @@ body[data-layout="classic"]:not(.mobile-mode) #model-pane {
     "left canvas right"
     "bot  bot    bot";
 }
-body[data-layout="classic"]:not(.mobile-mode) .rail { display:flex; }
-body[data-layout="classic"]:not(.mobile-mode) #rail-top    { grid-area:top;   border-bottom:1px solid var(--border); }
-body[data-layout="classic"]:not(.mobile-mode) #rail-bottom { grid-area:bot;   border-top:1px solid var(--border); }
-body[data-layout="classic"]:not(.mobile-mode) #rail-left   { grid-area:left;  border-right:1px solid var(--border); }
-body[data-layout="classic"]:not(.mobile-mode) #rail-right  { grid-area:right; border-left:1px solid var(--border); }
-body[data-layout="classic"]:not(.mobile-mode) #canvas-wrap { grid-area:canvas; min-width:0; min-height:0; }
+body[data-layout="classic"] .rail { display:flex; }
+body[data-layout="classic"] #rail-top    { grid-area:top;   border-bottom:1px solid var(--border); }
+body[data-layout="classic"] #rail-bottom { grid-area:bot;   border-top:1px solid var(--border); }
+body[data-layout="classic"] #rail-left   { grid-area:left;  border-right:1px solid var(--border); }
+body[data-layout="classic"] #rail-right  { grid-area:right; border-left:1px solid var(--border); }
+body[data-layout="classic"] #canvas-wrap { grid-area:canvas; min-width:0; min-height:0; }
 
-body[data-layout="classic"]:not(.mobile-mode) #sidebar {
+body[data-layout="classic"] #sidebar {
   width:0; min-width:0; border-right:none;
 }
-body[data-layout="classic"]:not(.mobile-mode) #sidebar > *:not(#ctx-dock) { display:none !important; }
+body[data-layout="classic"] #sidebar > *:not(#ctx-dock) { display:none !important; }
 
 .rail .tool-btn { background:var(--panel); padding:0; gap:0; cursor:default; flex-shrink:0; }
 .rail .tool-label { display:none; }
@@ -380,21 +380,17 @@ body[data-layout="classic"]:not(.mobile-mode) #sidebar > *:not(#ctx-dock) { disp
 .rail .tool-icon svg { width:20px; height:20px; }
 .rail-v .tool-btn { width:100%; height:var(--rail-w); }
 .rail-h .tool-btn { height:100%; width:var(--rail-h); }
-.rail-v .tool-btn.tb-w2 { height:calc(var(--rail-w) * 1.5); }
-.rail-h .tool-btn.tb-w2 { width:calc(var(--rail-h) * 1.5); }
-.rail-v .tool-btn.tb-w2 .tool-icon svg { width:24px; height:24px; }
-.rail-h .tool-btn.tb-w2 .tool-icon svg { width:24px; height:24px; }
 .rail .rail-sep { flex-shrink:0; background:var(--border); }
 .rail-v .rail-sep { height:1px; width:100%; margin:4px 0; }
 .rail-h .rail-sep { width:1px; height:60%; align-self:center; margin:0 4px; }
 .rail .tool-btn.danger .tool-icon svg { stroke:#ff4455; }
 .rail-item-label { display:none; }
 .rail .tool-btn.on { background:var(--accent-glow); box-shadow:inset 0 0 0 1px var(--accent-dim); }
-.rail .tool-btn.on .tool-icon svg { stroke:var(--accent); }
+.rail .tool-btn.on .tool-icon svg { stroke:var(--accent); color:var(--accent); }
 .rail .tool-btn:hover { background:var(--hover); }
 
 #ctx-dock { display:contents; }
-body[data-layout="classic"]:not(.mobile-mode) #ctx-dock {
+body[data-layout="classic"] #ctx-dock {
   display:block;
   position:fixed;
   left:calc(var(--rail-w) + 10px);
@@ -407,8 +403,8 @@ body[data-layout="classic"]:not(.mobile-mode) #ctx-dock {
   box-shadow:0 8px 24px rgba(0,0,0,0.5);
   pointer-events:none;            
 }
-body[data-layout="classic"]:not(.mobile-mode) #ctx-dock > * { pointer-events:auto; }
-body[data-layout="classic"]:not(.mobile-mode) #ctx-dock > :last-child { border-bottom:none; }
+body[data-layout="classic"] #ctx-dock > * { pointer-events:auto; }
+body[data-layout="classic"] #ctx-dock > :last-child { border-bottom:none; }
 
 button, .tb-menu-item, .tb-dd-item, .layer-row, .tab-item, .sb-item.sb-toggle {
   touch-action: manipulation;
@@ -1472,6 +1468,7 @@ body.kanvas-mode #model-pane  { display: none; }
 }
 .tool-grid-bottom .tool-btn {
   grid-column: 1 / -1;   
+  aspect-ratio: auto;
 }
 
 body.kanvas-mode { --accent: #0090a8; --accent-dim: #006888; --accent-glow: rgba(0,144,168,0.15); }
@@ -1559,6 +1556,7 @@ body[data-theme="parchment"] .tool-btn:hover .tool-icon svg { stroke:#2e2412; co
   transition: background 0.15s, border-color 0.15s, color 0.15s, opacity 0.15s;
 }
 .mobile-mode #sidebar-toggle-btn { display: flex; }
+body[data-layout="classic"] #sidebar-toggle-btn { display: none !important; }
 .mobile-mode.dd-open #sidebar-toggle-btn { opacity: 0; pointer-events: none; }
 #sidebar-toggle-btn .stb-icon { font-size: 17px; line-height: 1; flex-shrink: 0; }
 #sidebar-toggle-btn .stb-label {
@@ -3990,7 +3988,7 @@ Object.defineProperty(KAD.snap,  'enabled', {
 });
 
 const canvas = document.getElementById('main-canvas');
-const ctx    = canvas.getContext('2d');
+let ctx    = canvas.getContext('2d');
 const wrap   = document.getElementById('canvas-wrap');
 
 function resizeCanvas() {
@@ -18429,19 +18427,24 @@ const RAIL_TOP_ITEMS = [
 ];
 
 const RAIL_BOTTOM_ITEMS = [
-  {id:'rb-osnap',  tip:'Object Snap',          key:'F3',  act:'toggleSnap()',      watch:'sb-snap'},
-  {id:'rb-ortho',  tip:'Ortho',                key:'F8',  act:'toggleOrtho()',     watch:'sb-ortho'},
-  {id:'rb-polar',  tip:'Polar Tracking',       key:'F10', act:'togglePolar()',     watch:'sb-polar'},
-  {id:'rb-gsnap',  tip:'Grid Snap',            key:'F9',  act:'toggleGridSnap()',  watch:'sb-gsnap'},
-  {id:'rb-otrack', tip:'Object Snap Tracking', key:'F11', act:'toggleOtrack()',    watch:'sb-otrack'},
+  {id:'rb-osnap',  tip:'Object Snap',          key:'F3',  act:'toggleSnap()',      watch:'sb-snap',
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="2" x2="12" y2="7"/><line x1="12" y1="17" x2="12" y2="22"/><line x1="2" y1="12" x2="7" y2="12"/><line x1="17" y1="12" x2="22" y2="12"/><circle cx="12" cy="12" r="4"/></svg>'},
+  {id:'rb-ortho',  tip:'Ortho',                key:'F8',  act:'toggleOrtho()',     watch:'sb-ortho',
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="4" y1="12" x2="20" y2="12"/><polyline points="7,9 4,12 7,15"/><polyline points="17,9 20,12 17,15"/><line x1="12" y1="4" x2="12" y2="20"/><polyline points="9,7 12,4 15,7"/><polyline points="9,17 12,20 15,17"/></svg>'},
+  {id:'rb-polar',  tip:'Polar Tracking',       key:'F10', act:'togglePolar()',     watch:'sb-polar',
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="4" cy="20" r="1.5" fill="currentColor" stroke="none"/><line x1="4" y1="20" x2="20" y2="20" stroke-dasharray="2 2" opacity="0.45"/><line x1="4" y1="20" x2="17" y2="7"/><path d="M9 20a8 8 0 0 1 3.3-6.1" stroke-width="1"/></svg>'},
+  {id:'rb-gsnap',  tip:'Grid Snap',            key:'F9',  act:'toggleGridSnap()',  watch:'sb-gsnap',
+   icon:'<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="6" cy="6" r="1.6"/><circle cx="12" cy="6" r="1.6"/><circle cx="18" cy="6" r="1.6"/><circle cx="6" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18" cy="12" r="1.6"/><circle cx="6" cy="18" r="1.6"/><circle cx="12" cy="18" r="1.6"/><circle cx="18" cy="18" r="1.6"/></svg>'},
+  {id:'rb-otrack', tip:'Object Snap Tracking', key:'F11', act:'toggleOtrack()',    watch:'sb-otrack',
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="1.6" fill="currentColor" stroke="none"/><line x1="6" y1="6" x2="18" y2="6" stroke-dasharray="2 2" opacity="0.5"/><line x1="18" y1="6" x2="18" y2="18" stroke-dasharray="2 2" opacity="0.5"/><circle cx="18" cy="6" r="2"/></svg>'},
   {sep:true},
-  {id:'rb-modes',  tip:'Snap Modes',           key:'',    act:'openSnapSettings()'},
+  {id:'rb-modes',  tip:'Snap Modes',           key:'',    act:'openSnapSettings()',
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="4" y1="6" x2="20" y2="6"/><circle cx="14" cy="6" r="2" fill="currentColor"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="9" cy="12" r="2" fill="currentColor"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="16" cy="18" r="2" fill="currentColor"/></svg>'},
 ];
 
 function toolBtnHTML(t, opts) {
   opts = opts || {};
   const cls = ['tool-btn'];
-  if (opts.weights && t.w === 2) cls.push('tb-w2');
   if (t.danger) cls.push('danger');
   const style = t.danger ? ' style="color:#ff4455;"' : '';
   const lblStyle = t.danger ? ' style="color:#ff4455;"' : '';
@@ -18491,7 +18494,7 @@ function railSyncModes() {
 
 function renderTools() {
   const layout  = document.body.dataset.layout || 'touch';
-  const railed  = (layout === 'classic') && !document.body.classList.contains('mobile-mode');
+  const railed  = (layout === 'classic');
 
   const grid  = document.getElementById('tool-grid');
   const gridB = document.getElementById('tool-grid-bottom');
