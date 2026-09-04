@@ -9254,19 +9254,19 @@ function dxfLineweightToKad(raw) {
   if (!isFinite(v) || v < 0) return null;
   const mm = v / 100;
   if (mm <= 0) return null;
-  return Math.max(1.0, Math.min(5.0, IMPORT_LAYER_DEFAULT.weight * Math.sqrt(mm / 0.25)));
+  return Math.max(0.7, Math.min(3.3, IMPORT_LAYER_DEFAULT.weight * Math.sqrt(mm / 0.25)));
 }
 
-const IMPORT_LAYER_DEFAULT = { color:'#00d4ff', ltype:'continuous', weight:2.6 };
+const IMPORT_LAYER_DEFAULT = { color:'#00d4ff', ltype:'continuous', weight:1.7 };
 
 
 const LAYERS = {
-  'SOLID':  { name:'SOLID',  color:'#00d4ff', ltype:'continuous', weight:3.0, visible:true, locked:false },
-  'HIDDEN': { name:'HIDDEN', color:'#ff4444', ltype:'dashed',     weight:2.2, visible:true, locked:false },
-  'CENTER': { name:'CENTER', color:'#ffdd00', ltype:'center',     weight:1.8, visible:true, locked:false },
-  'LEADER': { name:'LEADER', color:'#39ff14', ltype:'continuous', weight:1.5, visible:true, locked:false },
-  'DIM':    { name:'DIM',    color:'#39ff14', ltype:'continuous', weight:1.5, visible:true, locked:false },
-  'Layer_0':{ name:'Layer_0',color:'#00d4ff', ltype:'continuous', weight:2.6, visible:true, locked:false },
+  'SOLID':  { name:'SOLID',  color:'#00d4ff', ltype:'continuous', weight:2.0, visible:true, locked:false },
+  'HIDDEN': { name:'HIDDEN', color:'#ff4444', ltype:'dashed',     weight:1.0, visible:true, locked:false },
+  'CENTER': { name:'CENTER', color:'#ffdd00', ltype:'center',     weight:1.2, visible:true, locked:false },
+  'LEADER': { name:'LEADER', color:'#39ff14', ltype:'continuous', weight:1.0, visible:true, locked:false },
+  'DIM':    { name:'DIM',    color:'#39ff14', ltype:'continuous', weight:0.5, visible:true, locked:false },
+  'Layer_0':{ name:'Layer_0',color:'#00d4ff', ltype:'continuous', weight:1.7, visible:true, locked:false },
 };
 activeLayer = 'SOLID'; // default active layer
 
@@ -9315,7 +9315,7 @@ function addCustomLayer() {
   if (LAYERS[key]) { showToast('Layer already exists'); return; }
   const PALETTE = ['#00d4ff','#ff4444','#ffdd00','#39ff14','#ff44ff','#ffffff','#ff9900'];
   const color = PALETTE[Object.keys(LAYERS).length % PALETTE.length];
-  LAYERS[key] = { name:key, color, ltype:'continuous', weight:2.0, visible:true, locked:false };
+  LAYERS[key] = { name:key, color, ltype:'continuous', weight:1.3, visible:true, locked:false };
   buildLayerPanel();
   setActiveLayer(key);
 }
@@ -9474,7 +9474,7 @@ function deleteLayer(key) {
 let dimState = { active:false, p1:null };
 
 function drawDimension(p1w, p2w, commit=false) {
-  const lay  = (typeof LAYERS!=='undefined' && LAYERS['DIM']) || {color:'#39ff14',weight:1.5};
+  const lay  = (typeof LAYERS!=='undefined' && LAYERS['DIM']) || {color:'#39ff14',weight:0.5};
   const col  = lay.color;
   const dx = p2w.x - p1w.x, dy = p2w.y - p1w.y;
   const dist = Math.hypot(dx, dy);
@@ -10154,7 +10154,7 @@ function drawEntities() {
     if (_multiPlane) setDrawPlane(_pid);
     const _layColor = _lay ? (_lay.color === '#00d4ff' ? draftCommittedColor() : _lay.color) : null;
     const _col = sel ? C.entitySel : (_layColor !== null ? _layColor : draftCommittedColor());
-    const _lw  = sel ? 2.5 : (_lay ? _lay.weight : 1.4);
+    const _lw  = sel ? 2.5 : (_lay ? _lay.weight : 0.9);
     const _lt  = (!sel && _lay && typeof LINETYPES !== 'undefined')
                    ? LINETYPES[_lay.ltype] || LINETYPES.continuous
                    : LINETYPES && LINETYPES.continuous || {dash:[]};
@@ -11805,7 +11805,7 @@ async function pdfCommitImport() {
 
     const layerName = (baseName + (range.length > 1 ? ' p' + pno : '')).slice(0, 28);
     if (!LAYERS[layerName]) {
-      LAYERS[layerName] = { name:layerName, color:'#a68ae8', ltype:'continuous', weight:2.0, visible:true, locked:false };
+      LAYERS[layerName] = { name:layerName, color:'#a68ae8', ltype:'continuous', weight:1.3, visible:true, locked:false };
     }
     const prevLayer = activeLayer;
     activeLayer = layerName;
@@ -12065,7 +12065,7 @@ async function stepCommitImport() {
   norm.solids.forEach((solid, i) => {
     if (!solid.edges.length) { solidsEmpty++; return; }
     const layerName = (baseName + ' ' + (solid.name || ('Solid ' + (i+1)))).slice(0, 28);
-    if (!LAYERS[layerName]) LAYERS[layerName] = { name:layerName, color:'#a68ae8', ltype:'continuous', weight:2.0, visible:true, locked:false };
+    if (!LAYERS[layerName]) LAYERS[layerName] = { name:layerName, color:'#a68ae8', ltype:'continuous', weight:1.3, visible:true, locked:false };
 
     const chain = stepChainEdges(solid.edges);
     if (chain) {
