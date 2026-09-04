@@ -8793,7 +8793,7 @@ function getTheme() {
 const THEME_PALETTES = {
   blueprint: {
     bg:'#123259', grid:'#1a2840', gridMaj:'#253a58', axis:'#2a5080', tick:'#243550',
-    entity:'#ffc94d', entitySel:'#ffaa00', point:'#ffaa00',
+    entity:'#ffc94d', entitySel:'#00d4ff', point:'#00d4ff',
     rubberLine:'#ffc94d', startPt:'#00ff9d', originRgb:'0,212,255',
     axisXRgb:'255,68,68', axisYRgb:'64,224,116', crosshairMonoRgb:'255,201,77',
   },
@@ -8811,7 +8811,7 @@ const THEME_PALETTES = {
   },
   parchment: {
     bg:'#f2e8d0', grid:'#d9c9a3', gridMaj:'#c2ac7a', axis:'#c7ad80', tick:'#d1b98f',
-    entity:'#5b3a1a', entitySel:'#8a4b12', point:'#8a4b12',
+    entity:'#5b3a1a', entitySel:'#006e8a', point:'#006e8a',
     rubberLine:'#5b3a1a', startPt:'#2f6b46', originRgb:'107,68,35',
     axisXRgb:'168,50,50', axisYRgb:'47,107,70', crosshairMonoRgb:'91,58,26',
   },
@@ -17292,15 +17292,18 @@ function kloudMaybeAskKanvas() {
 function kadSwitchTab(tab) {
   kvActive = (tab === 'kanvas');
 
-  document.getElementById('model-pane').style.display = kvActive ? 'none' : 'flex';
-  document.getElementById('kanvas-pane').style.display = kvActive ? 'flex' : 'none';
-
   document.getElementById('kad-tab-model').classList.toggle('active', !kvActive);
   document.getElementById('kad-tab-kanvas').classList.toggle('active',  kvActive);
 
   const sub = document.getElementById('brand-sub');
   if (sub) sub.textContent = kvActive ? 'KANVAS · Paperspace' : 'Kernel-Aided Design';
 
+  // .kanvas-mode alone drives #model-pane / #kanvas-pane visibility (see their
+  // CSS rules) — deliberately not setting inline style.display here anymore.
+  // An inline display value always wins over a stylesheet rule regardless of
+  // selector specificity, which permanently broke #model-pane's `display:grid`
+  // (needed for the classic-layout docked rails) the moment you returned from
+  // KANVAS — the toolbar "glitch" reported in classic docked mode.
   document.body.classList.toggle('kanvas-mode', kvActive);
 
   if (kvActive) {
@@ -17341,6 +17344,8 @@ function kadSwitchTab(tab) {
     window.removeEventListener('keydown', kvOnKey);
     kvPointers.clear(); kvPinch = null; kvStroke = null; kvPendingPt = null;
     kvCancelHold(); kvIsPanning = false; kvCloseTextEntry();
+    const ctxLbl = document.getElementById('kommand-context-label');
+    if (ctxLbl) ctxLbl.textContent = activeToolRequested.toUpperCase(); // KANVAS left this on its own tool label
     buildLayerPanel();   // dropdown returns to the model layer set
     if (document.body.classList.contains('mobile-mode')) toggleMobileSidebar(false);
     render();
