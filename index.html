@@ -569,6 +569,38 @@ button, .tb-menu-item, .tb-dd-item, .layer-row, .tab-item, .sb-item.sb-toggle {
 #osnap-dialog .dlg-foot button:hover { background: var(--hover); color: var(--t1); }
 #osnap-dialog .dlg-foot button.pri { border-color: var(--accent-dim); color: var(--accent); }
 
+#changelog-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.62);
+  backdrop-filter: blur(3px); z-index: 800;
+  display: none; align-items: center; justify-content: center;
+}
+#changelog-overlay.open { display: flex; }
+#changelog-dialog {
+  background: var(--panel); border: 1px solid var(--border-hi);
+  border-radius: 6px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.8), 0 0 0 1px rgba(0,212,255,0.08);
+  width: 460px; max-width: 95vw; max-height: 82vh;
+  font-family: var(--fu); overflow: hidden;
+  display: flex; flex-direction: column;
+}
+#changelog-dialog .dlg-head { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; background:var(--panel2); border-bottom:1px solid var(--border); flex-shrink:0; }
+#changelog-dialog .dlg-title { font-size:13px; font-weight:500; color:var(--accent); letter-spacing:0.08em; text-transform:uppercase; }
+#changelog-dialog .dlg-close { background:none; border:none; color:var(--t3); cursor:pointer; font-size:16px; line-height:1; padding:2px 4px; }
+#changelog-dialog .dlg-close:hover { color: var(--t1); }
+#changelog-dialog .dlg-body { padding:14px 16px; overflow-y:auto; }
+#changelog-list { display:flex; flex-direction:column; gap:18px; }
+.cl-entry { border-bottom: 1px solid var(--border); padding-bottom: 16px; }
+.cl-entry:last-child { border-bottom: none; padding-bottom: 0; }
+.cl-entry-head { display:flex; align-items:baseline; gap:8px; margin-bottom:8px; }
+.cl-ver { font-family: var(--fm); font-size: 13px; font-weight: 600; color: var(--accent); }
+.cl-date { font-size: 11px; color: var(--t3); letter-spacing: 0.03em; }
+.cl-group { margin: 0 0 8px; }
+.cl-group:last-child { margin-bottom: 0; }
+.cl-group-label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--t3); margin-bottom: 4px; }
+.cl-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.cl-items li { font-size: 12px; line-height: 1.45; color: var(--t2); padding-left: 14px; position: relative; }
+.cl-items li::before { content: '\2013'; position: absolute; left: 0; color: var(--accent-dim); }
+
 .sb-item.sb-toggle { cursor: pointer; user-select: none; }
 .sb-item.sb-toggle:hover { background: var(--hover); }
 @media (max-width: 900px) {
@@ -1823,7 +1855,7 @@ body.kanvas-mode #app {
 .mobile-mode .tb-menu::-webkit-scrollbar { display: none; }
 .mobile-mode .tb-menu-item { padding: 0 7px; font-size: 13px; }
 .mobile-mode .tb-right { gap: 4px; flex-shrink: 0; }
-.mobile-mode .tb-badge { display: none; }        
+.mobile-mode .tb-badge { font-size:10px; padding:1px 5px; margin:0; flex-shrink:0; }
 .mobile-mode .tb-aux-btn .t-label { display: none; }  
 .mobile-mode .brand,
 .mobile-mode #topbar > .tb-sep { display: none; }
@@ -2142,6 +2174,7 @@ body.kanvas-mode #app {
         <div class="tb-dd-item" onclick="setTool('measure');closeMenus()">Measure Tool<span class="dd-key">D</span></div>
         <div class="tb-dd-sep"></div>
         <div class="tb-dd-item" onclick="showCoordHelp();closeMenus()">Coordinate Help<span class="dd-key">?</span></div>
+        <div class="tb-dd-item" onclick="openChangelog();closeMenus()">See Updates</div>
       </div>
     </div>
   </div>
@@ -2149,7 +2182,7 @@ body.kanvas-mode #app {
     <button id="kloud-share-btn" onclick="kloudOpenPanel()" title="Host or join a live drafting space">
       <span class="kloud-dot" id="kloud-dot"></span>SHARE
     </button>
-    <span class="tb-badge" id="app-version-badge"></span>
+    <span class="tb-badge" id="app-version-badge" style="cursor:pointer" onclick="openChangelog()"></span>
     <div class="tb-aux-wrap" id="layout-wrap">
       <button class="tb-aux-btn" id="layout-toggle" onclick="toggleAuxMenu(event,'layout')" title="Sidebar layout">
         <span class="t-icon">▥</span>
@@ -2922,7 +2955,7 @@ body.kanvas-mode #app {
       <div class="sb-item"><span>U</span><span class="sb-val">units</span></div>
       <div class="sb-item"><span>M</span><span class="sb-val">mirror</span></div>
       <div class="sb-item"><span>D</span><span class="sb-val">measure</span></div>
-      <div class="sb-item"><span class="sb-val ok" id="app-version-line"></span></div>
+      <div class="sb-item sb-toggle" onclick="openChangelog()"><span class="sb-val ok" id="app-version-line"></span></div>
     </div>
     <div class="sb-cc">
       <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" style="flex-shrink:0;opacity:0.85"><circle cx="12" cy="12" r="9"/><path d="M10 9.5A2.5 2.5 0 0 0 7.5 12a2.5 2.5 0 0 0 2.5 2.5"/><path d="M16 9.5A2.5 2.5 0 0 0 13.5 12a2.5 2.5 0 0 0 2.5 2.5"/></svg>
@@ -3161,6 +3194,18 @@ body.kanvas-mode #app {
       <button onclick="osnapSetAll(true)">All on</button>
       <button onclick="osnapSetAll(false)">All off</button>
       <button class="pri" onclick="osnapReset()">Defaults</button>
+    </div>
+  </div>
+</div>
+
+<div id="changelog-overlay">
+  <div id="changelog-dialog">
+    <div class="dlg-head">
+      <span class="dlg-title">What's New</span>
+      <button class="dlg-close" onclick="closeChangelog()">&times;</button>
+    </div>
+    <div class="dlg-body">
+      <div id="changelog-list"></div>
     </div>
   </div>
 </div>
@@ -3574,7 +3619,58 @@ body.kanvas-mode #app {
 'use strict';
 
 
-const KAD_APP_VERSION = '0.0';
+const KAD_APP_VERSION = '1.0.0';
+
+// Public changelog. Only list features once they're fully live (no display:none
+// gates, no feature flags left off). Newest entry first. Keep entries short —
+// this is the "what shipped", not the dev log; that stays in KAD-DEV-NOTES.md.
+const KAD_CHANGELOG = [
+  {
+    version: '1.0.0',
+    date: '2026-09-04',
+    groups: [
+      {
+        label: 'Drafting',
+        items: [
+          'Full 2D drafting toolset — line, polyline, offset, mirror, rotate, trim, extend, fillet, chamfer, hatch, measure',
+          '12-type object snap system with priority resolution and Tab-to-cycle',
+          'Ortho, polar, and grid snapping',
+          'Zoom range extended to effectively unlimited scale',
+          'View cube navigation',
+        ],
+      },
+      {
+        label: 'Import',
+        items: [
+          'DXF import with full layer, color, lineweight, and linetype fidelity',
+          'NC1 / DSTV import with automatic parts data population',
+          'PDF import — merge into or replace the active drawing',
+        ],
+      },
+      {
+        label: 'Parts & Materials',
+        items: [
+          'Parts Data panel with material grade catalogue',
+          'Per-part thickness and quantity tracking',
+          'Lossless round-trip in .kad files',
+        ],
+      },
+      {
+        label: 'Collaboration',
+        items: [
+          'KLOUD peer-to-peer sharing — host or join a live drafting space from your own hosted copy, no account required',
+        ],
+      },
+      {
+        label: 'Interface',
+        items: [
+          'Touch and compact sidebar layouts for mobile',
+          'Coordinate entry and keyboard shortcut reference panel',
+        ],
+      },
+    ],
+  },
+];
 
 const KAD = {
   version: KAD_APP_VERSION,
@@ -3607,9 +3703,55 @@ const KAD = {
 
 function applyAppVersion() {
   const badge = document.getElementById('app-version-badge');
-  if (badge) badge.textContent = 'v' + KAD_APP_VERSION;
+  if (badge) { badge.textContent = 'v' + KAD_APP_VERSION; badge.title = "What's new"; }
   const line = document.getElementById('app-version-line');
-  if (line) line.textContent = 'KAD v' + KAD_APP_VERSION;
+  if (line) { line.textContent = 'KAD v' + KAD_APP_VERSION; line.title = "What's new"; }
+}
+
+function openChangelog() {
+  const list = document.getElementById('changelog-list');
+  if (list) {
+    list.innerHTML = '';
+    for (const entry of KAD_CHANGELOG) {
+      const box = document.createElement('div');
+      box.className = 'cl-entry';
+
+      const head = document.createElement('div');
+      head.className = 'cl-entry-head';
+      const ver = document.createElement('span');
+      ver.className = 'cl-ver'; ver.textContent = 'v' + entry.version;
+      head.appendChild(ver);
+      if (entry.date) {
+        const d = document.createElement('span');
+        d.className = 'cl-date'; d.textContent = entry.date;
+        head.appendChild(d);
+      }
+      box.appendChild(head);
+
+      for (const group of entry.groups) {
+        const g = document.createElement('div');
+        g.className = 'cl-group';
+        const lbl = document.createElement('div');
+        lbl.className = 'cl-group-label'; lbl.textContent = group.label;
+        g.appendChild(lbl);
+        const ul = document.createElement('ul');
+        ul.className = 'cl-items';
+        for (const item of group.items) {
+          const li = document.createElement('li');
+          li.textContent = item;
+          ul.appendChild(li);
+        }
+        g.appendChild(ul);
+        box.appendChild(g);
+      }
+      list.appendChild(box);
+    }
+  }
+  document.getElementById('changelog-overlay').classList.add('open');
+}
+function closeChangelog() {
+  const m = document.getElementById('changelog-overlay');
+  if (m) m.classList.remove('open');
 }
 
 function _kadOwn(host, name) {
@@ -8349,6 +8491,7 @@ function onKeyDown(e) {
   const k=e.key;
   if(k==='Escape'){
     closeSnapSettings();
+    closeChangelog();
     kommandClear();
     if(activeTool!=='select') cancelTool();
     else selectedIds.clear();
