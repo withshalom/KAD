@@ -9949,6 +9949,15 @@ function drawCursorCrosshair() {
     ctx.moveTo(0, p.y); ctx.lineTo(W, p.y);
     ctx.stroke();
   }
+  // A small solid marker at the exact intersection — the two crossing lines
+  // alone read as just another line-crossing (indistinguishable from the
+  // faded background axis or grid wherever they happen to overlap). This
+  // pins down "this is the cursor's point" unambiguously, on top of
+  // everything drawn so far. Same origin-marker language as the UCS gizmo.
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(' + C.originRgb + ',0.9)';
+  ctx.fill();
   ctx.restore();
 }
 
