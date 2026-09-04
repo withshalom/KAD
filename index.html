@@ -8794,21 +8794,25 @@ const THEME_PALETTES = {
     bg:'#123259', grid:'#1a2840', gridMaj:'#253a58', axis:'#2a5080', tick:'#243550',
     entity:'#ffc94d', entitySel:'#ffaa00', point:'#ffaa00',
     rubberLine:'#ffc94d', startPt:'#00ff9d', originRgb:'0,212,255',
+    axisXRgb:'255,68,68', axisYRgb:'64,224,116',
   },
   'classic-dark': {
     bg:'#0a0a0a', grid:'#232323', gridMaj:'#3a3a3a', axis:'#555555', tick:'#333333',
     entity:'#ffffff', entitySel:'#ffaa00', point:'#ffaa00',
     rubberLine:'#ffffff', startPt:'#00ff9d', originRgb:'255,255,255',
+    axisXRgb:'255,68,68', axisYRgb:'64,224,116',
   },
   'classic-light': {
     bg:'#ffffff', grid:'#d9d9d9', gridMaj:'#bbbbbb', axis:'#8a8a8a', tick:'#b8c0c8',
     entity:'#000000', entitySel:'#b35900', point:'#b35900',
     rubberLine:'#000000', startPt:'#00704a', originRgb:'0,0,0',
+    axisXRgb:'204,34,34', axisYRgb:'0,140,70',
   },
   parchment: {
     bg:'#f2e8d0', grid:'#d9c9a3', gridMaj:'#c2ac7a', axis:'#c7ad80', tick:'#d1b98f',
     entity:'#5b3a1a', entitySel:'#8a4b12', point:'#8a4b12',
     rubberLine:'#5b3a1a', startPt:'#2f6b46', originRgb:'107,68,35',
+    axisXRgb:'168,50,50', axisYRgb:'47,107,70',
   },
 };
 const C = new Proxy({}, {
@@ -9582,8 +9586,8 @@ let liveAim = false;
 let crosshairMode = 'axis';
 const CROSSHAIR_LABELS = { axis:'AXIS', mono:'MONO', off:'OFF' };
 
-const XHAIR_RED = '255,68,68';
-const XHAIR_GREEN = '64,224,116';
+let XHAIR_RED = '255,68,68';
+let XHAIR_GREEN = '64,224,116';
 
 function buildCrosshairIcon() {
   return '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.6">'
@@ -18549,6 +18553,9 @@ function setTheme(theme) {
   if (!THEME_PALETTES[theme]) return;
   document.body.dataset.theme = theme;
   try { localStorage.setItem('kad-theme', theme); } catch(e) {}
+
+  XHAIR_RED   = THEME_PALETTES[theme].axisXRgb;
+  XHAIR_GREEN = THEME_PALETTES[theme].axisYRgb;
 
   const lbl = document.getElementById('theme-label');
   if (lbl) lbl.textContent = THEME_LABELS[theme];
