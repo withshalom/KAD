@@ -7378,8 +7378,8 @@ function applyCirclePrompt() {
 
 function updateCursor() {
   if(activeTool==='select') { canvas.style.cursor='default'; }
-  else if(activeTool==='offset' && offsetState.active) { canvas.style.cursor='crosshair'; }
-  else { canvas.style.cursor='crosshair'; }
+  else if(activeTool==='offset' && offsetState.active) { canvas.style.cursor=crosshairCursorStyle(); }
+  else { canvas.style.cursor=crosshairCursorStyle(); }
 }
 
 let isPanning=false, panOX=0, panOY=0, camStart={x:0,y:0};
@@ -8327,7 +8327,7 @@ function onMouseMove(e) {
       selBox.pending=false;
       selBox.active=true;
       selBox.deferred=null;
-      canvas.style.cursor='crosshair';
+      canvas.style.cursor=crosshairCursorStyle();
     }
   }
 
@@ -9584,6 +9584,11 @@ function render() {
 let cursorSeen = false;
 let liveAim = false;
 let crosshairMode = 'axis';
+// The browser's native crosshair cursor icon sits directly on top of the
+// custom-drawn one below, which is what produced the boxed/doubled look —
+// hide the native cursor whenever our own crosshair is doing the job, and
+// only fall back to it when the custom crosshair is explicitly off.
+function crosshairCursorStyle() { return (crosshairMode === 'off') ? 'crosshair' : 'none'; }
 const CROSSHAIR_LABELS = { axis:'AXIS', mono:'MONO', off:'OFF' };
 
 let XHAIR_RED = '255,68,68';
@@ -9935,17 +9940,6 @@ function drawCursorCrosshair() {
     ctx.beginPath(); ctx.moveTo(0, p.y); ctx.lineTo(W, p.y); ctx.stroke();
     ctx.strokeStyle = 'rgba(' + XHAIR_GREEN + ',0.65)';
     ctx.beginPath(); ctx.moveTo(p.x, 0); ctx.lineTo(p.x, H); ctx.stroke();
-    const s = 4; // half-size in px — deliberately tiny, a signature not a target box
-    ctx.strokeStyle = 'rgba(' + XHAIR_RED + ',0.65)';
-    ctx.beginPath();
-    ctx.moveTo(p.x - s, p.y - s); ctx.lineTo(p.x + s, p.y - s); // top
-    ctx.moveTo(p.x - s, p.y + s); ctx.lineTo(p.x + s, p.y + s); // bottom
-    ctx.stroke();
-    ctx.strokeStyle = 'rgba(' + XHAIR_GREEN + ',0.65)';
-    ctx.beginPath();
-    ctx.moveTo(p.x - s, p.y - s); ctx.lineTo(p.x - s, p.y + s); // left
-    ctx.moveTo(p.x + s, p.y - s); ctx.lineTo(p.x + s, p.y + s); // right
-    ctx.stroke();
   } else {
     ctx.strokeStyle = 'rgba(' + C.originRgb + ',0.30)';
     ctx.beginPath();
@@ -9965,6 +9959,7 @@ function setCrosshair(mode) {
   document.querySelectorAll('#crosshair-dropdown .tb-dd-item').forEach(el => el.classList.remove('checked'));
   const opt = document.getElementById('crosshair-opt-' + mode);
   if (opt) opt.classList.add('checked');
+  if (typeof updateCursor === 'function') updateCursor();
   render();
 }
 function cycleCrosshair() {
