@@ -8257,14 +8257,14 @@ function onMouseMove(e) {
     if (cam.pitch >  ORBIT_PITCH_LIMIT) cam.pitch =  ORBIT_PITCH_LIMIT;
     if (cam.pitch < -ORBIT_PITCH_LIMIT) cam.pitch = -ORBIT_PITCH_LIMIT;
     updateOrbitLabel();
-    render();
+    scheduleRender();
     return;
   }
   {
     const h = viewCubeHitTest(mouseScreen.x, mouseScreen.y);
     const hp = VIEWCUBE.hover;
     if (!h !== !hp || (h && hp && (h.label !== hp.label || h.kind !== hp.kind))) {
-      VIEWCUBE.hover = h; render();
+      VIEWCUBE.hover = h; scheduleRender();
     } else { VIEWCUBE.hover = h; }
     if (h) return;   // cursor is over the HUD, not the drawing
   }
@@ -8273,7 +8273,7 @@ function onMouseMove(e) {
   if (!raw) {
     snapActive=false; snapPoint=null;
     mouseWorld = planeInverse(mouseScreen.x, mouseScreen.y, activePlane) || {x:0,y:0};
-    render(); return;
+    scheduleRender(); return;
   }
   const lockAnchor = getDrawAnchor();
   const snap=findSnap(raw.x,raw.y,lockAnchor);
@@ -8373,8 +8373,7 @@ function onMouseMove(e) {
   if(activeTool==='extend')  updateExtendHover(mouseWorld.x,mouseWorld.y);
   if(activeTool==='stretch') updateStretchHover(mouseWorld.x,mouseWorld.y);
   if(activeTool==='stretch'&&stretchState.active&&stretchState.obj) applyStretch(mouseWorld.x,mouseWorld.y);
-  render();
-  if(typeof drawNewToolPreviews==='function') drawNewToolPreviews();
+  scheduleRender();
 }
 
 function onMouseUp(e) {
@@ -9580,6 +9579,19 @@ function render() {
   if(typeof drawNewToolPreviews==='function') drawNewToolPreviews();
   drawUCSIcon();            // orientation cue, under the cube
   drawViewCube();           // last: screen-space HUD, always above geometry
+}
+
+let _renderRaf = null;
+// Mousemove (and, via the touch/pointer paths that funnel into it —
+// touchmove, feedHover — everything else) can fire well above the display's
+// refresh rate. Calling render() directly and synchronously here meant every
+// one of those extra events did a full scene redraw the user never actually
+// sees painted — wasted main-thread work exactly during interaction, when it
+// costs the most. Collapse same-frame calls into one, the same pattern
+// KANVAS's kvScheduleDraw() already used.
+function scheduleRender() {
+  if (_renderRaf) return;
+  _renderRaf = requestAnimationFrame(() => { _renderRaf = null; render(); });
 }
 
 let cursorSeen = false;
