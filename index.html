@@ -620,6 +620,7 @@ button, .tb-menu-item, .tb-dd-item, .layer-row, .tab-item, .sb-item.sb-toggle {
 .sb-val.ok  { color:var(--green); }
 #app-version-line { color:var(--kad-native-blue); }
 .sb-val.act { color:var(--accent); }
+.sb-val.orbited { color:var(--amber); }
 .sb-val.warn { color:var(--amber); }
 .sb-right { margin-left:auto; display:flex; align-items:center; min-width:0; }
 .sb-hotkeys {
@@ -2115,11 +2116,11 @@ body.kanvas-mode #app {
         <div class="tb-dd-item" onclick="GeoMemory.clear();render();showToast('KANVAS cleared');closeMenus()">Clear All<span class="dd-key"></span></div>
         <div class="tb-dd-sep"></div>
         <div class="tb-dd-item" onclick="joinSelected();closeMenus()">Join → Polyline<span class="dd-key">J</span></div>
-        <div class="tb-dd-item" onclick="explodeSelected();closeMenus()">Explode Polyline<span class="dd-key">X</span></div>
+        <div class="tb-dd-item" onclick="explodeSelected();closeMenus()">Explode Polyline<span class="dd-key">EX</span></div>
         <div class="tb-dd-item" onclick="closePolyline();closeMenus()">Close Polyline<span class="dd-key"></span></div>
         <div class="tb-dd-item" onclick="openPolyline();closeMenus()">Open Polyline<span class="dd-key"></span></div>
         <div class="tb-dd-sep"></div>
-        <div class="tb-dd-item" onclick="setTool('select');closeMenus()">Select Mode<span class="dd-key">S</span></div>
+        <div class="tb-dd-item" onclick="goIdle();closeMenus()">Select<span class="dd-key">S</span></div>
       </div>
     </div>
     <div class="tb-menu-item" id="menu-view" data-menu="view">View
@@ -2148,12 +2149,13 @@ body.kanvas-mode #app {
     <div class="tb-menu-item" id="menu-draw" data-menu="draw">Draw
       <div class="tb-dropdown" id="dd-draw">
         <div class="tb-dd-item" onclick="setTool('pline');closeMenus()">Polyline<span class="dd-key">PL</span></div>
-        <div class="tb-dd-item" onclick="setTool('hatch');closeMenus()">Hatch<span class="dd-key">G</span></div>
+        <div class="tb-dd-item" onclick="setTool('hatch');closeMenus()">Hatch<span class="dd-key">H</span></div>
         <div class="tb-dd-item" onclick="setTool('line');closeMenus()">Line<span class="dd-key">L</span></div>
         <div class="tb-dd-item" onclick="setTool('arc');closeMenus()">Arc (3-point)<span class="dd-key">A</span></div>
         <div class="tb-dd-item" onclick="setTool('circle');closeMenus()">Circle<span class="dd-key">C</span></div>
         <div class="tb-dd-sep"></div>
         <div class="tb-dd-item" onclick="setTool('fillet');closeMenus()">Fillet<span class="dd-key">F</span></div>
+        <div class="tb-dd-item" onclick="setTool('chamfer');closeMenus()">Chamfer<span class="dd-key">CH</span></div>
         <div class="tb-dd-item" onclick="setTool('rect');closeMenus()">Rectangle<span class="dd-key">R</span></div>
         <div class="tb-dd-item" onclick="setTool('polygon');closeMenus()">Polygon<span class="dd-key">P</span></div>
         <div class="tb-dd-sep"></div>
@@ -2162,7 +2164,7 @@ body.kanvas-mode #app {
         <div class="tb-dd-sep"></div>
         <div class="tb-dd-item" onclick="setTool('offset');closeMenus()">Offset<span class="dd-key">O</span></div>
         <div class="tb-dd-item" onclick="setTool('mirror');closeMenus()">Mirror<span class="dd-key">M</span></div>
-        <div class="tb-dd-item" onclick="setTool('measure');closeMenus()">Measure<span class="dd-key">D</span></div>
+        <div class="tb-dd-item" onclick="setTool('dim');closeMenus()">Dimension<span class="dd-key">D</span></div>
       </div>
     </div>
     <div class="tb-menu-item" id="menu-tools" data-menu="tools">Tools
@@ -2170,7 +2172,7 @@ body.kanvas-mode #app {
         <div class="tb-dd-item" onclick="zoomExtents();closeMenus()">Zoom Extents<span class="dd-key">Z</span></div>
         <div class="tb-dd-item" onclick="setTool('offset');closeMenus()">Offset Tool<span class="dd-key">O</span></div>
         <div class="tb-dd-item" onclick="setTool('mirror');closeMenus()">Mirror Tool<span class="dd-key">M</span></div>
-        <div class="tb-dd-item" onclick="setTool('measure');closeMenus()">Measure Tool<span class="dd-key">D</span></div>
+        <div class="tb-dd-item" onclick="setTool('dim');closeMenus()">Dimension Tool<span class="dd-key">D</span></div>
         <div class="tb-dd-sep"></div>
         <div class="tb-dd-item" onclick="showCoordHelp();closeMenus()">Coordinate Help<span class="dd-key">?</span></div>
         <div class="tb-dd-item" onclick="openChangelog();closeMenus()">See Updates</div>
@@ -2880,7 +2882,7 @@ body.kanvas-mode #app {
       <path d="M12 20h9"/>
       <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
     </svg>
-    <span id="kommand-context-label">PLINE</span>
+    <span id="kommand-context-label">READY</span>
   </button>
   <div id="kommand-label" style="flex-shrink:0;padding:0 8px;font-family:var(--fm);font-size:11px;font-weight:700;color:var(--accent);letter-spacing:0.1em;border-right:1px solid var(--border);height:100%;display:flex;align-items:center;min-width:72px;white-space:nowrap;">KOMMAND</div>
   <div id="kommand-echo"></div>
@@ -2929,7 +2931,8 @@ body.kanvas-mode #app {
 </div>
 
 <div id="statusbar">
-  <div class="sb-item"><span>MODE</span><span class="sb-val act" id="sb-mode">PLINE</span></div>
+  <div class="sb-item"><span>MODE</span><span class="sb-val act" id="sb-mode">READY</span></div>
+  <div class="sb-item sb-toggle" onclick="planView()" title="Orbited views can't be drawn in \u2014 click to return to plan"><span>VIEW</span><span class="sb-val ok" id="orbit-label">PLAN</span></div>
   <div class="sb-item sb-toggle" onclick="toggleSnap()" title="Object snap (F3)"><span>OSNAP</span><span class="sb-val ok" id="sb-snap">ON</span></div>
   <div class="sb-item sb-toggle" onclick="openSnapSettings()" title="Which snaps are running"><span>MODES</span><span class="sb-val act" id="sb-osnap-count">11/14</span></div>
   <div class="sb-item sb-toggle" onclick="toggleOrtho()" title="Ortho \u2014 lock to 0\u00b0/90\u00b0 (F8)"><span>ORTHO</span><span class="sb-val" id="sb-ortho">OFF</span></div>
@@ -3080,8 +3083,8 @@ body.kanvas-mode #app {
     <span class="ctx-key">Esc</span>
   </button>
   <button class="ctx-item" onclick="ctxClearSel()">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-    Clear Selection
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 3l14 9-7 1-4 7z"/></svg>
+    Select
     <span class="ctx-key">S</span>
   </button>
   <button class="ctx-item del" id="ctx-delete-btn" onclick="ctxDelete()">
@@ -3100,7 +3103,7 @@ body.kanvas-mode #app {
   <button class="ctx-item" onclick="explodeSelected();closeCtxMenu()">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>
     Explode Polyline
-    <span class="ctx-key">X</span>
+    <span class="ctx-key">EX</span>
   </button>
   <div class="ctx-sep"></div>
   <div class="ctx-head">Draw</div>
@@ -5419,12 +5422,12 @@ function applyGridSnap(w) {
   return { x: Math.round(w.x / s) * s, y: Math.round(w.y / s) * s };
 }
 
-activeToolRequested = 'pline';
-activeTool   = 'select';
-mouseWorld   = {x:0,y:0};
-mouseScreen  = {x:0,y:0};
-selectedIds  = new Set(); // selection set
-showGrid     = true;
+let activeToolRequested = 'select';
+let activeTool   = 'select';
+let mouseWorld   = {x:0,y:0};
+let mouseScreen  = {x:0,y:0};
+let selectedIds  = new Set(); // selection set
+let showGrid     = true;
 
 let lineState = { active:false, x1:0, y1:0 };
 let lineMode = 'chain';
@@ -5438,7 +5441,7 @@ let rectState = { active:false, x1:0, y1:0 };
 
 let polyState = { active:false, cx:0, cy:0 };
 
-modelRev = 0; let kanvasRev = 0;
+let modelRev = 0; let kanvasRev = 0;
 function markModelDirty()  { modelRev++;  scheduleCapture('model');  }
 function markKanvasDirty() { kanvasRev++; scheduleCapture('kanvas'); }
 
@@ -7219,7 +7222,7 @@ function cancelTool() {
   if(typeof resetKompassState === 'function') resetKompassState();
   filletState = {active:false,firstLine:null};
   rotateState = {phase:0,pivotX:0,pivotY:0,pivotSet:false,draggingPivot:false,startAngle:0,previewDelta:0};
-  selBox      = {active:false, pending:false, startSX:0, startSY:0, startWX:0, startWY:0};
+  selBox      = {active:false, pending:false, click:false, shift:false, deferred:null, startSX:0, startSY:0, startWX:0, startWY:0};
   if(typeof trimHoverSeg  !== 'undefined') trimHoverSeg  = null;
   if(typeof extendPreview !== 'undefined') extendPreview = null;
   if(typeof breakState    !== 'undefined') breakState    = {active:false,hit:null,pt1:null};
@@ -7228,7 +7231,79 @@ function cancelTool() {
   document.getElementById('rect-preview').style.display='none';
 }
 
-const btnMap={select:'btn-select',pline:'btn-pline',line:'btn-line',rect:'btn-rect',polygon:'btn-polygon',offset:'btn-offset',rotate:'btn-rotate',circle:'btn-circle',arc:'btn-arc',kompass:'btn-kompass',fillet:'btn-fillet',chamfer:'btn-chamfer',mirror:'btn-mirror',dim:'btn-dim',trim:'btn-trim',extend:'btn-extend',break:'btn-break',scale:'btn-scale',stretch:'btn-stretch',text:'btn-text',hatch:'btn-hatch'};
+/* ── IDLE STATE ───────────────────────────────────────────────────────────
+   'select' has stopped being a tool you pick and become the state the editor
+   rests in between commands — the bare prompt a DWG editor sits at. Nothing
+   on any toolbar selects it any more; you arrive by pressing Esc, by tapping
+   the red X, or by walking out of whatever you were doing. The internal name
+   stays 'select' on purpose: every activeTool==='select' test in this file
+   already means "idle", so the rename would have been churn with no payoff.  */
+const IDLE_LABEL = 'READY';
+
+// The single authority on what the mode readout says. This lived in four
+// places and three of them still said SELECT after idle stopped being a tool,
+// so the status bar and the KOMMAND bar disagreed about the same state.
+function modeLabelFor(tool) {
+  return (tool === 'select') ? IDLE_LABEL : String(tool).toUpperCase();
+}
+let lastCommandTool = 'pline'; // what Enter / Space re-arms; seeded so the
+                               // first Space after a cold boot still lands on
+                               // the workhorse tool instead of doing nothing
+
+// True while a command is holding a half-built construction. Esc takes that
+// away first and leaves the tool armed; only a second Esc walks out of the
+// tool. One press, one layer — so Esc can never overshoot and strip a tool
+// you were still mid-run with.
+function toolHasPending() {
+  if (activeTool === 'select') return false;
+  return !!(
+    (typeof lineState       !== 'undefined' && lineState   && lineState.active)   ||
+    (typeof rectState       !== 'undefined' && rectState   && rectState.active)   ||
+    (typeof circleState     !== 'undefined' && circleState && circleState.active) ||
+    (typeof polyState       !== 'undefined' && polyState   && polyState.active)   ||
+    (typeof arcState        !== 'undefined' && arcState    && arcState.active)    ||
+    (typeof kompassPhase    !== 'undefined' && kompassPhase !== 'idle')           ||
+    (typeof filletState     !== 'undefined' && filletState && filletState.active) ||
+    (typeof offsetState     !== 'undefined' && offsetState && offsetState.active) ||
+    (typeof breakState      !== 'undefined' && breakState  && breakState.active)  ||
+    (typeof dimState        !== 'undefined' && dimState    && dimState.active)    ||
+    (typeof measureState    !== 'undefined' && measureState && measureState.active) ||
+    (typeof mirrorLineState !== 'undefined' && mirrorLineState && mirrorLineState.active) ||
+    (typeof rotateState     !== 'undefined' && rotateState && rotateState.phase === 1)
+  );
+}
+
+function goIdle() { setTool('select'); }
+
+// One key, escalating: the open selection window goes first, then the pending
+// construction, then the tool, then the selection.
+function escapeStep() {
+  if (selBox.click || selBox.active || selBox.pending) {
+    selBox.click = false; selBox.active = false; selBox.pending = false; selBox.deferred = null;
+    updateCursor(); render(); return;
+  }
+  if (activeTool !== 'select') {
+    // goIdle() already clears the selection, refreshes props and renders.
+    if (!toolHasPending()) { goIdle(); showToast('Ready'); return; }
+    cancelTool();
+  } else if (selectedIds.size) {
+    selectedIds.clear();
+  }
+  updateSelectionProps();
+  render();
+}
+
+// Enter or Space at idle re-arms the last command, the way Enter does at a DWG
+// prompt. Tools here are sticky, so this is not for repeating within a run —
+// it is for getting the tool back after you have stepped out of it.
+function repeatLastCommand() {
+  if (!lastCommandTool) { showToast('No command to repeat'); return; }
+  setTool(lastCommandTool);
+  showToast('Repeat \u00b7 ' + lastCommandTool.toUpperCase());
+}
+
+// No 'select' entry: idle has no button to light up.
+const btnMap={pline:'btn-pline',line:'btn-line',rect:'btn-rect',polygon:'btn-polygon',offset:'btn-offset',rotate:'btn-rotate',circle:'btn-circle',arc:'btn-arc',kompass:'btn-kompass',fillet:'btn-fillet',chamfer:'btn-chamfer',mirror:'btn-mirror',dim:'btn-dim',trim:'btn-trim',extend:'btn-extend',break:'btn-break',scale:'btn-scale',stretch:'btn-stretch',text:'btn-text',hatch:'btn-hatch'};
 
 function setTool(tool) {
   cancelTool();
@@ -7246,6 +7321,8 @@ function setTool(tool) {
 
   activeTool = tool;
   activeToolRequested = requested;
+  // Idle is not a command, so it never becomes the thing Space repeats.
+  if (requested !== 'select') lastCommandTool = requested;
 
   document.querySelectorAll('.tool-btn').forEach(b=>b.classList.remove('active'));
   const btnEl = document.getElementById(btnMap[requested] || ('btn-' + requested));
@@ -7253,10 +7330,11 @@ function setTool(tool) {
   
   const ctxBtn = document.getElementById('kommand-context');
   const ctxLbl = document.getElementById('kommand-context-label');
-  if (ctxLbl) ctxLbl.textContent = requested.toUpperCase();
+  const modeLabel = modeLabelFor(requested);
+  if (ctxLbl) ctxLbl.textContent = modeLabel;
   if (ctxBtn) ctxBtn.classList.toggle('active', requested !== 'select');
 
-  document.getElementById('sb-mode').textContent=requested.toUpperCase();
+  document.getElementById('sb-mode').textContent = modeLabel;
 
   document.getElementById('offset-bar').style.display  = tool==='offset'?'flex':'none';
   document.getElementById('poly-bar').style.display    = tool==='polygon'?'flex':'none';
@@ -7272,7 +7350,7 @@ function setTool(tool) {
   if (tool === 'rotate') rotateBar.classList.add('visible');
 
   const hintMap = {
-    select:  'Click line to select · Shift+click multi · <span>Drag</span> selection box · Middle-drag to pan · <span>Del</span> delete',
+    select:  '<span>Click</span> to select · click empty space then <span>click</span> again for a window · L→R window, R→L crossing · <span>Space</span> repeats last command',
     line:    '<span>Click</span> start → end · Type coords · <span>Enter</span> commits · <span>Esc</span> cancel',
     arc:     '<span>Click</span> pt1 → pt2 → pt3 for 3-point arc · <span>Esc</span> cancel',
     circle:  '<span>Click</span> center → <span>click</span> radius',
@@ -7378,7 +7456,8 @@ function applyCirclePrompt() {
 
 
 function updateCursor() {
-  if(activeTool==='select') { canvas.style.cursor='default'; }
+  if(activeTool==='select' && selBox.click) { canvas.style.cursor=crosshairCursorStyle(); }
+  else if(activeTool==='select') { canvas.style.cursor='default'; }
   else if(activeTool==='offset' && offsetState.active) { canvas.style.cursor=crosshairCursorStyle(); }
   else { canvas.style.cursor=crosshairCursorStyle(); }
 }
@@ -7389,8 +7468,11 @@ const ORBIT_PITCH_LIMIT = Math.PI/2 - 0.02;
 
 const SEL_DRAG_THRESHOLD = 5; // px before drag mode activates
 let selBox = {
-  active:  false,   // true while dragging a selection box
+  active:  false,   // true while a selection box is live (dragged OR click-click)
   pending: false,   // true on mousedown, before threshold crossed
+  click:   false,   // true while a click-click window is open, waiting on its second click
+  shift:   false,   // shift state of the FIRST click, so additive survives the round trip
+  deferred: null,   // tool action to run if the press turns out to be a click, not a drag
   startSX: 0, startSY: 0, // screen start
   startWX: 0, startWY: 0, // world start
 };
@@ -7558,6 +7640,13 @@ function drawSelBox() {
   ctx.fillRect(lx,ly,w,h);
   ctx.strokeRect(lx,ly,w,h);
   ctx.setLineDash([]);
+  // Click-click pins its first corner and then waits. On touch there is no
+  // hover between the two taps, so without this marker the first tap would
+  // look like nothing happened at all.
+  if (selBox.click) {
+    ctx.fillStyle = leftToRight ? 'rgba(0,212,255,0.95)' : 'rgba(0,255,157,0.95)';
+    ctx.fillRect(sa.x-3, sa.y-3, 6, 6);
+  }
   ctx.restore();
 }
 
@@ -7688,7 +7777,7 @@ canvas.addEventListener('touchstart', function(e) {
     swipeState.startY   = t.clientY;
   } else if (swipeState.engaged) {
     if (swipeState.full) {
-      selBox.active = false; selBox.pending = false; selBox.deferred = null;
+      selBox.active = false; selBox.pending = false; selBox.click = false; selBox.deferred = null;
       canvas.style.cursor = 'default';
       render();
     }
@@ -7727,7 +7816,7 @@ canvas.addEventListener('touchend', function(e) {
 
 canvas.addEventListener('touchcancel', function() {
   if (swipeState.engaged && swipeState.full) {
-    selBox.active = false; selBox.pending = false; selBox.deferred = null;
+    selBox.active = false; selBox.pending = false; selBox.click = false; selBox.deferred = null;
     canvas.style.cursor = 'default';
     render();
   }
@@ -7853,11 +7942,10 @@ function updateEscFab() {
     fab.classList.toggle('show', !!kvBusy);
     return;
   }
-  const drawing = (lineState && lineState.active) || (rectState && rectState.active) ||
-                  (circleState && circleState.active) || (polyState && polyState.active) ||
-                  (arcState && arcState.active) ||
-                  (typeof kompassPhase !== 'undefined' && kompassPhase !== 'idle');
-  fab.classList.toggle('show', drawing || selectedIds.size > 0);
+  // Sticky tools plus no Select button means this X is the whole exit on
+  // touch — it shows for any live tool, not just for a construction in flight.
+  fab.classList.toggle('show',
+    activeTool !== 'select' || toolHasPending() || selBox.click || selectedIds.size > 0);
 }
 function updateDeleteFab() {
   const fab = document.getElementById('delete-fab');
@@ -7871,11 +7959,8 @@ function deleteFabTap() {
 function escFabTap() {
   if (kvActive) { SPACE().cancel(); showToast('Cancelled'); return; }
   kommandClear();
-  if (activeTool !== 'select') cancelTool();
-  else selectedIds.clear();
-  updateSelectionProps();
   if (document.activeElement === kInput) kInput.blur();
-  render();
+  escapeStep();
 }
 
 (function initMobileMode() {
@@ -7942,7 +8027,7 @@ function onMouseDown(e) {
     if (m2pHandleClick(sp.x, sp.y)) { e.preventDefault(); return; }
   }
 
-  if(e.button===0 && e.shiftKey) {
+  if(e.button===0 && e.altKey) {
     e.preventDefault();
     isOrbiting=true; orbitOX=e.clientX; orbitOY=e.clientY;
     orbitStart={yaw:cam.yaw, pitch:cam.pitch};
@@ -7968,6 +8053,9 @@ function onMouseDown(e) {
     const wp = snapActive&&snapPoint ? snapPoint : mouseWorld;
 
     if(activeTool==='select') {
+      // A click-click window is already open. This press is its second click,
+      // closed on mouseup — it must not re-anchor the box under the cursor.
+      if(selBox.click) return;
       selBox.pending=true;
       selBox.deferred=null; // a stale deferred from a release-outside-canvas must never fire here
       selBox.startSX=mouseScreen.x; selBox.startSY=mouseScreen.y;
@@ -8394,8 +8482,12 @@ function onMouseUp(e) {
     const wx1=mouseWorld.x,   wy1=mouseWorld.y;
     const lx=Math.min(wx0,wx1), rx=Math.max(wx0,wx1);
     const by=Math.min(wy0,wy1), ty=Math.max(wy0,wy1);
-    const leftToRight = mouseScreen.x >= selBox.startSX;
-    if(!e.shiftKey) selectedIds.clear();
+    // Measured off the anchor's CURRENT screen position, not where it was
+    // pressed: with click-click you can pan and zoom between the two clicks.
+    const anchorScr   = worldToScreen(selBox.startWX, selBox.startWY);
+    const leftToRight = mouseScreen.x >= anchorScr.x;
+    const additive    = e.shiftKey || selBox.shift;
+    if(!additive) selectedIds.clear();
     for(const o of GeoMemory.objects) {
       const hit = leftToRight
         ? selBoxWindow(o, lx, rx, by, ty)       // window: fully inside
@@ -8406,7 +8498,7 @@ function onMouseUp(e) {
     const n = selectedIds.size;
     if(n>0) showToast(`${mode} select: ${n} object${n>1?'s':''}`);
     updateSelectionProps();
-    selBox.active=false;
+    selBox.active=false; selBox.click=false; selBox.shift=false;
     updateCursor();
     render(); return;
   }
@@ -8429,11 +8521,20 @@ function onMouseUp(e) {
           selectedIds.clear();
           selectedIds.add(hit.id);
         }
-      } else if(!e.shiftKey) {
-        selectedIds.clear();
+      } else {
+        if(!e.shiftKey) selectedIds.clear();
+        // Empty ground at idle pins the first corner of a window and waits for
+        // the second click. The corner is world-space, so you can pan and zoom
+        // to reach a corner that was never on screen at the same time as the
+        // first — which a drag can't do. Drag is untouched and still works,
+        // here and under every other tool.
+        if(activeTool==='select'){
+          selBox.click=true; selBox.active=true; selBox.shift=e.shiftKey;
+          canvas.style.cursor=crosshairCursorStyle();
+        }
       }
       updateSelectionProps();
-      canvas.style.cursor='default';
+      if(!selBox.click) canvas.style.cursor='default';
       render();
     }
   }
@@ -8491,12 +8592,13 @@ function onKeyDown(e) {
     closeSnapSettings();
     closeChangelog();
     kommandClear();
-    if(activeTool!=='select') cancelTool();
-    else selectedIds.clear();
-    updateSelectionProps();
-    render(); return;
+    escapeStep();
+    return;
   }
-  if(k==='Enter'){
+  if(k==='Enter' || k===' '){
+    if(k===' ') e.preventDefault();
+    // At a bare prompt with nothing open, Enter/Space means "again".
+    if(activeTool==='select' && !selBox.click){ repeatLastCommand(); return; }
     commitInProgressDraw();
     return;
   }
@@ -8525,18 +8627,17 @@ function onKeyDown(e) {
     if(k==='c'||k==='C') setTool('circle');
     if(k==='v'||k==='V') setTool('kompass');   // V = Kompass (K is taken by KOMMAND focus)
     if(k==='f'||k==='F') setTool('fillet');
-    if(k==='h'||k==='H') setTool('chamfer');   // H = cHamfer, sits beside fillet
-    if(k==='g'||k==='G') setTool('hatch');     // G = hatch (H is already chamfer)
+    if(k==='h'||k==='H') setTool('hatch');     // H = Hatch
     if(k==='i'||k==='I') setTool('scale');     // I = scale (S is select, C is circle)
     if(k==='w'||k==='W') setTool('stretch');   // W = stretch/Widen
     if(k==='r'||k==='R') setTool('rect');
-    if(k==='s'||k==='S') setTool('select');
+    if(k==='s'||k==='S') goIdle();
     if(k==='o'||k==='O') setTool('offset');
     if(k==='t'||k==='T') setTool('rotate');
     if(k==='m'||k==='M') setTool('mirror');
     if(k==='d'||k==='D') setTool('dim');
     if(k==='j'||k==='J') joinSelected();
-    if(k==='x'||k==='X') explodeSelected();
+    if(k==='x'||k==='X') toggleSnap();         // X = snap on/off
     if(k==='q'||k==='Q') setTool('trim');      // Q = quick trim
     if(k==='e'||k==='E') setTool('extend');    // E = extend
     if(k==='b'||k==='B') setTool('break');     // B = break
@@ -8546,12 +8647,13 @@ function onKeyDown(e) {
     if(k==='>'||k==='.') rotateSelected(90);   // > = rotate CW
     if(k==='0')          flattenSelection();
     if(k==='z'||k==='Z') zoomExtents();
-    if(k==='g'||k==='G') toggleGrid();
+    if(k==='g'||k==='G') toggleGrid();         // G = Grid (was also firing Hatch — fixed)
     if(k==='F3')         toggleSnap();
     if(k==='F8')       { e.preventDefault(); toggleOrtho(); }
     if(k==='F9')       { e.preventDefault(); toggleGridSnap(); }
     if(k==='F10')      { e.preventDefault(); togglePolar(); }
     if(k==='F11')      { e.preventDefault(); toggleOtrack(); }
+    if(k==='y'||k==='Y') cycleCrosshair();   // Y = cycle crosshair axis/mono/off
     if(k==='u'||k==='U') toggleUnits();
     if(k==='?')          showCoordHelp();
   }
@@ -8576,7 +8678,11 @@ const ctxMenu = document.getElementById('ctx-menu');
 function openCtxMenu(cx, cy) {
   const lbl=document.getElementById('ctx-cancel-label');
   lbl.textContent = (activeTool==='line'&&lineState.active) ? 'Commit Line' :
-                    (activeTool==='rect'&&rectState.active) ? 'Cancel Rect' : 'Cancel / Select';
+                    (activeTool==='rect'&&rectState.active) ? 'Cancel Rect' :
+                    (activeTool!=='select')                 ? 'Exit ' + String((typeof activeToolRequested!=='undefined' && activeToolRequested) || activeTool).toUpperCase() :
+                    (selBox.click||selectedIds.size)        ? 'Clear' :
+                    lastCommandTool                         ? 'Repeat ' + lastCommandTool.toUpperCase() :
+                                                              'Cancel';
   ctxMenu.style.left=cx+'px'; ctxMenu.style.top=cy+'px';
   ctxMenu.classList.add('open');
   requestAnimationFrame(()=>{
@@ -8606,12 +8712,14 @@ function ctxCancelCommit() {
     }
     render(); return;
   }
-  cancelTool(); render();
+  // At a bare prompt this button is the right-click repeat a drafter expects;
+  // anywhere else it is the same escalating Esc the key and the X FAB run.
+  if(activeTool==='select' && !selBox.click && !selectedIds.size){ repeatLastCommand(); return; }
+  escapeStep();
 }
 function ctxClearSel() {
   closeCtxMenu();
-  selectedIds.clear(); updateSelectionProps();
-  setTool('select');
+  goIdle();   // drops the tool AND the selection — no need to clear twice
 }
 
 function ctxDelete() {
@@ -8623,7 +8731,7 @@ const CTX_CATALOG = [
   { id:'undo',    label:'Undo',            key:'Ctrl+Z', fn:()=>{ if(!SPACE().undo()) showToast('Nothing to undo'); } },
   { id:'copy',    label:'Copy Selected',   key:'Ctrl+C', fn:()=>copySelected() },
   { id:'paste',   label:'Paste',           key:'Ctrl+V', fn:()=>pasteSelected() },
-  { id:'mirror',  label:'Mirror Selected', key:'M',      fn:()=>mirrorSelected() },
+  { id:'mirror',  label:'Mirror',          key:'M',      fn:()=>setTool('mirror') },
   { id:'flatten', label:'Flatten to 0°',   key:'0',      fn:()=>flattenSelection() },
   { id:'grid',    label:'Toggle Grid',     key:'G',      fn:()=>toggleGrid() },
   { id:'snap',    label:'Toggle Snap',     key:'X',      fn:()=>toggleSnap() },
@@ -13475,7 +13583,10 @@ requestAnimationFrame(()=>{
     resizeCanvas();
     initCamera();
     applyAppVersion();
-    setTool('pline');
+    // Boot at the prompt, not inside a tool. With a real idle state there is
+    // nowhere else to open: arriving already armed to draw is the thing the
+    // idle state exists to stop.
+    goIdle();
     buildLayerPanel();
     refreshPlaneMenu();
     initDraftBar();
@@ -17357,7 +17468,7 @@ function kadSwitchTab(tab) {
     kvPointers.clear(); kvPinch = null; kvStroke = null; kvPendingPt = null;
     kvCancelHold(); kvIsPanning = false; kvCloseTextEntry();
     const ctxLbl = document.getElementById('kommand-context-label');
-    if (ctxLbl) ctxLbl.textContent = activeToolRequested.toUpperCase(); // KANVAS left this on its own tool label
+    if (ctxLbl) ctxLbl.textContent = modeLabelFor(activeToolRequested); // KANVAS left this on its own tool label
     buildLayerPanel();   // dropdown returns to the model layer set
     if (document.body.classList.contains('mobile-mode')) toggleMobileSidebar(false);
     render();
@@ -17878,7 +17989,7 @@ function _patchSetTool() {
   const _orig = setTool;
   window.setTool = function(t) {
     _orig(t);
-    if (kContext) kContext.textContent = t.toUpperCase();
+    if (kContext) kContext.textContent = modeLabelFor(t);
     if (kPrefix)  kPrefix.textContent  = '≫';
     kommandClear();
   };
@@ -17910,11 +18021,13 @@ const KOMMANDS = {
   'OFFSET':  () => setTool('offset'),
   'M':       () => setTool('mirror'),
   'MIRROR':  () => setTool('mirror'),
-  'MEASURE': () => setTool('measure'),
+  'MEASURE': () => setTool('dim'),   // MEASURE is an alias — Dimension is the tool
+  'DIMENSION': () => setTool('dim'),
   'TR':      () => setTool('trim'),
   'TRIM':    () => setTool('trim'),
-  'EX':      () => setTool('extend'),
   'EXTEND':  () => setTool('extend'),
+  'EX':      () => explodeSelected(),
+  'EXPLODE': () => explodeSelected(),
   'BR':      () => setTool('break'),
   'BREAK':   () => setTool('break'),
   'SC':      () => { if(!selectedIds.size){setTool('select');kecho('Select objects then type SC');} else openScaleDialog(); },
@@ -18044,7 +18157,7 @@ function SPACE() { return SPACES[activeSpace()]; }
 const UNIVERSAL_KOMMANDS = {
   'Z':      () => { SPACE().zoomFit(); kecho('Zoom fit · ' + SPACE().label); },
   'G':      () => { const on = SPACE().toggleGrid(); kecho('Grid ' + (on?'on':'off')); },
-  'S':      () => { const on = SPACE().toggleSnap(); kecho('Snap ' + (on?'on':'off')); },
+  'X':      () => { const on = SPACE().toggleSnap(); kecho('Snap ' + (on?'on':'off')); },
   'U':      () => { toggleUnits(); SPACE().refresh(); kecho('Units: ' + unitMode); },
   'IN':     () => { splashSelectUnit('in'); SPACE().refresh(); kecho('Units: in'); },
   'MM':     () => { splashSelectUnit('mm'); SPACE().refresh(); kecho('Units: mm'); },
@@ -18065,6 +18178,7 @@ const POLY_KOMMANDS = {
   'TEXT':   () => SPACE().text(),   'TX':  () => SPACE().text(),
   'DIM':    () => SPACE().dim(),    'D':   () => SPACE().dim(),
   'SELECT': () => SPACE().select(), 'SEL': () => SPACE().select(),
+  'S':      () => SPACE().select(),
   'KOMPASS':() => SPACE().kompass(),
   'V':      () => SPACE().kompass(),
   'LINE':   () => SPACE().line(),    'L':  () => SPACE().line(),
@@ -18395,7 +18509,7 @@ const TOOLS = [
    icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="6" width="16" height="12" rx="1"/></svg>'},
   {id:'polygon', label:'POLY', tip:'Polygon', key:'P', group:'draw', w:1, act:"setTool('polygon')",
    icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="12,3 21,9 17,20 7,20 3,9"/></svg>'},
-  {id:'hatch', label:'HATCH', tip:'Hatch', key:'G', group:'draw', w:1, act:"setTool('hatch')",
+  {id:'hatch', label:'HATCH', tip:'Hatch', key:'H', group:'draw', w:1, act:"setTool('hatch')",
    icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h16v16H4z"/><line x1="4" y1="12" x2="12" y2="4" stroke-width="1"/><line x1="4" y1="17" x2="17" y2="4" stroke-width="1"/><line x1="4" y1="22" x2="22" y2="4" stroke-width="1" opacity="0.55"/><line x1="7" y1="20" x2="20" y2="7" stroke-width="1"/><line x1="12" y1="20" x2="20" y2="12" stroke-width="1"/></svg>'},
   {id:'offset', label:'OFFSET', tip:'Offset', key:'O', group:'modify', w:1, act:"setTool('offset')",
    icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="3" y1="8" x2="21" y2="8"/><line x1="3" y1="16" x2="21" y2="16"/><path d="M14 11.5l3 2.5-3 2.5" stroke-width="1.2"/></svg>'},
@@ -18409,7 +18523,7 @@ const TOOLS = [
    icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="5" r="1.6" fill="currentColor"/><path d="M12 6.5 5 20"/><path d="M12 6.5 19 20"/><path d="M7.5 17a7 7 0 0 0 9 0"/></svg>'},
   {id:'fillet', label:'FILLET', tip:'Fillet', key:'F', group:'modify', w:1, act:"setTool('fillet')",
    icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 19 L5 8 Q5 5 8 5 L19 5"/></svg>'},
-  {id:'chamfer', label:'CHAMFER', tip:'Chamfer', key:'H', group:'modify', w:1, act:"setTool('chamfer')",
+  {id:'chamfer', label:'CHAMFER', tip:'Chamfer', key:'C H', group:'modify', w:1, act:"setTool('chamfer')",
    icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"> <path d="M4 20 L12 4 L20 20"/> <line x1="7" y1="14" x2="17" y2="14"/> </svg>'},
   {id:'mirror', label:'MIRROR', tip:'Mirror', key:'M', group:'modify', w:1, act:"setTool('mirror')",
    icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="3" x2="12" y2="21" stroke-dasharray="2 2"/><polyline points="3,7 9,12 3,17"/><polyline points="21,7 15,12 21,17"/></svg>'},
@@ -18429,8 +18543,8 @@ const TOOLS = [
    icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 7V5h16v2"/><line x1="12" y1="5" x2="12" y2="19"/><line x1="8" y1="19" x2="16" y2="19"/></svg>'},
   {id:'array', label:'ARRAY', tip:'Array', key:'N', group:'modify', w:1, act:"openArrayDialog()",
    icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="5" height="5"/><rect x="10" y="3" width="5" height="5"/><rect x="17" y="3" width="4" height="5"/><rect x="3" y="10" width="5" height="5"/><rect x="10" y="10" width="5" height="5"/><rect x="17" y="10" width="4" height="5"/></svg>'},
-  {id:'select', label:'SELECT', tip:'Select', key:'S', group:'draw', w:2, act:"setTool('select')",
-   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 3l14 9-7 1-4 7z"/></svg>'},
+  // No SELECT entry: idle is a state you fall back to (Esc / the red X FAB),
+  // not a mode you arm from a toolbar.
 ];
 const TOOL_DELETE = {id:'delete', label:'DELETE', tip:'Delete Selected', key:'Del',
   group:'modify', w:1, danger:true, act:'deleteSelected()',
@@ -18534,11 +18648,9 @@ function renderTools() {
   if (railed) {
     grid.innerHTML = '';
     if (gridB) gridB.innerHTML = '';
-    const draw   = TOOLS.filter(t => t.group === 'draw'   && t.id !== 'select');
+    const draw   = TOOLS.filter(t => t.group === 'draw');
     const modify = TOOLS.filter(t => t.group === 'modify');
-    const sel    = TOOLS.find(t => t.id === 'select');
-    rl.innerHTML = (sel ? toolBtnHTML(sel, {weights:true}) + '<div class="rail-sep"></div>' : '') +
-                   draw.map(t => toolBtnHTML(t, {weights:true})).join('');
+    rl.innerHTML = draw.map(t => toolBtnHTML(t, {weights:true})).join('');
     rr.innerHTML = modify.map(t => toolBtnHTML(t, {weights:true})).join('') +
                    '<div class="rail-sep"></div>' + toolBtnHTML(TOOL_DELETE, {weights:true});
     rt.innerHTML = RAIL_TOP_ITEMS.map(railItemHTML).join('');
