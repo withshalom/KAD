@@ -12859,21 +12859,21 @@ async function stepCommitImport() {
 // in this file changes. Both can also be set at runtime via
 // window.KAD_DWG_ESM / window.KAD_DWG_WASM before the first import.
 const KAD_DWG = {
-  esm:  'https://cdn.jsdelivr.net/npm/@mlightcad/libredwg-web@0.7.10/+esm',
+  // Flip to false to hide the Import .dwg controls and leave everything else
+  // in place — the one-line way to pull the feature without unpicking code.
+  enabled: true,
 
-  // Directory holding LibreDWG's .wasm. Leave null and the candidates below
-  // get probed once on first use; set it — or window.KAD_DWG_WASM — to a
-  // folder you host yourself and the probe is skipped entirely.
+  cdn: 'https://cdn.jsdelivr.net/npm/@mlightcad/libredwg-web@0.7.10',
+  api: 'https://data.jsdelivr.com/v1/packages/npm/@mlightcad/libredwg-web@0.7.10?structure=flat',
+
+  // Both default to the CDN above. Set either — or window.KAD_DWG_ESM /
+  // window.KAD_DWG_WASM — to a copy you host yourself. .wasm wants the folder
+  // the .wasm file sits in, with a trailing slash.
+  esm:  null,
   wasm: null,
-  wasmDirs: [
-    'https://cdn.jsdelivr.net/npm/@mlightcad/libredwg-web@0.7.10/wasm/',
-    'https://cdn.jsdelivr.net/npm/@mlightcad/libredwg-web@0.7.10/dist/',
-    'https://cdn.jsdelivr.net/npm/@mlightcad/libredwg-web@0.7.10/',
-  ],
-  wasmNames: ['libredwg-web.wasm', 'libredwg.wasm'],
-  wasmDir: null,       // filled in by the probe, then reused
 
   modP: null,          // in-flight/settled module load
+  diag: null,          // what discovery found, for the console
 
   // DXF carries angles in degrees, LibreDWG carries them in radians, and the
   // wrapper sits between the two. 'auto' sniffs each file; set 'deg' or 'rad'
@@ -12887,40 +12887,56 @@ const KAD_DWG = {
 };
 
 // Emscripten reports nothing more useful than "fetching of the wasm failed"
-// when its URL 404s, so the wasm gets located before the reader is asked to
-// load it. Each candidate is fetched just far enough to confirm the file is
-// there and is really wasm. Safe to call from the console to diagnose.
+// when its URL 404s, and guessing package layouts is how this went wrong the
+// first time. So the wasm gets located by asking jsDelivr's file index what
+// the published package actually contains. Safe to call from the console.
 async function kadDwgFindWasmDir() {
-  const fixed = window.KAD_DWG_WASM || KAD_DWG.wasm || KAD_DWG.wasmDir;
+  const fixed = window.KAD_DWG_WASM || KAD_DWG.wasm;
   if (fixed) return fixed;
+  if (KAD_DWG.diag && KAD_DWG.diag.dir) return KAD_DWG.diag.dir;
 
-  const tried = [];
-  for (const dir of KAD_DWG.wasmDirs) {
-    for (const name of KAD_DWG.wasmNames) {
-      const url = dir + name;
-      try {
-        const res = await fetch(url, { headers: { Range: 'bytes=0-3' } });
-        if (!res.ok) { tried.push('HTTP ' + res.status + '  ' + url); continue; }
-        const head = new Uint8Array(await res.arrayBuffer());
-        if (head[0] === 0x00 && head[1] === 0x61 && head[2] === 0x73 && head[3] === 0x6d) {
-          console.info('[KAD] LibreDWG wasm found at ' + url);
-          KAD_DWG.wasmDir = dir;
-          return dir;
-        }
-        tried.push('not wasm  ' + url);
-      } catch (err) {
-        tried.push('unreachable  ' + url);
-      }
-    }
+  let listing;
+  try {
+    const res = await fetch(KAD_DWG.api);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    listing = await res.json();
+  } catch (err) {
+    throw new Error('could not reach the CDN file index (' + err.message + ')');
   }
-  console.error('[KAD] LibreDWG wasm not found. Tried:\n' + tried.join('\n'));
-  throw new Error('wasm not found at any known URL (see console)');
+
+  // Flat structure gives every file as a path like "/wasm/libredwg-web.wasm".
+  const names = (listing.files || []).map(f => f && f.name).filter(Boolean);
+  const wasms = names.filter(n => /\.wasm$/i.test(n));
+  KAD_DWG.diag = { files: names.length, wasms };
+  if (!wasms.length) {
+    console.error('[KAD] no .wasm in the published package. Files:', names);
+    throw new Error('this build of the reader ships no .wasm — self-hosting needed');
+  }
+
+  // Prefer libredwg's own binary if the package carries more than one.
+  const pick = wasms.find(n => /libredwg/i.test(n)) || wasms[0];
+  const url  = KAD_DWG.cdn + pick;
+  const dir  = url.slice(0, url.lastIndexOf('/') + 1);
+
+  try {
+    const head = await fetch(url, { method: 'HEAD' });
+    if (!head.ok) throw new Error('HTTP ' + head.status);
+  } catch (err) {
+    console.error('[KAD] file index listed ' + url + ' but it is not fetchable:', err);
+    throw new Error('reader binary listed but not reachable');
+  }
+
+  KAD_DWG.diag.dir = dir;
+  KAD_DWG.diag.url = url;
+  console.info('[KAD] LibreDWG wasm found at ' + url);
+  return dir;
 }
 
 function kadDwgModule() {
   if (KAD_DWG.modP) return KAD_DWG.modP;
   KAD_DWG.modP = (async () => {
-    const mod = await import(window.KAD_DWG_ESM || KAD_DWG.esm);
+    const esm = window.KAD_DWG_ESM || KAD_DWG.esm || (KAD_DWG.cdn + '/+esm');
+    const mod = await import(esm);
     const ns  = (mod && mod.LibreDwg) ? mod : ((mod && mod.default) || mod);
     if (!ns || !ns.LibreDwg || typeof ns.LibreDwg.create !== 'function')
       throw new Error('libredwg-web loaded but exposed no LibreDwg.create()');
@@ -12946,12 +12962,9 @@ function kadDwgModule() {
 // ready to use.
 function kadDwgLoadScript() { return kadDwgModule(); }
 
-// The reader is fetched on demand, so "available" means "we have somewhere to
-// fetch it from", not "it is already in memory". Blank out KAD_DWG.esm to ship
-// a build with DWG import switched off.
-function kadDwgAvailable() {
-  return typeof KAD_DWG.esm === 'string' && KAD_DWG.esm.length > 0;
-}
+// The reader is fetched on demand, so "available" means the feature is
+// switched on, not that anything is loaded yet.
+function kadDwgAvailable() { return KAD_DWG.enabled === true; }
 
 // The Import .dwg menu item and toolbar button ship hidden. This unhides them.
 function kadDwgRevealControls() {
