@@ -3630,7 +3630,7 @@ const KAD_APP_VERSION = '1.0.0';
 const KAD_CHANGELOG = [
   {
     version: '1.0.0',
-    date: '2026-09-04',
+    date: '2026-09-09',
     groups: [
       {
         label: 'Drafting',
@@ -3669,6 +3669,22 @@ const KAD_CHANGELOG = [
         items: [
           'Touch and compact sidebar layouts for mobile',
           'Coordinate entry and keyboard shortcut reference panel',
+        ],
+      },
+      {
+        label: 'DXF Round-Trip Fidelity',
+        items: [
+          'DXF export rebuilt to R14 spec — entity handles, class subclass markers, and the full symbol table set (VPORT, STYLE, APPID, DIMSTYLE, BLOCK_RECORD)',
+          'Dimensions now export and re-import instead of being dropped, via a proper DIMENSION entity and its anonymous block',
+          'DXF import no longer explodes polylines into loose lines — LWPOLYLINE and POLYLINE come back in as one object',
+          'Hatches and splines now round-trip on import, matching what export already produced',
+          'Line weight, text rotation, and non-World UCS orientation now survive export on every entity type',
+        ],
+      },
+      {
+        label: 'Drafting',
+        items: [
+          'Polyline arc segments — press A while drawing to bow a segment into an arc, tangent to the one before it',
         ],
       },
     ],
@@ -13795,7 +13811,13 @@ function closePartDataModal() {
 }
 
 
-const KAD_DOC_VERSION = '2.2';   // 2.1 adds the top-level parts block; 2.2 adds planes
+// The version is a MINIMUM, not a lockstep number: bump it only the day a
+// loader ships that actively REJECTS or MISREADS an older file — i.e. when
+// backwards compatibility would otherwise break. Since KAD is web-hosted with
+// one current client, there is no old-client-vs-new-file direction to guard;
+// adding a field that old savers omit is not a version bump, because
+// deserializeDocument already defaults around any field that's absent.
+const KAD_DOC_VERSION = 1;
 const KAD_MIME = 'application/octet-stream';   // keeps the OS from appending .json
 
 function serializeDocument() {
