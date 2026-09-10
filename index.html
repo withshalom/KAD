@@ -4337,6 +4337,114 @@ function arcBBox(cx,cy,r,startA,endA,ccw){
   for(const p of pts){minX=Math.min(minX,p.x);maxX=Math.max(maxX,p.x);minY=Math.min(minY,p.y);maxY=Math.max(maxY,p.y);}
   return{minX,maxX,minY,maxY};
 }
+/* ── POLYLINE ARCS VIA BULGE ──────────────────────────────────────────────
+   A bulge is the DXF-native way to carry an arc inside a polyline: one signed
+   number per vertex, b = tan(theta/4), where theta is the arc's included angle
+   and positive means counter-clockwise from this vertex to the next. b = 0 (or
+   absent) is a straight segment.
+
+   This is why it beats a separate "polyarc" entity: the vertex list keeps its
+   shape, so every one of the ~70 places that reads {x,y} keeps working
+   untouched and simply treats an arc as its chord. Consumers opt in to the
+   curve by calling polySegments() instead of walking pts directly. Trim,
+   fillet, offset and join all keep operating on ONE object rather than
+   fragmenting into loose arcs and lines. */
+
+function bulgeArc(p1, p2, b) {
+  if (!b) return null;
+  const dx = p2.x - p1.x, dy = p2.y - p1.y;
+  const chord = Math.hypot(dx, dy);
+  if (chord < 1e-12) return null;
+  const theta = 4 * Math.atan(b);              // included angle, signed
+  const half  = theta / 2;
+  if (Math.abs(Math.sin(half)) < 1e-12) return null;
+  const r  = Math.abs(chord / (2 * Math.sin(half)));
+  const h  = (chord / 2) / Math.tan(half);     // chord midpoint -> centre
+  const ux = -dy / chord, uy = dx / chord;     // left normal of travel
+  const cx = (p1.x + p2.x) / 2 + ux * h;
+  const cy = (p1.y + p2.y) / 2 + uy * h;
+  return {
+    cx, cy, r, theta,
+    a1: Math.atan2(p1.y - cy, p1.x - cx),
+    a2: Math.atan2(p2.y - cy, p2.x - cx),
+    ccw: theta > 0,
+  };
+}
+
+// Inverse: the bulge that turns a chord into this arc. Used on DXF import and
+// whenever geometry is rebuilt from arcs.
+function arcToBulge(a1, a2, ccw) {
+  let sweep = ccw ? (a2 - a1) : (a1 - a2);
+  while (sweep < 0) sweep += Math.PI * 2;
+  while (sweep > Math.PI * 2) sweep -= Math.PI * 2;
+  const b = Math.tan(sweep / 4);
+  return ccw ? b : -b;
+}
+
+// The one iterator every consumer should use. Yields a segment per edge, each
+// either straight or carrying a resolved arc.
+function polySegments(o) {
+  const pts = o.pts || [];
+  const n = pts.length;
+  if (n < 2) return [];
+  const segs = [];
+  const last = o.closed ? n : n - 1;
+  for (let i = 0; i < last; i++) {
+    const a = pts[i], b = pts[(i + 1) % n];
+    const bl = a.b || 0;
+    segs.push({ a, b, bulge: bl, arc: bl ? bulgeArc(a, b, bl) : null, index: i });
+  }
+  return segs;
+}
+
+// Flatten to a point list for code that genuinely needs polygon vertices
+// (area, centroid, hatch boundaries). Arcs are tessellated, not chorded.
+function polyFlatten(o, maxSagitta = 0.05) {
+  const out = [];
+  for (const s of polySegments(o)) {
+    out.push({ x: s.a.x, y: s.a.y });
+    if (!s.arc) continue;
+    const steps = Math.max(2, Math.ceil(Math.abs(s.arc.theta) / (2 * Math.acos(
+      Math.max(-1, Math.min(1, 1 - maxSagitta / Math.max(s.arc.r, 1e-9)))) || 0.15)));
+    for (let k = 1; k < steps; k++) {
+      const t = s.arc.a1 + (s.arc.theta) * (k / steps);
+      out.push({ x: s.arc.cx + s.arc.r * Math.cos(t), y: s.arc.cy + s.arc.r * Math.sin(t) });
+    }
+  }
+  if (!o.closed && o.pts.length) out.push({ x: o.pts[o.pts.length-1].x, y: o.pts[o.pts.length-1].y });
+  return out;
+}
+
+// True bounding box: an arc can bulge well outside its chord's box.
+function polyBBox(o) {
+  let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
+  const eat = p => { if(p.x<minX)minX=p.x; if(p.x>maxX)maxX=p.x;
+                     if(p.y<minY)minY=p.y; if(p.y>maxY)maxY=p.y; };
+  for (const p of (o.pts||[])) eat(p);
+  for (const s of polySegments(o)) {
+    if (!s.arc) continue;
+    const bb = arcBBox(s.arc.cx, s.arc.cy, s.arc.r, s.arc.a1, s.arc.a2, s.arc.ccw);
+    eat({x:bb.minX,y:bb.minY}); eat({x:bb.maxX,y:bb.maxY});
+  }
+  if (minX===Infinity) return null;
+  return { minX, maxX, minY, maxY };
+}
+
+// Shortest distance from a world point to a polyline segment, arc-aware.
+function polySegDistW(seg, wx, wy) {
+  if (!seg.arc) {
+    const dx = seg.b.x-seg.a.x, dy = seg.b.y-seg.a.y;
+    const L2 = dx*dx + dy*dy;
+    let t = L2 ? ((wx-seg.a.x)*dx + (wy-seg.a.y)*dy) / L2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(wx - (seg.a.x+t*dx), wy - (seg.a.y+t*dy));
+  }
+  const A = seg.arc;
+  const ang = Math.atan2(wy - A.cy, wx - A.cx);
+  if (angleOnArc(ang, A.a1, A.a2, A.ccw)) return Math.abs(Math.hypot(wx-A.cx, wy-A.cy) - A.r);
+  return Math.min(Math.hypot(wx-seg.a.x, wy-seg.a.y), Math.hypot(wx-seg.b.x, wy-seg.b.y));
+}
+
 function circumscribedCircle(p1,p2,p3){
   const ax=p1.x,ay=p1.y,bx=p2.x,by=p2.y,cx=p3.x,cy=p3.y;
   const D=2*(ax*(by-cy)+bx*(cy-ay)+cx*(ay-by));
@@ -4535,6 +4643,12 @@ const GeoMemory = {
       origin:  opts.origin  || {x:0, y:0},
       assoc:   opts.assoc   || null,
     };
+    this.objects.push(_stampPlane(o)); commitDocumentChange(); return o;
+  },
+  addDim(x1,y1,x2,y2,layer='DIM',label=null){
+    const r6=v=>parseFloat(v.toFixed(6));
+    const o={id:this.nextId++,type:'DIM',layer,x1:r6(x1),y1:r6(y1),x2:r6(x2),y2:r6(y2)};
+    if(label) o.label=label;
     this.objects.push(_stampPlane(o)); commitDocumentChange(); return o;
   },
   addText(x,y,text,height=5,layer='Layer_0'){const o={id:this.nextId++,type:'TEXT',layer,x,y,text,height};this.objects.push(_stampPlane(o));commitDocumentChange();return o;},
@@ -5050,6 +5164,8 @@ const SnapIndex = {
                miny:Math.min(o.y1,o.y2), maxy:Math.max(o.y1,o.y2) };
     if (o.type === 'POLYLINE') {
       let minx=Infinity, miny=Infinity, maxx=-Infinity, maxy=-Infinity;
+      const _pbb = polyBBox(o);
+      if (_pbb) return { minx:_pbb.minX, maxx:_pbb.maxX, miny:_pbb.minY, maxy:_pbb.maxY };
       for (const p of o.pts) { if(p.x<minx)minx=p.x; if(p.x>maxx)maxx=p.x;
                                if(p.y<miny)miny=p.y; if(p.y>maxy)maxy=p.y; }
       return { minx, maxx, miny, maxy };
@@ -5155,6 +5271,12 @@ function kadObjSnaps(o, out) {
     for (const [a, b] of kadSegs(o))
       out.push({x:(a.x+b.x)/2, y:(a.y+b.y)/2, kind:'midpoint'});
     for (const p of o.pts) out.push({x:p.x, y:p.y, kind:'endpoint'});
+    for (const seg of polySegments(o)) {
+      if (!seg.arc) continue;
+      const A = seg.arc, mid = A.a1 + A.theta/2;
+      out.push({x:A.cx + A.r*Math.cos(mid), y:A.cy + A.r*Math.sin(mid), kind:'midpoint'});
+      out.push({x:A.cx, y:A.cy, kind:'center'});
+    }
     const g = kadCentroid(o.closed ? o.pts : null);
     if (g) out.push({x:g.x, y:g.y, kind:'gcenter'});
   } else if (o.type === 'HATCH') {
@@ -6416,12 +6538,10 @@ function pickObject(sx,sy) {
       const a=worldToScreen(o.x1,o.y1), b=worldToScreen(o.x2,o.y2);
       if(ptSegDist(sx,sy,a.x,a.y,b.x,b.y)<HIT_PX) return o;
     } else if(o.type==='POLYLINE'){
-      const n=o.pts.length;
-      const segs=o.closed?n:n-1;
-      for(let i=0;i<segs;i++){
-        const a=worldToScreen(o.pts[i].x,o.pts[i].y);
-        const b=worldToScreen(o.pts[(i+1)%n].x,o.pts[(i+1)%n].y);
-        if(ptSegDist(sx,sy,a.x,a.y,b.x,b.y)<HIT_PX) return o;
+      const w=pickPoint(sx,sy,planeOf(o));
+      const tol=HIT_PX/cam.zoom;
+      if(w) for(const seg of polySegments(o)){
+        if(polySegDistW(seg, w.x, w.y) < tol) return o;
       }
     } else if(o.type==='CIRCLE'){
       const w=pickPoint(sx,sy,planeOf(o)), tol=HIT_PX/cam.zoom;
@@ -6443,6 +6563,24 @@ function pickObject(sx,sy) {
           const a=worldToScreen(pts[i].x,pts[i].y), c=worldToScreen(pts[i+1].x,pts[i+1].y);
           if(ptSegDist(sx,sy,a.x,a.y,c.x,c.y)<HIT_PX) return o;
         }
+      }
+    }
+    else if(o.type==='TEXT'){
+      const sp=worldToScreen(o.x,o.y);
+      const px=Math.min(Math.max(8,(o.height||5)*cam.zoom), MAX_FONT_PX);
+      const w=String(o.text||'').length*px*0.6;
+      if(sx>=sp.x-HIT_PX && sx<=sp.x+w+HIT_PX && sy>=sp.y-px-HIT_PX && sy<=sp.y+HIT_PX) return o;
+    }
+    else if(o.type==='POINT'){
+      const sp=worldToScreen(o.x,o.y);
+      if(Math.hypot(sx-sp.x, sy-sp.y) < HIT_PX) return o;
+    }
+    else if(o.type==='DIM'){
+      // pickable along the dimension line or either extension line
+      const g=dimGeometry({x:o.x1,y:o.y1},{x:o.x2,y:o.y2});
+      for(const [a,b] of [[g.d1,g.d2],[g.e1a,g.e1b],[g.e2a,g.e2b]]){
+        const A=worldToScreen(a.x,a.y), B=worldToScreen(b.x,b.y);
+        if(ptSegDist(sx,sy,A.x,A.y,B.x,B.y)<HIT_PX) return o;
       }
     }
   }
@@ -7484,7 +7622,9 @@ function selBoxWindow(obj, lx, rx, by, ty) {
            obj.x2>=lx&&obj.x2<=rx&&obj.y2>=by&&obj.y2<=ty;
   }
   if(obj.type==='POLYLINE'){
-    return obj.pts.every(p=>p.x>=lx&&p.x<=rx&&p.y>=by&&p.y<=ty);
+    // true bbox, so an arc bulging outside its chord isn't wrongly enclosed
+    const bb=polyBBox(obj);
+    return !!bb && bb.minX>=lx&&bb.maxX<=rx&&bb.minY>=by&&bb.maxY<=ty;
   }
   if(obj.type==='HATCH'){
     return obj.loops.every(L=>L.every(p=>p.x>=lx&&p.x<=rx&&p.y>=by&&p.y<=ty));
@@ -7496,6 +7636,10 @@ function selBoxWindow(obj, lx, rx, by, ty) {
   if(obj.type==='ARC'){
     const bb=arcBBox(obj.cx,obj.cy,obj.r,obj.startA,obj.endA,obj.ccw);
     return bb.minX>=lx&&bb.maxX<=rx&&bb.minY>=by&&bb.maxY<=ty;
+  }
+  if(obj.type==='TEXT'||obj.type==='POINT'||obj.type==='DIM'||obj.type==='BEZIER'){
+    const bb=dxfEntityBBox(obj);
+    return !!bb && bb.minX>=lx&&bb.maxX<=rx&&bb.minY>=by&&bb.maxY<=ty;
   }
   return false;
 }
@@ -9581,6 +9725,41 @@ function deleteLayer(key) {
 
 let dimState = { active:false, p1:null };
 
+const DIM_OFFSET = 8;   // mm, geometry -> dimension line
+const DIM_GAP    = 3;   // mm, gap between geometry and start of extension line
+const DIM_EXT    = 5;   // mm, extension line overshoot past the dimension line
+const DIM_ARROW  = 3;   // mm, arrowhead length
+const DIM_TXT    = 3.5; // mm, text height
+
+function dimLabelFor(p1w, p2w) {
+  const dist = Math.hypot(p2w.x - p1w.x, p2w.y - p1w.y);
+  return unitMode === 'in' ? (dist / MM_PER_IN).toFixed(3) + '"'
+                           : dist.toFixed(2) + ' mm';
+}
+
+// Everything both the renderer and the exporter need, in world mm.
+function dimGeometry(p1w, p2w) {
+  const dx = p2w.x - p1w.x, dy = p2w.y - p1w.y;
+  const ang = Math.atan2(dy, dx), perp = ang + Math.PI/2;
+  const ox = Math.cos(perp)*DIM_OFFSET, oy = Math.sin(perp)*DIM_OFFSET;
+  const cx = Math.cos(perp),           cy = Math.sin(perp);
+  const d1 = { x:p1w.x+ox, y:p1w.y+oy };          // dimension line ends
+  const d2 = { x:p2w.x+ox, y:p2w.y+oy };
+  let textAng = ang;
+  if (textAng > Math.PI/2 || textAng < -Math.PI/2) textAng += Math.PI;
+  return {
+    p1:p1w, p2:p2w, d1, d2, ang, perp, textAng,
+    dist: Math.hypot(dx, dy),
+    label: dimLabelFor(p1w, p2w),
+    // extension lines: start GAP off the geometry, end EXT past the dim line
+    e1a: { x:p1w.x+cx*DIM_GAP,            y:p1w.y+cy*DIM_GAP },
+    e1b: { x:d1.x+cx*DIM_EXT,             y:d1.y+cy*DIM_EXT },
+    e2a: { x:p2w.x+cx*DIM_GAP,            y:p2w.y+cy*DIM_GAP },
+    e2b: { x:d2.x+cx*DIM_EXT,             y:d2.y+cy*DIM_EXT },
+    mid: { x:(d1.x+d2.x)/2,               y:(d1.y+d2.y)/2 },
+  };
+}
+
 function drawDimension(p1w, p2w, commit=false) {
   const lay  = (typeof LAYERS!=='undefined' && LAYERS['DIM']) || {color:'#39ff14',weight:0.5};
   const col  = lay.color;
@@ -10351,9 +10530,21 @@ function drawEntities() {
       ctx.beginPath();
       const p0=worldToScreen(o.pts[0].x, o.pts[0].y);
       ctx.moveTo(p0.x, p0.y);
-      for(let i=1;i<o.pts.length;i++){
-        const p=worldToScreen(o.pts[i].x, o.pts[i].y);
-        ctx.lineTo(p.x,p.y);
+      for(const seg of polySegments(o)){
+        if(!seg.arc){
+          const p=worldToScreen(seg.b.x, seg.b.y);
+          ctx.lineTo(p.x,p.y);
+          continue;
+        }
+        // Walk the arc in world space and project — the camera can rotate, so
+        // canvas arc() on screen coords would be wrong off the World plane.
+        const A=seg.arc;
+        const steps=Math.max(6, Math.ceil(Math.abs(A.theta)/0.12));
+        for(let k=1;k<=steps;k++){
+          const t=A.a1 + A.theta*(k/steps);
+          const w=worldToScreen(A.cx + A.r*Math.cos(t), A.cy + A.r*Math.sin(t));
+          ctx.lineTo(w.x,w.y);
+        }
       }
       if(o.closed) ctx.closePath();
       ctx.stroke();
@@ -10567,6 +10758,18 @@ const DXF_INSUNITS_TO_MM = {
   20: 3.086e19, // Parsecs
 };
 
+// MTEXT stores formatting inline (\\fArial|b0;, \\P for newline, {} groups).
+// KAD's TEXT is plain, so reduce to readable characters rather than importing
+// the markup as literal text.
+function dxfStripMTextCodes(t) {
+  return String(t)
+    .replace(/\\P/g, ' ')
+    .replace(/\\[A-Za-z][^;\\]*;/g, '')
+    .replace(/[{}]/g, '')
+    .replace(/\\\\/g, '\\')
+    .trim();
+}
+
 function parseDXF(text) {
   const rawLines = text.split(/\r?\n/);
   const tokens = [];
@@ -10627,8 +10830,11 @@ function parseDXF(text) {
   for (let i = 0; i < tokens.length; i++) {
     if (tokens[i][0] === 2 && tokens[i][1] === 'ENTITIES') { entStart = i + 1; break; }
   }
-  if (entStart < 0) return { lines: [], circles: [], arcs: [], scaleMM, rawInsUnits, error: 'No ENTITIES section found' };
+  if (entStart < 0) return { lines: [], circles: [], arcs: [], polys: [], texts: [],
+                             points: [], dims: [], scaleMM, rawInsUnits,
+                             error: 'No ENTITIES section found' };
 
+  const _dimBlocks = new Set();   // *D block names, so their INSERTs stay quiet
   const _ocsGroups = new Map();   // key -> {normal, elev, planeId}
   let _nonPlanarLines = 0;
   let _ocsSeq = 0;
@@ -10664,6 +10870,10 @@ function parseDXF(text) {
   const lines   = [];
   const circles = [];
   const arcs    = [];
+  const polys   = [];   // whole polylines, bulges intact — no longer exploded
+  const texts   = [];
+  const points  = [];
+  const dims    = [];
   const S = 1; // always 1 — raw values only
 
   let i = entStart;
@@ -10753,6 +10963,8 @@ function parseDXF(text) {
         if (c === 70)  closed = !!(parseInt(v,10) & 1); // bit 0 = closed
         if (c === 10)  verts.push({ x: parseFloat(v)*S, y: 0 });
         if (c === 20 && verts.length) verts[verts.length-1].y = parseFloat(v)*S;
+        // 42 attaches to the vertex most recently opened by a 10
+        if (c === 42 && verts.length) verts[verts.length-1].b = parseFloat(v);
         if (c === 38)  elev = parseFloat(v) * S;
         if (c === 210) ex = parseFloat(v);
         if (c === 220) ey = parseFloat(v);
@@ -10760,13 +10972,8 @@ function parseDXF(text) {
         i++;
       }
       const _pl = _planeForOCS(ex,ey,ez,elev);
-      for (let vi = 0; vi < verts.length - 1; vi++) {
-        lines.push({ type:'LINE', layer, x1:verts[vi].x, y1:verts[vi].y, x2:verts[vi+1].x, y2:verts[vi+1].y, plane:_pl });
-      }
-      if (closed && verts.length > 2) {
-        const last = verts[verts.length-1], first = verts[0];
-        lines.push({ type:'LINE', layer, x1:last.x, y1:last.y, x2:first.x, y2:first.y, plane:_pl });
-      }
+      if (verts.length >= 2)
+        polys.push({ type:'POLYLINE', layer, closed, pts:verts, plane:_pl });
       continue;
     }
 
@@ -10790,26 +10997,105 @@ function parseDXF(text) {
       while (i < tokens.length) {
         if (tokens[i][0] === 0 && tokens[i][1] === 'SEQEND') { i++; break; }
         if (tokens[i][0] === 0 && tokens[i][1] === 'VERTEX') {
-          let vx=0, vy=0;
+          let vx=0, vy=0, vb=0;
           i++;
           while (i < tokens.length && tokens[i][0] !== 0) {
             const [c, v] = tokens[i];
             if (c === 10) vx = parseFloat(v)*S;
             if (c === 20) vy = parseFloat(v)*S;
+            if (c === 42) vb = parseFloat(v);
             i++;
           }
-          verts.push({ x:vx, y:vy });
+          const vt = { x:vx, y:vy };
+          if (vb) vt.b = vb;
+          verts.push(vt);
           continue;
         }
         i++;
       }
-      for (let vi = 0; vi < verts.length - 1; vi++) {
-        lines.push({ type:'LINE', layer, x1:verts[vi].x, y1:verts[vi].y, x2:verts[vi+1].x, y2:verts[vi+1].y, plane:_pl });
+      if (verts.length >= 2)
+        polys.push({ type:'POLYLINE', layer, closed, pts:verts, plane:_pl });
+      continue;
+    }
+
+    if (code === 0 && (val === 'TEXT' || val === 'MTEXT')) {
+      const isM = (val === 'MTEXT');
+      let layer='Layer_0', x=0, y=0, h=5, txt='', rot=0, halign=0;
+      let ex=0, ey=0, ez=1, elev=0;
+      i++;
+      while (i < tokens.length && tokens[i][0] !== 0) {
+        const [c, v] = tokens[i];
+        if (c === 8)   layer = v;
+        if (c === 10)  x = parseFloat(v)*S;
+        if (c === 20)  y = parseFloat(v)*S;
+        if (c === 30)  elev = parseFloat(v)*S;
+        if (c === 40)  h = parseFloat(v)*S;
+        if (c === 1)   txt += v;
+        if (c === 3)   txt += v;          // MTEXT continuation chunks
+        if (c === 50)  rot = parseFloat(v);
+        if (c === 72 && !isM) halign = parseInt(v,10) || 0;
+        if (c === 210) ex = parseFloat(v);
+        if (c === 220) ey = parseFloat(v);
+        if (c === 230) ez = parseFloat(v);
+        i++;
       }
-      if (closed && verts.length > 2) {
-        const last = verts[verts.length-1], first = verts[0];
-        lines.push({ type:'LINE', layer, x1:last.x, y1:last.y, x2:first.x, y2:first.y, plane:_pl });
+      if (isM) txt = dxfStripMTextCodes(txt);
+      if (txt !== '')
+        texts.push({ type:'TEXT', layer, x, y, height:h, text:txt,
+                     rotation:rot, halign, plane:_planeForOCS(ex,ey,ez,elev) });
+      continue;
+    }
+
+    if (code === 0 && val === 'POINT') {
+      let layer='Layer_0', x=0, y=0;
+      let ex=0, ey=0, ez=1, elev=0;
+      i++;
+      while (i < tokens.length && tokens[i][0] !== 0) {
+        const [c, v] = tokens[i];
+        if (c === 8)   layer = v;
+        if (c === 10)  x = parseFloat(v)*S;
+        if (c === 20)  y = parseFloat(v)*S;
+        if (c === 30)  elev = parseFloat(v)*S;
+        if (c === 210) ex = parseFloat(v);
+        if (c === 220) ey = parseFloat(v);
+        if (c === 230) ez = parseFloat(v);
+        i++;
       }
+      points.push({ type:'POINT', layer, x, y, plane:_planeForOCS(ex,ey,ez,elev) });
+      continue;
+    }
+
+    if (code === 0 && val === 'DIMENSION') {
+      // 13/23 and 14/24 are the two extension-line origins — the measurement
+      // intent. That is what KAD stores, so the graphics block is ignored and
+      // the dimension is rebuilt in KAD's own style.
+      let layer='DIM', x1=null,y1=null,x2=null,y2=null, label='', block='';
+      let ex=0, ey=0, ez=1, elev=0;
+      i++;
+      while (i < tokens.length && tokens[i][0] !== 0) {
+        const [c, v] = tokens[i];
+        if (c === 8)   layer = v;
+        if (c === 2)   block = v;
+        if (c === 1)   label = v;
+        if (c === 13)  x1 = parseFloat(v)*S;
+        if (c === 23)  y1 = parseFloat(v)*S;
+        if (c === 14)  x2 = parseFloat(v)*S;
+        if (c === 24)  y2 = parseFloat(v)*S;
+        if (c === 30)  elev = parseFloat(v)*S;
+        if (c === 210) ex = parseFloat(v);
+        if (c === 220) ey = parseFloat(v);
+        if (c === 230) ez = parseFloat(v);
+        i++;
+      }
+      if (x1 != null && x2 != null && y1 != null && y2 != null) {
+        const d = { type:'DIM', layer, x1, y1, x2, y2,
+                    plane:_planeForOCS(ex,ey,ez,elev) };
+        // '<>' is the DXF convention for "use the measured value"
+        if (label && label !== '<>') d.label = label;
+        dims.push(d);
+      }
+      // the *D graphics block is skipped: KAD regenerates it on render
+      _dimBlocks.add(block);
       continue;
     }
 
@@ -10821,7 +11107,9 @@ function parseDXF(text) {
     planes.push({ id:g.planeId, label:'DXF elev ' + g.elev.toFixed(3),
                   origin:g.origin, xAxis:g.xAxis, yAxis:g.yAxis });
   }
-  return { lines, circles, arcs, scaleMM, rawInsUnits, planes, nonPlanarLines:_nonPlanarLines, layerDefs };
+  return { lines, circles, arcs, polys, texts, points, dims,
+           scaleMM, rawInsUnits, planes,
+           nonPlanarLines:_nonPlanarLines, layerDefs };
 }
 
 
@@ -10858,10 +11146,15 @@ function closeDxfDialog() {
 
 function openImportDialog(parsed, filename, kind) {
   const { lines, circles, arcs } = parsed;
+  const polys  = parsed.polys  || [];
+  const texts  = parsed.texts  || [];
+  const points = parsed.points || [];
+  const dims   = parsed.dims   || [];
   const totalSegs = lines.length + circles.length * 72 +
     arcs.reduce((n,a)=>{ let s=a.endA-a.startA; if(s<=0)s+=360; return n+Math.max(1,Math.round(72*s/360)); }, 0);
+  const totalEnts = totalSegs + polys.length + texts.length + points.length + dims.length;
 
-  if (totalSegs === 0) { showToast('No supported geometry in file'); return false; }
+  if (totalEnts === 0) { showToast('No supported geometry in file'); return false; }
 
   dxfDialog.parsed   = parsed;
   dxfDialog.filename = filename;
@@ -10870,7 +11163,12 @@ function openImportDialog(parsed, filename, kind) {
   document.getElementById('dlg-title').textContent =
     kind === 'dwg' ? 'Import DWG' : kind === 'nc1' ? 'Import NC1' : 'Import DXF';
   document.getElementById('dlg-filename').textContent     = filename;
-  document.getElementById('dlg-entity-count').textContent = totalSegs + ' segments';
+  document.getElementById('dlg-entity-count').textContent =
+    totalSegs + ' segments' +
+    (polys.length  ? ' \u00b7 ' + polys.length  + ' polyline'  + (polys.length>1?'s':'')  : '') +
+    (dims.length   ? ' \u00b7 ' + dims.length   + ' dimension' + (dims.length>1?'s':'')   : '') +
+    (texts.length  ? ' \u00b7 ' + texts.length  + ' text'                                  : '') +
+    (points.length ? ' \u00b7 ' + points.length + ' point'     + (points.length>1?'s':'') : '');
   document.getElementById('dlg-line-count').textContent   = lines.length;
   document.getElementById('dlg-circle-count').textContent = circles.length + (circles.length ? ' (→'+circles.length*72+' segs)' : '');
   document.getElementById('dlg-arc-count').textContent    = arcs.length;
@@ -10985,7 +11283,9 @@ function commitDxfImport() {
   if (mergeSel === 'replace') GeoMemory.clear();
 
   const seen = new Set();
-  for (const e of [...parsed.lines, ...parsed.circles, ...parsed.arcs]) {
+  for (const e of [...parsed.lines, ...parsed.circles, ...parsed.arcs,
+                   ...(parsed.polys||[]), ...(parsed.texts||[]),
+                   ...(parsed.points||[]), ...(parsed.dims||[])]) {
     if (e.layer) seen.add(e.layer);
   }
   const _defs = parsed.layerDefs || {};
@@ -11010,6 +11310,10 @@ function commitDxfImport() {
   }
 
   const { lines, circles, arcs } = parsed;
+  const polys  = parsed.polys  || [];
+  const texts  = parsed.texts  || [];
+  const points = parsed.points || [];
+  const dims   = parsed.dims   || [];
 
   const partEntityIds = (source === 'nc1' && parsed.ncParts) ? parsed.ncParts.map(() => []) : null;
 
@@ -11046,6 +11350,36 @@ function commitDxfImport() {
                      a.startA*Math.PI/180, a.endA*Math.PI/180, true,
                      a.layer || 'Layer_0');
     _setPlane(o, _pl(a));
+  }
+  for (const pl of polys) {
+    // Scale the vertices but NOT the bulge — bulge is tan(theta/4), a pure
+    // angle ratio, so it is already scale-invariant. Multiplying it here would
+    // silently distort every arc on a unit conversion.
+    const pts = pl.pts.map(p => {
+      const q = { x: parseFloat((p.x*S).toFixed(6)), y: parseFloat((p.y*S).toFixed(6)) };
+      if (p.b) q.b = p.b;
+      return q;
+    });
+    const o = GeoMemory.addPolyline(pts, pl.closed, pl.layer || 'Layer_0');
+    _setPlane(o, _pl(pl));
+    if (partEntityIds && pl._ncPart != null) partEntityIds[pl._ncPart].push(o.id);
+  }
+  for (const t of texts) {
+    const o = GeoMemory.addText(t.x*S, t.y*S, t.text, (t.height||5)*S, t.layer || 'Layer_0');
+    if (o) {
+      if (t.rotation) o.rotation = t.rotation;
+      if (t.halign)   o.halign   = t.halign;
+      _setPlane(o, _pl(t));
+    }
+  }
+  for (const p of points) {
+    const o = GeoMemory.addPoint(p.x*S, p.y*S, p.layer || 'Layer_0');
+    _setPlane(o, _pl(p));
+  }
+  for (const d of dims) {
+    if (!LAYERS[d.layer]) d.layer = 'DIM';
+    const o = GeoMemory.addDim(d.x1*S, d.y1*S, d.x2*S, d.y2*S, d.layer, d.label);
+    _setPlane(o, _pl(d));
   }
   if (Array.isArray(parsed.planes) && parsed.planes.length) {
     showToast('Imported on ' + (parsed.planes.length + 1) + ' planes \u00b7 ' +
@@ -12360,12 +12694,97 @@ async function importDWG(event) {
   if (!openImportDialog(parsed, file.name, 'dwg')) reset();
 }
 
+// KAD stores lineweight as a screen-ish float; DXF group 370 wants hundredths
+// of a mm snapped to the fixed ISO ladder, and rejects anything off it.
+const DXF_LW_LADDER = [0,5,9,13,15,18,20,25,30,35,40,50,53,60,70,80,90,
+                       100,106,120,140,158,200,211];
+function kadWeightToDxfLw(w) {
+  if (w == null || !isFinite(w)) return -1;          // -1 = ByLayer default
+  const target = Math.round(w * 10);                  // 2.0 -> 20 -> 0.20mm
+  let best = DXF_LW_LADDER[0], bd = Infinity;
+  for (const v of DXF_LW_LADDER) {
+    const d = Math.abs(v - target);
+    if (d < bd) { bd = d; best = v; }
+  }
+  return best;
+}
+function dxfLwToKadWeight(v) {
+  const n = parseInt(v, 10);
+  if (!isFinite(n) || n < 0) return null;             // ByLayer / ByBlock
+  return n / 10;
+}
+
+// Bounding box in world mm for any entity — used for $EXTMIN/$EXTMAX.
+function dxfEntityBBox(o) {
+  switch (o.type) {
+    case 'LINE':   return {minX:Math.min(o.x1,o.x2), maxX:Math.max(o.x1,o.x2),
+                           minY:Math.min(o.y1,o.y2), maxY:Math.max(o.y1,o.y2)};
+    case 'POINT':  return {minX:o.x, maxX:o.x, minY:o.y, maxY:o.y};
+    case 'TEXT':   return {minX:o.x, maxX:o.x+(String(o.text||'').length*(o.height||5)*0.6),
+                           minY:o.y, maxY:o.y+(o.height||5)};
+    case 'CIRCLE': return {minX:o.cx-o.r, maxX:o.cx+o.r, minY:o.cy-o.r, maxY:o.cy+o.r};
+    case 'ARC': {
+      const b = arcBBox(o.cx,o.cy,o.r,o.startA,o.endA,o.ccw);
+      return {minX:b.minX, maxX:b.maxX, minY:b.minY, maxY:b.maxY};
+    }
+    case 'POLYLINE': return polyBBox(o);
+    case 'DIM': {
+      const g = dimGeometry({x:o.x1,y:o.y1},{x:o.x2,y:o.y2});
+      const xs=[o.x1,o.x2,g.e1b.x,g.e2b.x], ys=[o.y1,o.y2,g.e1b.y,g.e2b.y];
+      return {minX:Math.min(...xs), maxX:Math.max(...xs),
+              minY:Math.min(...ys), maxY:Math.max(...ys)};
+    }
+    case 'HATCH': {
+      let mnx=Infinity,mny=Infinity,mxx=-Infinity,mxy=-Infinity;
+      for (const L of (o.loops||[])) for (const p of L) {
+        if(p.x<mnx)mnx=p.x; if(p.x>mxx)mxx=p.x; if(p.y<mny)mny=p.y; if(p.y>mxy)mxy=p.y;
+      }
+      return mnx===Infinity?null:{minX:mnx,maxX:mxx,minY:mny,maxY:mxy};
+    }
+    case 'BEZIER': {
+      let mnx=Infinity,mny=Infinity,mxx=-Infinity,mxy=-Infinity;
+      for (const b of (o.beziers||[])) for (const [px,py] of
+           [[b.x0,b.y0],[b.cx1,b.cy1],[b.cx2,b.cy2],[b.x3,b.y3]]) {
+        if(px<mnx)mnx=px; if(px>mxx)mxx=px; if(py<mny)mny=py; if(py>mxy)mxy=py;
+      }
+      return mnx===Infinity?null:{minX:mnx,maxX:mxx,minY:mny,maxY:mxy};
+    }
+  }
+  return null;
+}
+
 function buildDXF(objects, units) {
   const insunits = (units === 'in') ? '1' : '4';
   const cvt = (mm) => (units === 'in') ? mm / MM_PER_IN : mm;
   const f = n => cvt(n).toFixed(6);
   const lines=[];
-  lines.push('0','SECTION','2','HEADER','9','$ACADVER','1','AC1014','9','$INSUNITS','70',insunits,'0','ENDSEC');
+  // Drawing extents so an importer can zoom-extents on open, LTSCALE so dashed
+  // and center linetypes render at the right dash length, and the dimension
+  // variables so DIM entities regenerate with the same proportions we drew.
+  let _eMinX=Infinity,_eMinY=Infinity,_eMaxX=-Infinity,_eMaxY=-Infinity;
+  for (const o of objects) {
+    const bb = dxfEntityBBox(o);
+    if (!bb) continue;
+    if(bb.minX<_eMinX)_eMinX=bb.minX; if(bb.minY<_eMinY)_eMinY=bb.minY;
+    if(bb.maxX>_eMaxX)_eMaxX=bb.maxX; if(bb.maxY>_eMaxY)_eMaxY=bb.maxY;
+  }
+  const hasExt = _eMinX !== Infinity;
+  lines.push('0','SECTION','2','HEADER',
+    '9','$ACADVER','1','AC1014',
+    '9','$INSUNITS','70',insunits,
+    '9','$MEASUREMENT','70', (units === 'in') ? '0' : '1',
+    '9','$LTSCALE','40', f(1),
+    '9','$DIMSCALE','40','1.0',
+    '9','$DIMTXT','40', f(DIM_TXT),
+    '9','$DIMASZ','40', f(DIM_ARROW),
+    '9','$DIMEXE','40', f(DIM_EXT),
+    '9','$DIMEXO','40', f(DIM_GAP),
+    '9','$TEXTSTYLE','7','KAD');
+  if (hasExt) {
+    lines.push('9','$EXTMIN','10',f(_eMinX),'20',f(_eMinY),'30','0.0',
+               '9','$EXTMAX','10',f(_eMaxX),'20',f(_eMaxY),'30','0.0');
+  }
+  lines.push('0','ENDSEC');
   const DXF_LT = {
     continuous: { desc:'Solid line',        pattern:[] },
     dashed:     { desc:'Dashed __ __ __',   pattern:[0.5,-0.25] },
@@ -12406,9 +12825,42 @@ function buildDXF(objects, units) {
     const aci = hexToACI(lay.color);
     lines.push('0','LAYER','2',lay.name,'70', lay.locked ? '4' : '0',
                '62', String(lay.visible === false ? -aci : aci),
-               '6', (DXF_LT[lay.ltype] ? lay.ltype : 'continuous').toUpperCase());
+               '6', (DXF_LT[lay.ltype] ? lay.ltype : 'continuous').toUpperCase(),
+               // 370 is lineweight in 1/100 mm. Without it the whole line-weight
+               // hierarchy — heavy outline, light hidden, lightest dimension —
+               // was being thrown away on every export.
+               '370', String(kadWeightToDxfLw(lay.weight)));
   }
+  lines.push('0','ENDTAB');
+
+  // TEXT entities referenced a style that was never defined. Declare it.
+  lines.push('0','TABLE','2','STYLE','70','1',
+             '0','STYLE','2','KAD','70','0','40','0.0','41','1.0','50','0.0',
+             '71','0','42', f(DIM_TXT), '3','txt','4','');
+  lines.push('0','ENDTAB');
+
+  // A dimension style, so DIMENSION entities have proportions to regenerate
+  // from rather than inheriting whatever the receiving app defaults to.
+  lines.push('0','TABLE','2','DIMSTYLE','70','1',
+             '0','DIMSTYLE','2','KAD','70','0',
+             '40','1.0',              // DIMSCALE
+             '41', f(DIM_ARROW),      // DIMASZ  arrow size
+             '42', f(DIM_GAP),        // DIMEXO  extension line offset
+             '44', f(DIM_EXT),        // DIMEXE  extension line extend
+             '140', f(DIM_TXT),       // DIMTXT  text height
+             '147', f(1),             // DIMGAP  text gap
+             '172','1',               // DIMTOFL force line inside extensions
+             '271', String(unitMode === 'in' ? 3 : 2),  // DIMDEC decimals
+             '340','KAD');            // text style
   lines.push('0','ENDTAB','0','ENDSEC');
+
+  const _ocsNormal = (o) => {
+    const pid = storedPlaneOf(o);
+    const P = (pid === 'World') ? null : PLANES[pid];
+    if (!P) return ['210','0.0','220','0.0','230','1.0'];
+    const N = planeNormal(P);
+    return ['210', f(N.x), '220', f(N.y), '230', f(N.z)];
+  };
 
   const _ocsFor = (o) => {
     const pid = storedPlaneOf(o);
@@ -12421,6 +12873,53 @@ function buildDXF(objects, units) {
     if (Math.abs(elev) > 1e-12) out.push('38', f(elev));
     return out;
   };
+
+  // ── BLOCKS ──────────────────────────────────────────────────────────────
+  const _dims = objects.filter(o => o.type === 'DIM');
+  const _dimBlockName = new Map();
+  lines.push('0','SECTION','2','BLOCKS');
+  // R14 expects the two model/paper space block records to exist.
+  for (const bn of ['*Model_Space','*Paper_Space']) {
+    lines.push('0','BLOCK','8','0','2',bn,'70','0',
+               '10','0.0','20','0.0','30','0.0','3',bn,'1','',
+               '0','ENDBLK','8','0');
+  }
+  _dims.forEach((o, idx) => {
+    const name = '*D' + (idx + 1);
+    _dimBlockName.set(o.id, name);
+    const g = dimGeometry({x:o.x1,y:o.y1},{x:o.x2,y:o.y2});
+    lines.push('0','BLOCK','8',o.layer,'2',name,'70','1',
+               '10','0.0','20','0.0','30','0.0','3',name,'1','');
+    // extension lines
+    lines.push('0','LINE','8',o.layer,'10',f(g.e1a.x),'20',f(g.e1a.y),'30','0.0',
+                                       '11',f(g.e1b.x),'21',f(g.e1b.y),'31','0.0');
+    lines.push('0','LINE','8',o.layer,'10',f(g.e2a.x),'20',f(g.e2a.y),'30','0.0',
+                                       '11',f(g.e2b.x),'21',f(g.e2b.y),'31','0.0');
+    // dimension line
+    lines.push('0','LINE','8',o.layer,'10',f(g.d1.x),'20',f(g.d1.y),'30','0.0',
+                                       '11',f(g.d2.x),'21',f(g.d2.y),'31','0.0');
+    // arrowheads as filled SOLIDs, pointing outward at each end
+    const ux = Math.cos(g.ang), uy = Math.sin(g.ang);
+    const px = Math.cos(g.perp), py = Math.sin(g.perp);
+    const AW = DIM_ARROW / 3;
+    for (const [tip, dir] of [[g.d1, 1], [g.d2, -1]]) {
+      const bx = tip.x + dir*ux*DIM_ARROW, by = tip.y + dir*uy*DIM_ARROW;
+      lines.push('0','SOLID','8',o.layer,
+        '10',f(tip.x),        '20',f(tip.y),        '30','0.0',
+        '11',f(bx + px*AW),   '21',f(by + py*AW),   '31','0.0',
+        '12',f(bx - px*AW),   '22',f(by - py*AW),   '32','0.0',
+        '13',f(bx - px*AW),   '23',f(by - py*AW),   '33','0.0');
+    }
+    // the measurement text, centred on the dimension line
+    lines.push('0','TEXT','8',o.layer,
+      '10',f(g.mid.x),'20',f(g.mid.y),'30','0.0',
+      '40',f(DIM_TXT),'1',String(o.label || g.label),
+      '50',(g.textAng*180/Math.PI).toFixed(6),
+      '7','KAD','72','1','73','2',
+      '11',f(g.mid.x),'21',f(g.mid.y),'31','0.0');
+    lines.push('0','ENDBLK','8',o.layer);
+  });
+  lines.push('0','ENDSEC');
 
   lines.push('0','SECTION','2','ENTITIES');
   for(const o of objects){
@@ -12435,7 +12934,7 @@ function buildDXF(objects, units) {
       const ordered = hatchOrderLoops(o.loops);
       lines.push('0','HATCH','8',o.layer,
         '10','0.0','20','0.0','30','0.0',          // elevation point
-        '210','0.0','220','0.0','230','1.0',       // extrusion, +Z
+        ...(_ocsNormal(o)),                        // extrusion from the UCS
         '2', o.pattern,
         '70', solid,
         '71','0',                                   // non-associative — see addHatch()
@@ -12469,12 +12968,18 @@ function buildDXF(objects, units) {
         '90',String(o.pts.length),  // vertex count
         '70',o.closed?'1':'0',      // closed flag
         '43','0.0');                 // constant width
-      for(const p of o.pts){ lines.push('10',f(p.x),'20',f(p.y)); }
+      for(const p of o.pts){
+        lines.push('10',f(p.x),'20',f(p.y));
+        // 42 is the bulge for the segment STARTING at this vertex. Omitted
+        // when zero, exactly as AutoCAD writes it.
+        if(p.b) lines.push('42', (+p.b).toFixed(8));
+      }
+      lines.push(..._ocsFor(o));
     }
     if(o.type==='BEZIER' && o.beziers && o.beziers.length>=1){
       for(const b of o.beziers){
         lines.push('0','SPLINE','8',o.layer,
-          '210','0.0','220','0.0','230','1.0',  // planar, normal +Z
+          ...(_ocsNormal(o)),                   // planar, normal from the UCS
           '70','8',    // flags: bit 3 (8) = planar
           '71','3',    // degree
           '72','8',    // knot count
@@ -12503,19 +13008,39 @@ function buildDXF(objects, units) {
       const s = o.ccw ? o.startA : o.endA;
       const e = o.ccw ? o.endA   : o.startA;
       lines.push('0','ARC','8',o.layer,'10',f(o.cx),'20',f(o.cy),'30','0.0000',
-                 '40',f(o.r),'50',deg(s),'51',deg(e));
+                 '40',f(o.r),'50',deg(s),'51',deg(e), ..._ocsFor(o));
       }
     }
-    if(o.type==='TEXT')
+    if(o.type==='DIM'){
+      const g = dimGeometry({x:o.x1,y:o.y1},{x:o.x2,y:o.y2});
+      lines.push('0','DIMENSION','8',o.layer,
+        '2', _dimBlockName.get(o.id) || '*D1',   // the graphics block above
+        '10',f(g.d1.x),'20',f(g.d1.y),'30','0.0',   // dimension line location
+        '11',f(g.mid.x),'21',f(g.mid.y),'31','0.0', // text midpoint
+        '70','33',      // 1 = aligned, +32 = block is anonymous/generated
+        '1', String(o.label || g.label),  // text override: what KAD actually shows
+        '13',f(o.x1),'23',f(o.y1),'33','0.0',       // first extension origin
+        '14',f(o.x2),'24',f(o.y2),'34','0.0',       // second extension origin
+        '3','KAD',      // dimension style
+        ..._ocsFor(o));
+    }
+    if(o.type==='TEXT'){
       lines.push('0','TEXT','8',o.layer,'10',f(o.x),'20',f(o.y),'30','0.0000',
-                 '40',f(o.height||5),'1',String(o.text==null?'':o.text));
+                 '40',f(o.height||5),'1',String(o.text==null?'':o.text),
+                 '50',(o.rotation||0).toFixed(6),   // was unrepresentable before
+                 '7','KAD');                         // style now actually exists
+      if(o.halign) lines.push('72',String(o.halign),'11',f(o.x),'21',f(o.y),'31','0.0000');
+      lines.push(..._ocsFor(o));
+    }
   }
   lines.push('0','ENDSEC','0','EOF');
   return lines.join('\n');
 }
 
 function dxfSkippedCount(objects) {
-  return objects.filter(o => o.type === 'DIM').length;
+  // DIM used to be counted here because it was silently dropped. Every entity
+  // type KAD can create now has a DXF representation.
+  return 0;
 }
 
 let mirrorAxis = 'h'; // 'h' | 'v' | 'line'
@@ -13071,9 +13596,7 @@ function exportDXF() {
   downloadText(buildDXF(objs, unitMode), docBaseName() + '.dxf', 'text/plain')
     .then(n => {
       if (!n) return;
-      showToast(skipped
-        ? `Exported ${n} \u00b7 ${objs.length - skipped} entities (${unitMode}) \u00b7 ${skipped} dimension${skipped>1?'s':''} not supported by DXF`
-        : `Exported ${n} \u00b7 ${objs.length} entities (${unitMode})`);
+      showToast(`Exported ${n} \u00b7 ${objs.length} entities (${unitMode})`);
     });
 }
 
