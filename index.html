@@ -1818,7 +1818,42 @@ body.kanvas-mode #app {
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 #angle-lock-toggle svg { width: 15px; height: 15px; flex-shrink: 0; }
+
+/* The top bar's unit chip scrolls out of reach on a narrow screen, so the
+   unit shown beside the live coordinates doubles as the switch. */
+.coord-unit-tap {
+  cursor: pointer;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.coord-unit-tap:hover { border-color: var(--border-hi); color: var(--t1); }
+
 .mobile-mode #angle-lock-toggle { display: flex; }
+
+#settings-toggle {
+  display: none;
+  position: fixed;
+  top:   calc(var(--fab-rail-top) + var(--lock-h) + 8px);
+  right: calc(10px + env(safe-area-inset-right, 0px));
+  z-index: 210;
+  align-items: center;
+  gap: 6px;
+  height: var(--lock-h);
+  padding: 0 12px;
+  border-radius: 18px;
+  background: var(--panel);
+  border: 1px solid var(--border-hi);
+  color: var(--t2);
+  font-family: var(--fu);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+  cursor: pointer;
+}
+#settings-toggle svg { width: 15px; height: 15px; flex-shrink: 0; }
+.mobile-mode #settings-toggle { display: flex; }
 #angle-lock-toggle.active {
   background: var(--accent-glow);
   border-color: var(--accent);
@@ -1852,7 +1887,7 @@ body.kanvas-mode #app {
    state chip, GRID is in the grid menu — so their width goes to the toggles. */
 .mobile-mode .sb-readout { display: none; }
 
-/* Whatever else scrolls out of reach, the way into Drafting Modes stays put. */
+/* Whatever else scrolls out of reach, the way into Drafting Settings stays put. */
 .mobile-mode .sb-modes {
   position: sticky;
   left: 0;
@@ -1890,7 +1925,18 @@ body.kanvas-mode #app {
 .mobile-mode .tb-menu-item { padding: 0 7px; font-size: 13px; }
 .mobile-mode .tb-right { gap: 4px; flex-shrink: 0; }
 .mobile-mode .tb-badge { font-size:10px; padding:1px 5px; margin:0; flex-shrink:0; }
-.mobile-mode .tb-aux-btn .t-label { display: none; }  
+.mobile-mode .tb-aux-btn .t-label { display: none; }
+
+/* Aux controls (layout, grid, theme, crosshair, units) overflowed the right
+   edge with no way to reach them. */
+.mobile-mode .tb-right {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  min-width: 0;
+}
+.mobile-mode .tb-right::-webkit-scrollbar { display: none; }  
 .mobile-mode .brand,
 .mobile-mode #topbar > .tb-sep { display: none; }
 
@@ -2162,9 +2208,9 @@ body.kanvas-mode #app {
         <div class="tb-dd-item" onclick="zoomExtents();closeMenus()">Zoom Extents<span class="dd-key">Z</span></div>
         <div class="tb-dd-item" onclick="initCamera();render();closeMenus()">Reset View<span class="dd-key">Home</span></div>
         <div class="tb-dd-sep"></div>
+        <div class="tb-dd-item" onclick="openSnapSettings();closeMenus()">Drafting Settings&#8230;</div>
         <div class="tb-dd-item" onclick="toggleGrid();closeMenus()">Toggle Grid<span class="dd-key">G</span></div>
         <div class="tb-dd-item" onclick="toggleSnap();closeMenus()">Toggle Snap<span class="dd-key">F3</span></div>
-        <div class="tb-dd-item" onclick="openSnapSettings();closeMenus()">Snap Settings&#8230;</div>
         <div class="tb-dd-item" onclick="startM2P();closeMenus()">Mid Between 2 Points<span class="dd-key">M2P</span></div>
         <div class="tb-dd-item" onclick="toggleOrtho();closeMenus()">Toggle Ortho<span class="dd-key">F8</span></div>
         <div class="tb-dd-item" onclick="toggleGridSnap();closeMenus()">Snap to Grid<span class="dd-key">F9</span></div>
@@ -2507,7 +2553,7 @@ body.kanvas-mode #app {
   <div id="coord-overlay">
     <span><span class="coord-label">X </span><span id="cx">0.0000</span></span>
     <span><span class="coord-label">Y </span><span id="cy">0.0000</span></span>
-    <span class="coord-label" id="coord-unit-lbl">mm</span>
+    <span class="coord-label coord-unit-tap" id="coord-unit-lbl" title="Units \u2014 tap to switch mm / in" onclick="toggleUnits()">mm</span>
     <span id="draw-layer-chip" title="Drawing layer — tap to change" onclick="toggleLayerDropdown(event)">SOLID</span>
     <span id="hover-src" style="color:var(--green);font-size:11px;"></span>
   </div>
@@ -2947,6 +2993,11 @@ body.kanvas-mode #app {
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
 </button>
 
+<button id="settings-toggle" onclick="openSnapSettings()" aria-label="Drafting settings" title="Drafting settings and running snaps">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><circle cx="14" cy="6" r="2.4" fill="currentColor"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="9" cy="12" r="2.4" fill="currentColor"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="16" cy="18" r="2.4" fill="currentColor"/></svg>
+  <span>SETTINGS</span>
+</button>
+
 <button id="angle-lock-toggle" onclick="toggleAngleLockTouch()" aria-label="Toggle polar lock" title="Polar lock">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 L4 8 L16 8"/><path d="M4 8 L18 20"/></svg>
   <span id="angle-lock-label">POLAR</span>
@@ -2969,7 +3020,7 @@ body.kanvas-mode #app {
   <div class="sb-item sb-readout"><span>MODE</span><span class="sb-val act" id="sb-mode">READY</span></div>
   <div class="sb-item sb-toggle" onclick="planView()" title="Orbited views can't be drawn in \u2014 click to return to plan"><span>VIEW</span><span class="sb-val ok" id="orbit-label">PLAN</span></div>
   <div class="sb-item sb-toggle" onclick="toggleSnap()" title="Object snap (F3)"><span>OSNAP</span><span class="sb-val ok" id="sb-snap">ON</span></div>
-  <div class="sb-item sb-toggle sb-modes" onclick="openSnapSettings()" title="Drafting modes and running snaps"><span>MODES</span><span class="sb-val act" id="sb-osnap-count">11/14</span></div>
+  <div class="sb-item sb-toggle sb-modes" onclick="openSnapSettings()" title="Drafting settings and running snaps"><span>SETTINGS</span><span class="sb-val act" id="sb-osnap-count">11/14</span></div>
   <div class="sb-item sb-toggle" onclick="toggleOrtho()" title="Ortho \u2014 lock to 0\u00b0/90\u00b0 (F8)"><span>ORTHO</span><span class="sb-val" id="sb-ortho">OFF</span></div>
   <div class="sb-item sb-toggle" onclick="togglePolar()" title="Polar tracking (F10)"><span>POLAR</span><span class="sb-val" id="sb-polar">OFF</span></div>
   <div class="sb-item sb-toggle" onclick="toggleGridSnap()" title="Snap to grid (F9)"><span>GSNAP</span><span class="sb-val" id="sb-gsnap">OFF</span></div>
@@ -3217,7 +3268,7 @@ body.kanvas-mode #app {
 <div id="osnap-overlay">
   <div id="osnap-dialog">
     <div class="dlg-head">
-      <span class="dlg-title">Drafting Modes</span>
+      <span class="dlg-title">Drafting Settings</span>
       <button class="dlg-close" onclick="closeSnapSettings()">&times;</button>
     </div>
     <div class="dlg-body">
@@ -3672,10 +3723,12 @@ const KAD_CHANGELOG = [
       {
         label: 'Interface',
         items: [
-          'Drafting mode toggles (osnap, ortho, polar, grid snap, otrack) now live in the Snap Settings dialog, renamed Drafting Modes — previously they were only clickable on Classic\'s bottom rail or a wide status bar, leaving them unreachable on a phone in Touch or Compact',
-          'MODES stays pinned to the left of the status bar on mobile, so the way into that dialog never scrolls out of reach',
-          'The mobile status bar scrolls horizontally again — it was set to hidden overflow, which cut off every toggle past the screen edge',
-          'MODE and GRID readouts are hidden on mobile, freeing their width for the toggles; both are already shown in the command bar and grid menu',
+          'Drafting mode toggles (osnap, ortho, polar, grid snap, otrack) now live in one dialog, Drafting Settings (previously Snap Settings) — earlier they were only clickable on Classic\'s bottom rail or a status bar that a phone can\'t reach',
+          'A floating SETTINGS button on mobile opens Drafting Settings directly, next to the existing POLAR button',
+          'The unit shown beside the live coordinates switches mm / in when tapped',
+          'The top bar\'s aux controls (layout, grid, theme, crosshair, units) scroll horizontally on mobile instead of running off the right edge',
+          'The status bar itself scrolls horizontally again and no longer shows its two read-only fields on mobile, freeing room for the toggles it holds on wider screens',
+          'View menu now lists Drafting Settings at the top of its drafting group, replacing the old Snap Settings entry',
         ],
       },
     ],
@@ -6002,9 +6055,9 @@ function togglePolar() {
   render();
 }
 
-// The five drafting modes live on Classic's bottom rail and in the status bar,
-// neither of which a phone can reach in Touch or Compact. This dialog is the
-// one place all of them are reachable in every layout.
+// The five drafting toggles live on Classic's bottom rail and in the status
+// bar, neither of which a phone can reach in Touch or Compact. Drafting
+// Settings is the one place all of them are reachable in every layout.
 const DRAFT_MODE_ROWS = [
   {label:'Object snap',          key:'F3',  on:() => snapEnabled, act:() => toggleSnap()},
   {label:'Ortho',                key:'F8',  on:() => orthoMode,   act:() => toggleOrtho()},
