@@ -2173,6 +2173,7 @@ body.kanvas-mode #app {
         <div class="tb-dd-item" onclick="setTool('offset');closeMenus()">Offset Tool<span class="dd-key">O</span></div>
         <div class="tb-dd-item" onclick="setTool('mirror');closeMenus()">Mirror Tool<span class="dd-key">M</span></div>
         <div class="tb-dd-item" onclick="setTool('dim');closeMenus()">Dimension Tool<span class="dd-key">D</span></div>
+        <div class="tb-dd-item" onclick="setTool('measure');closeMenus()">Measure<span class="dd-key">ME</span></div>
         <div class="tb-dd-sep"></div>
         <div class="tb-dd-item" onclick="showCoordHelp();closeMenus()">Coordinate Help<span class="dd-key">?</span></div>
         <div class="tb-dd-item" onclick="openChangelog();closeMenus()">See Updates</div>
@@ -18021,8 +18022,9 @@ const KOMMANDS = {
   'OFFSET':  () => setTool('offset'),
   'M':       () => setTool('mirror'),
   'MIRROR':  () => setTool('mirror'),
-  'MEASURE': () => setTool('dim'),   // MEASURE is an alias — Dimension is the tool
-  'DIMENSION': () => setTool('dim'),
+  'ME':      () => setTool('measure'),   // inspection: reads out, never commits
+  'MEASURE': () => setTool('measure'),
+  'DIMENSION': () => setTool('dim'),     // D / DIM already live in POLY_KOMMANDS
   'TR':      () => setTool('trim'),
   'TRIM':    () => setTool('trim'),
   'EXTEND':  () => setTool('extend'),
@@ -18529,6 +18531,8 @@ const TOOLS = [
    icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="3" x2="12" y2="21" stroke-dasharray="2 2"/><polyline points="3,7 9,12 3,17"/><polyline points="21,7 15,12 21,17"/></svg>'},
   {id:'dim', label:'DIM', tip:'Dimension', key:'D', group:'modify', w:1, act:"setTool('dim')",
    icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="3" y1="17" x2="21" y2="17"/><line x1="3" y1="14" x2="3" y2="20"/><line x1="21" y1="14" x2="21" y2="20"/><line x1="8" y1="12" x2="8" y2="17"/><line x1="16" y1="12" x2="16" y2="17"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="10" y1="5" x2="8" y2="7"/><line x1="10" y1="9" x2="8" y2="7"/><line x1="14" y1="5" x2="16" y2="7"/><line x1="14" y1="9" x2="16" y2="7"/></svg>'},
+  {id:'measure', label:'MEASURE', tip:'Measure (no object created)', key:'M E', group:'modify', w:1, act:"setTool('measure')",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 12h20"/><path d="M5 9v6M12 9v6M19 9v6"/></svg>'},
   {id:'trim', label:'TRIM', tip:'Trim', key:'Q', group:'modify', w:2, act:"setTool('trim')",
    icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="4" y1="12" x2="20" y2="12"/><line x1="12" y1="4" x2="12" y2="10"/><line x1="12" y1="14" x2="12" y2="20" stroke-dasharray="2 2" opacity="0.4"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg>'},
   {id:'extend', label:'EXTEND', tip:'Extend', key:'E', group:'modify', w:1, act:"setTool('extend')",
