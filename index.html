@@ -4612,7 +4612,12 @@ const GeoMemory = {
   addPolyline(pts, closed=false, layer='Layer_0') {
     if (pts.length < 2) return null;
     const o={id:this.nextId++, type:'POLYLINE', layer, closed,
-             pts: pts.map(p=>({x:parseFloat(p.x.toFixed(6)), y:parseFloat(p.y.toFixed(6))}))};
+             pts: pts.map(p=>{
+               const q={x:parseFloat(p.x.toFixed(6)), y:parseFloat(p.y.toFixed(6))};
+               // bulge is a ratio, not a length — carried through untouched
+               if (p.b) q.b = parseFloat((+p.b).toFixed(8));
+               return q;
+             })};
     this.objects.push(_stampPlane(o)); commitDocumentChange(); return o;
   },
   addBezierPath(beziers, closed=false, layer='Layer_0') {
@@ -5558,7 +5563,65 @@ let shiftLockActive = false;
 let shiftLockAngle  = 0;
 let polarRayAnchor  = null;
 let angleSnapDeg    = 15;  // 5 | 15 | 0(free)
-let lineChain = []; // [{x,y}, ...] — vertices in order
+let lineChain = []; // [{x,y,b}, ...] — vertices in order; b = bulge of the
+                    // segment LEAVING that vertex (see bulgeArc)
+// AutoCAD's PLINE has an Arc sub-option; this is the same idea. While armed,
+// the next click closes an arc segment instead of a straight one. The bulge is
+// derived from where the cursor is, so you drag the curve rather than typing a
+// radius.
+let plineArcMode = false;
+
+// Where the previewed arc bows. Tangent continuity with the previous segment
+// is what a drafter expects from PLINE's arc mode, so the bow follows the
+// incoming direction rather than being an arbitrary handle.
+function plineArcThrough(from, to) {
+  const mx = (from.x + to.x) / 2, my = (from.y + to.y) / 2;
+  const dx = to.x - from.x, dy = to.y - from.y;
+  const L = Math.hypot(dx, dy);
+  if (L < 1e-9) return { x: mx, y: my };
+  // direction of the segment arriving at `from`, if there is one
+  let tx = dx / L, ty = dy / L;
+  const n = lineChain.length;
+  if (n >= 2) {
+    const p0 = lineChain[n - 2];
+    const ax = from.x - p0.x, ay = from.y - p0.y;
+    const AL = Math.hypot(ax, ay);
+    if (AL > 1e-9) { tx = ax / AL; ty = ay / AL; }
+  }
+  // phi = signed angle from the incoming tangent to the chord. For an arc
+  // leaving `from` along that tangent the included angle is 2*phi, which makes
+  // the sagitta (L/2)*tan(phi/2).
+  const cross = tx * (dy / L) - ty * (dx / L);
+  const dot   = tx * (dx / L) + ty * (dy / L);
+  const phi   = Math.atan2(cross, dot);
+  const sag   = (L / 2) * Math.tan(phi / 2);
+  // Right normal, not left: when the chord turns left off the tangent the arc
+  // starts on the chord's right and bows back. Using the left normal here
+  // mirrored every arc about its chord.
+  const nx = dy / L, ny = -dx / L;
+  return { x: mx + nx * sag, y: my + ny * sag };
+}
+
+function togglePlineArc() {
+  if (activeTool !== 'line') { showToast('Arc mode applies to the polyline tool'); return; }
+  plineArcMode = !plineArcMode;
+  showToast(plineArcMode ? 'Polyline: ARC segments' : 'Polyline: LINE segments');
+  refreshHint();
+  render();
+}
+
+// The bulge that makes an arc leave `from`, pass through `thru`, and land on
+// `to`. Used both for the live preview and for the committed vertex.
+function bulgeThrough(from, thru, to) {
+  const cc = circumscribedCircle(from, thru, to);
+  if (!cc) return 0;
+  const a1 = Math.atan2(from.y - cc.cy, from.x - cc.cx);
+  const a2 = Math.atan2(to.y   - cc.cy, to.x   - cc.cx);
+  const am = Math.atan2(thru.y - cc.cy, thru.x - cc.cx);
+  // whichever direction actually contains the through-point
+  const ccw = angleOnArc(am, a1, a2, true);
+  return arcToBulge(a1, a2, ccw);
+}
 
 let rectState = { active:false, x1:0, y1:0 };
 
@@ -6359,7 +6422,8 @@ function commitLineChain(closed) {
     lineChain = [];
     render(); return;
   }
-  if(lineChain.length === 2 && !closed) {
+  const _anyBulge = lineChain.some(p => p.b);
+  if(lineChain.length === 2 && !closed && !_anyBulge) {
     GeoMemory.addLine(lineChain[0].x, lineChain[0].y, lineChain[1].x, lineChain[1].y, activeLayer||'Layer_0');
     showToast('Line segment committed');
   } else {
@@ -7444,6 +7508,41 @@ function repeatLastCommand() {
 // No 'select' entry: idle has no button to light up.
 const btnMap={pline:'btn-pline',line:'btn-line',rect:'btn-rect',polygon:'btn-polygon',offset:'btn-offset',rotate:'btn-rotate',circle:'btn-circle',arc:'btn-arc',kompass:'btn-kompass',fillet:'btn-fillet',chamfer:'btn-chamfer',mirror:'btn-mirror',dim:'btn-dim',trim:'btn-trim',extend:'btn-extend',break:'btn-break',scale:'btn-scale',stretch:'btn-stretch',text:'btn-text',hatch:'btn-hatch'};
 
+const HINTS = {
+    select:  '<span>Click</span> to select · click empty space then <span>click</span> again for a window · L→R window, R→L crossing · <span>Space</span> repeats last command',
+    lineArc: '<span>A</span> back to line segments \u00b7 <span>Click</span> to land the arc \u00b7 <span>Enter</span> commit \u00b7 <span>Esc</span> cancel',
+    line:    '<span>Click</span> start → end · Type coords · <span>Enter</span> commits · <span>Esc</span> cancel',
+    arc:     '<span>Click</span> pt1 → pt2 → pt3 for 3-point arc · <span>Esc</span> cancel',
+    circle:  '<span>Click</span> center → <span>click</span> radius',
+    kompass: '<span>Click</span> pivot → set span (or type <span>R</span>) → <span>click</span> to lock → swing → <span>Enter</span> commits',
+    fillet:  '<span>Click</span> first line → <span>click</span> second line · Radius in sidebar',
+    chamfer: '<span>Click</span> first line → <span>click</span> second line · Distance in sidebar',
+    rect:    '<span>Click</span> corner → <span>click</span> opposite corner',
+    polygon: '<span>Click</span> center → <span>click</span> to set radius & rotation',
+    offset:  '<span>Click</span> a line → move cursor to side → <span>click</span> to commit',
+    rotate:  'Drag box to select · <span>Click</span> canvas to set angle · Drag <span>pivot ⊕</span> to reposition it · <span>Q/E</span> ±90° · sidebar for precision',
+    mirror:  'Select objects first (<span>S</span>) · Choose axis in sidebar · <span>Apply</span> to mirror. For 2-Pt axis: click two points on canvas.',
+    measure: '<span>Click</span> first point → <span>click</span> second point — distance and angle shown in sidebar',
+    hatch:   '<span>Click</span> a closed shape to fill it · Shift+click adds an island · Or select shapes and press <span>Fill</span>',
+    trim:    'Select cutting edges first · hover the piece to remove · <span>Click</span> to trim',
+    extend:  'Select boundary edges first · hover the end to lengthen · <span>Click</span> to extend',
+    break:   '<span>Click</span> a line → <span>click</span> a second point to remove the span between',
+    stretch: 'Hover a line endpoint or polyline vertex → <span>drag</span> it to a new position',
+    text:    '<span>Click</span> to place · type the text · <span>Enter</span> commits · <span>Esc</span> cancel',
+    dim:     '<span>Click</span> first point → <span>click</span> second · chains from the last point · <span>Esc</span> cancel',
+    scale:   'Select objects, then type <span>SC</span> in the command bar to set a scale factor',
+};
+
+// One place decides the hint line, so the polyline arc toggle can refresh it
+// without duplicating the table.
+function refreshHint(tool) {
+  const t = tool || activeTool;
+  const el = document.getElementById('hint');
+  if (!el) return;
+  const key = (t === 'line' && plineArcMode) ? 'lineArc' : t;
+  el.innerHTML = HINTS[key] || '';
+}
+
 function setTool(tool) {
   cancelTool();
   kommandClear();
@@ -7474,6 +7573,7 @@ function setTool(tool) {
   if (ctxBtn) ctxBtn.classList.toggle('active', requested !== 'select');
 
   document.getElementById('sb-mode').textContent = modeLabel;
+  if (tool !== 'line') plineArcMode = false;   // arc mode is polyline-only
 
   document.getElementById('offset-bar').style.display  = tool==='offset'?'flex':'none';
   document.getElementById('poly-bar').style.display    = tool==='polygon'?'flex':'none';
@@ -7488,30 +7588,7 @@ function setTool(tool) {
   const rotateBar = document.getElementById('rotate-bar');
   if (tool === 'rotate') rotateBar.classList.add('visible');
 
-  const hintMap = {
-    select:  '<span>Click</span> to select · click empty space then <span>click</span> again for a window · L→R window, R→L crossing · <span>Space</span> repeats last command',
-    line:    '<span>Click</span> start → end · Type coords · <span>Enter</span> commits · <span>Esc</span> cancel',
-    arc:     '<span>Click</span> pt1 → pt2 → pt3 for 3-point arc · <span>Esc</span> cancel',
-    circle:  '<span>Click</span> center → <span>click</span> radius',
-    kompass: '<span>Click</span> pivot → set span (or type <span>R</span>) → <span>click</span> to lock → swing → <span>Enter</span> commits',
-    fillet:  '<span>Click</span> first line → <span>click</span> second line · Radius in sidebar',
-    chamfer: '<span>Click</span> first line → <span>click</span> second line · Distance in sidebar',
-    rect:    '<span>Click</span> corner → <span>click</span> opposite corner',
-    polygon: '<span>Click</span> center → <span>click</span> to set radius & rotation',
-    offset:  '<span>Click</span> a line → move cursor to side → <span>click</span> to commit',
-    rotate:  'Drag box to select · <span>Click</span> canvas to set angle · Drag <span>pivot ⊕</span> to reposition it · <span>Q/E</span> ±90° · sidebar for precision',
-    mirror:  'Select objects first (<span>S</span>) · Choose axis in sidebar · <span>Apply</span> to mirror. For 2-Pt axis: click two points on canvas.',
-    measure: '<span>Click</span> first point → <span>click</span> second point — distance and angle shown in sidebar',
-    hatch:   '<span>Click</span> a closed shape to fill it · Shift+click adds an island · Or select shapes and press <span>Fill</span>',
-    trim:    'Select cutting edges first · hover the piece to remove · <span>Click</span> to trim',
-    extend:  'Select boundary edges first · hover the end to lengthen · <span>Click</span> to extend',
-    break:   '<span>Click</span> a line → <span>click</span> a second point to remove the span between',
-    stretch: 'Hover a line endpoint or polyline vertex → <span>drag</span> it to a new position',
-    text:    '<span>Click</span> to place · type the text · <span>Enter</span> commits · <span>Esc</span> cancel',
-    dim:     '<span>Click</span> first point → <span>click</span> second · chains from the last point · <span>Esc</span> cancel',
-    scale:   'Select objects, then type <span>SC</span> in the command bar to set a scale factor',
-  };
-  document.getElementById('hint').innerHTML = hintMap[tool]||'';
+  refreshHint(tool);
 
   const SIDEBAR_ESSENTIAL_TOOLS = ['fillet','chamfer','offset','arc','polygon','mirror','measure','hatch'];
   if (document.body.classList.contains('mobile-mode') && !SIDEBAR_ESSENTIAL_TOOLS.includes(tool)) toggleMobileSidebar(false);
@@ -8256,6 +8333,15 @@ function onMouseDown(e) {
           render(); return;
         }
 
+        if (plineArcMode && lineChain.length) {
+          // The pending vertex owns the bulge of the segment it starts. The
+          // cursor doubles as the through-point, so the arc you saw previewed
+          // is exactly the arc you get.
+          const prev = lineChain[lineChain.length - 1];
+          const thru = plineArcThrough(prev, {x:wp.x, y:wp.y});
+          const b = bulgeThrough(prev, thru, {x:wp.x, y:wp.y});
+          if (b) prev.b = b;
+        }
         lineChain.push({x:wp.x, y:wp.y});
         resetDynBox();
 
@@ -8768,7 +8854,12 @@ function onKeyDown(e) {
       window._plSeqAt = 0;
     }
     if(k==='p'||k==='P'){ setTool('polygon'); window._plSeqAt = now; }
-    if(k==='a'||k==='A') setTool('arc');
+    // A means Arc everywhere: inside a running polyline it switches the next
+    // segment to an arc, exactly as PLINE's Arc sub-option does.
+    if(k==='a'||k==='A'){
+      if(activeTool==='line' && lineChain.length) togglePlineArc();
+      else setTool('arc');
+    }
     if(k==='c'||k==='C') setTool('circle');
     if(k==='v'||k==='V') setTool('kompass');   // V = Kompass (K is taken by KOMMAND focus)
     if(k==='f'||k==='F') setTool('fillet');
@@ -10645,9 +10736,18 @@ function drawRubberBand() {
     ctx.beginPath();
     const p0 = worldToScreen(lineChain[0].x, lineChain[0].y);
     ctx.moveTo(p0.x, p0.y);
-    for(let i=1; i<lineChain.length; i++){
-      const p = worldToScreen(lineChain[i].x, lineChain[i].y);
-      ctx.lineTo(p.x, p.y);
+    for(const seg of polySegments({pts:lineChain, closed:false})){
+      if(!seg.arc){
+        const p = worldToScreen(seg.b.x, seg.b.y);
+        ctx.lineTo(p.x, p.y);
+        continue;
+      }
+      const A=seg.arc, steps=Math.max(6, Math.ceil(Math.abs(A.theta)/0.12));
+      for(let k=1;k<=steps;k++){
+        const t=A.a1 + A.theta*(k/steps);
+        const w=worldToScreen(A.cx + A.r*Math.cos(t), A.cy + A.r*Math.sin(t));
+        ctx.lineTo(w.x,w.y);
+      }
     }
     ctx.stroke();
     for(const pt of lineChain){
@@ -10667,7 +10767,22 @@ function drawRubberBand() {
     ctx.globalAlpha = 0.85;
     ctx.beginPath();
     ctx.moveTo(start.x, start.y);
-    ctx.lineTo(end.x, end.y);
+    // In arc mode the rubber band shows the actual arc, so what you see
+    // landing is what gets committed.
+    const _from = {x:lineState.x1, y:lineState.y1};
+    const _pb   = (plineArcMode && lineChain.length)
+                    ? bulgeThrough(_from, plineArcThrough(_from, ep), ep) : 0;
+    const _pa   = _pb ? bulgeArc(_from, ep, _pb) : null;
+    if(_pa){
+      const steps=Math.max(6, Math.ceil(Math.abs(_pa.theta)/0.12));
+      for(let k=1;k<=steps;k++){
+        const t=_pa.a1 + _pa.theta*(k/steps);
+        const w=worldToScreen(_pa.cx + _pa.r*Math.cos(t), _pa.cy + _pa.r*Math.sin(t));
+        ctx.lineTo(w.x,w.y);
+      }
+    } else {
+      ctx.lineTo(end.x, end.y);
+    }
     ctx.stroke();
     ctx.setLineDash([]);
   }
@@ -10831,7 +10946,8 @@ function parseDXF(text) {
     if (tokens[i][0] === 2 && tokens[i][1] === 'ENTITIES') { entStart = i + 1; break; }
   }
   if (entStart < 0) return { lines: [], circles: [], arcs: [], polys: [], texts: [],
-                             points: [], dims: [], scaleMM, rawInsUnits,
+                             points: [], dims: [], hatches: [], beziers: [],
+                             scaleMM, rawInsUnits,
                              error: 'No ENTITIES section found' };
 
   const _dimBlocks = new Set();   // *D block names, so their INSERTs stay quiet
@@ -10874,6 +10990,8 @@ function parseDXF(text) {
   const texts   = [];
   const points  = [];
   const dims    = [];
+  const hatches = [];   // KAD used to export these and not read them back
+  const beziers = [];
   const S = 1; // always 1 — raw values only
 
   let i = entStart;
@@ -11018,6 +11136,113 @@ function parseDXF(text) {
       continue;
     }
 
+    if (code === 0 && val === 'HATCH') {
+      let layer='Layer_0', pattern='ANSI31', angle=0, scale=1, solid=false;
+      let ex=0, ey=0, ez=1, elev=0;
+      const loops=[]; let cur=null; let expect=0;   // expect: 10 pending a 20
+      i++;
+      while (i < tokens.length && tokens[i][0] !== 0) {
+        const [c, v] = tokens[i];
+        if (c === 8)   layer = v;
+        if (c === 2)   pattern = v;
+        if (c === 70)  solid = v === '1';
+        if (c === 52)  angle = parseFloat(v);
+        if (c === 41)  scale = parseFloat(v);
+        if (c === 92)  { cur = []; loops.push(cur); }      // new boundary path
+        if (c === 93)  expect = parseInt(v,10) || 0;        // vertex count
+        if (c === 10 && cur && expect) cur.push({ x: parseFloat(v)*S, y: 0 });
+        if (c === 20 && cur && cur.length) cur[cur.length-1].y = parseFloat(v)*S;
+        if (c === 210) ex = parseFloat(v);
+        if (c === 220) ey = parseFloat(v);
+        if (c === 230) ez = parseFloat(v);
+        i++;
+      }
+      const good = loops.filter(L => L.length >= 3);
+      if (good.length)
+        hatches.push({ type:'HATCH', layer, loops:good, pattern, angle, scale, solid,
+                       plane:_planeForOCS(ex,ey,ez,elev) });
+      continue;
+    }
+
+    if (code === 0 && val === 'SPLINE') {
+      // KAD's BEZIER is cubic. A degree-3 spline with 4 control points IS a
+      // cubic Bezier, which is exactly what buildDXF writes; anything richer
+      // is sampled down to its control polygon rather than dropped.
+      let layer='Layer_0', degree=3, closed=false;
+      let ex=0, ey=0, ez=1, elev=0;
+      const cps=[];
+      i++;
+      while (i < tokens.length && tokens[i][0] !== 0) {
+        const [c, v] = tokens[i];
+        if (c === 8)   layer = v;
+        if (c === 70)  closed = !!(parseInt(v,10) & 1);
+        if (c === 71)  degree = parseInt(v,10) || 3;
+        if (c === 10)  cps.push({ x: parseFloat(v)*S, y: 0 });
+        if (c === 20 && cps.length) cps[cps.length-1].y = parseFloat(v)*S;
+        if (c === 210) ex = parseFloat(v);
+        if (c === 220) ey = parseFloat(v);
+        if (c === 230) ez = parseFloat(v);
+        i++;
+      }
+      const _pl = _planeForOCS(ex,ey,ez,elev);
+      if (degree === 3 && cps.length >= 4) {
+        const segs=[];
+        for (let k = 0; k + 3 < cps.length; k += 3) {
+          segs.push({ x0:cps[k].x,   y0:cps[k].y,
+                      cx1:cps[k+1].x, cy1:cps[k+1].y,
+                      cx2:cps[k+2].x, cy2:cps[k+2].y,
+                      x3:cps[k+3].x,  y3:cps[k+3].y });
+        }
+        if (segs.length) beziers.push({ type:'BEZIER', layer, closed, beziers:segs, plane:_pl });
+      } else if (cps.length >= 2) {
+        // Not a cubic we can represent exactly — keep the shape as a polyline
+        // rather than losing the entity entirely.
+        polys.push({ type:'POLYLINE', layer, closed, pts:cps.map(p=>({x:p.x,y:p.y})), plane:_pl });
+      }
+      continue;
+    }
+
+    if (code === 0 && val === 'ELLIPSE') {
+      // A full ellipse with equal axes is a circle; otherwise approximate with
+      // a polyline so the geometry survives instead of vanishing.
+      let layer='Layer_0', cx=0, cy=0, mx=0, my=0, ratio=1, sa=0, ea=Math.PI*2;
+      let ex=0, ey=0, ez=1, elev=0;
+      i++;
+      while (i < tokens.length && tokens[i][0] !== 0) {
+        const [c, v] = tokens[i];
+        if (c === 8)   layer = v;
+        if (c === 10)  cx = parseFloat(v)*S;
+        if (c === 20)  cy = parseFloat(v)*S;
+        if (c === 11)  mx = parseFloat(v)*S;   // major axis endpoint, relative
+        if (c === 21)  my = parseFloat(v)*S;
+        if (c === 40)  ratio = parseFloat(v);
+        if (c === 41)  sa = parseFloat(v);
+        if (c === 42)  ea = parseFloat(v);
+        if (c === 30)  elev = parseFloat(v)*S;
+        if (c === 210) ex = parseFloat(v);
+        if (c === 220) ey = parseFloat(v);
+        if (c === 230) ez = parseFloat(v);
+        i++;
+      }
+      const _pl = _planeForOCS(ex,ey,ez,elev);
+      const a = Math.hypot(mx,my), b = a*ratio, rot = Math.atan2(my,mx);
+      const full = Math.abs((ea-sa) - Math.PI*2) < 1e-6;
+      if (Math.abs(ratio-1) < 1e-9 && full) {
+        circles.push({ type:'CIRCLE', layer, cx, cy, r:a, plane:_pl });
+      } else if (a > 0) {
+        const N = 72, pts=[];
+        for (let k=0;k<=N;k++){
+          const t = sa + (ea-sa)*(k/N);
+          const px = a*Math.cos(t), py = b*Math.sin(t);
+          pts.push({ x: cx + px*Math.cos(rot) - py*Math.sin(rot),
+                     y: cy + px*Math.sin(rot) + py*Math.cos(rot) });
+        }
+        if (full) pts.pop();
+        polys.push({ type:'POLYLINE', layer, closed:full, pts, plane:_pl });
+      }
+      continue;
+    }
+
     if (code === 0 && (val === 'TEXT' || val === 'MTEXT')) {
       const isM = (val === 'MTEXT');
       let layer='Layer_0', x=0, y=0, h=5, txt='', rot=0, halign=0;
@@ -11107,7 +11332,7 @@ function parseDXF(text) {
     planes.push({ id:g.planeId, label:'DXF elev ' + g.elev.toFixed(3),
                   origin:g.origin, xAxis:g.xAxis, yAxis:g.yAxis });
   }
-  return { lines, circles, arcs, polys, texts, points, dims,
+  return { lines, circles, arcs, polys, texts, points, dims, hatches, beziers,
            scaleMM, rawInsUnits, planes,
            nonPlanarLines:_nonPlanarLines, layerDefs };
 }
@@ -11149,10 +11374,13 @@ function openImportDialog(parsed, filename, kind) {
   const polys  = parsed.polys  || [];
   const texts  = parsed.texts  || [];
   const points = parsed.points || [];
-  const dims   = parsed.dims   || [];
+  const dims    = parsed.dims    || [];
+  const hatches = parsed.hatches || [];
+  const bezs    = parsed.beziers || [];
   const totalSegs = lines.length + circles.length * 72 +
     arcs.reduce((n,a)=>{ let s=a.endA-a.startA; if(s<=0)s+=360; return n+Math.max(1,Math.round(72*s/360)); }, 0);
-  const totalEnts = totalSegs + polys.length + texts.length + points.length + dims.length;
+  const totalEnts = totalSegs + polys.length + texts.length + points.length +
+                    dims.length + hatches.length + bezs.length;
 
   if (totalEnts === 0) { showToast('No supported geometry in file'); return false; }
 
@@ -11168,7 +11396,9 @@ function openImportDialog(parsed, filename, kind) {
     (polys.length  ? ' \u00b7 ' + polys.length  + ' polyline'  + (polys.length>1?'s':'')  : '') +
     (dims.length   ? ' \u00b7 ' + dims.length   + ' dimension' + (dims.length>1?'s':'')   : '') +
     (texts.length  ? ' \u00b7 ' + texts.length  + ' text'                                  : '') +
-    (points.length ? ' \u00b7 ' + points.length + ' point'     + (points.length>1?'s':'') : '');
+    (points.length ? ' \u00b7 ' + points.length + ' point'     + (points.length>1?'s':'') : '') +
+    (hatches.length? ' \u00b7 ' + hatches.length+ ' hatch'     + (hatches.length>1?'es':''): '') +
+    (bezs.length   ? ' \u00b7 ' + bezs.length   + ' spline'    + (bezs.length>1?'s':'')   : '');
   document.getElementById('dlg-line-count').textContent   = lines.length;
   document.getElementById('dlg-circle-count').textContent = circles.length + (circles.length ? ' (→'+circles.length*72+' segs)' : '');
   document.getElementById('dlg-arc-count').textContent    = arcs.length;
@@ -11285,7 +11515,8 @@ function commitDxfImport() {
   const seen = new Set();
   for (const e of [...parsed.lines, ...parsed.circles, ...parsed.arcs,
                    ...(parsed.polys||[]), ...(parsed.texts||[]),
-                   ...(parsed.points||[]), ...(parsed.dims||[])]) {
+                   ...(parsed.points||[]), ...(parsed.dims||[]),
+                   ...(parsed.hatches||[]), ...(parsed.beziers||[])]) {
     if (e.layer) seen.add(e.layer);
   }
   const _defs = parsed.layerDefs || {};
@@ -11313,7 +11544,9 @@ function commitDxfImport() {
   const polys  = parsed.polys  || [];
   const texts  = parsed.texts  || [];
   const points = parsed.points || [];
-  const dims   = parsed.dims   || [];
+  const dims    = parsed.dims    || [];
+  const hatches = parsed.hatches || [];
+  const bezs    = parsed.beziers || [];
 
   const partEntityIds = (source === 'nc1' && parsed.ncParts) ? parsed.ncParts.map(() => []) : null;
 
@@ -11375,6 +11608,20 @@ function commitDxfImport() {
   for (const p of points) {
     const o = GeoMemory.addPoint(p.x*S, p.y*S, p.layer || 'Layer_0');
     _setPlane(o, _pl(p));
+  }
+  for (const h of hatches) {
+    const loops = h.loops.map(L => L.map(p => ({ x:p.x*S, y:p.y*S })));
+    const o = GeoMemory.addHatch(loops,
+                { pattern:h.pattern, scale:h.scale, angle:h.angle },
+                h.layer || 'Layer_0');
+    _setPlane(o, _pl(h));
+  }
+  for (const bz of bezs) {
+    const segs = bz.beziers.map(b => ({
+      x0:b.x0*S, y0:b.y0*S, cx1:b.cx1*S, cy1:b.cy1*S,
+      cx2:b.cx2*S, cy2:b.cy2*S, x3:b.x3*S, y3:b.y3*S }));
+    const o = GeoMemory.addBezierPath(segs, bz.closed, bz.layer || 'Layer_0');
+    _setPlane(o, _pl(bz));
   }
   for (const d of dims) {
     if (!LAYERS[d.layer]) d.layer = 'DIM';
@@ -12758,33 +13005,32 @@ function buildDXF(objects, units) {
   const cvt = (mm) => (units === 'in') ? mm / MM_PER_IN : mm;
   const f = n => cvt(n).toFixed(6);
   const lines=[];
-  // Drawing extents so an importer can zoom-extents on open, LTSCALE so dashed
-  // and center linetypes render at the right dash length, and the dimension
-  // variables so DIM entities regenerate with the same proportions we drew.
-  let _eMinX=Infinity,_eMinY=Infinity,_eMaxX=-Infinity,_eMaxY=-Infinity;
-  for (const o of objects) {
-    const bb = dxfEntityBBox(o);
-    if (!bb) continue;
-    if(bb.minX<_eMinX)_eMinX=bb.minX; if(bb.minY<_eMinY)_eMinY=bb.minY;
-    if(bb.maxX>_eMaxX)_eMaxX=bb.maxX; if(bb.maxY>_eMaxY)_eMaxY=bb.maxY;
-  }
-  const hasExt = _eMinX !== Infinity;
-  lines.push('0','SECTION','2','HEADER',
-    '9','$ACADVER','1','AC1014',
-    '9','$INSUNITS','70',insunits,
-    '9','$MEASUREMENT','70', (units === 'in') ? '0' : '1',
-    '9','$LTSCALE','40', f(1),
-    '9','$DIMSCALE','40','1.0',
-    '9','$DIMTXT','40', f(DIM_TXT),
-    '9','$DIMASZ','40', f(DIM_ARROW),
-    '9','$DIMEXE','40', f(DIM_EXT),
-    '9','$DIMEXO','40', f(DIM_GAP),
-    '9','$TEXTSTYLE','7','KAD');
-  if (hasExt) {
-    lines.push('9','$EXTMIN','10',f(_eMinX),'20',f(_eMinY),'30','0.0',
-               '9','$EXTMAX','10',f(_eMaxX),'20',f(_eMaxY),'30','0.0');
-  }
-  lines.push('0','ENDSEC');
+
+  /* ── R14 CONFORMANCE ────────────────────────────────────────────────────
+     The header has always declared AC1014 (R14), but the body used to be
+     written in R12 dialect: no handles, no subclass markers, no BLOCK_RECORD
+     table. Tolerant readers coped; AutoCAD's own DXFIN and strict validators
+     are entitled not to. Every record now carries a handle (group 5, or 105
+     for DIMSTYLE, which is the one table that differs), and every entity
+     declares its class chain with 100 markers.                              */
+  let _h = 0x100;
+  const H = () => (++_h).toString(16).toUpperCase();
+
+  // Entity preamble: type, handle, class chain, layer.
+  const ent = (type, layer, ...subclasses) => {
+    lines.push('0', type, '5', H(), '100', 'AcDbEntity', '8', layer);
+    for (const sc of subclasses) lines.push('100', sc);
+  };
+  // Table record preamble. DIMSTYLE uses 105 instead of 5 — a genuine quirk
+  // of the spec, not a typo.
+  const rec = (type, ...subclasses) => {
+    lines.push('0', type, (type === 'DIMSTYLE' ? '105' : '5'), H());
+    for (const sc of subclasses) lines.push('100', sc);
+  };
+  const tableStart = (name, count) => {
+    lines.push('0','TABLE','2',name,'5',H(),'100','AcDbSymbolTable','70',String(count));
+  };
+
   const DXF_LT = {
     continuous: { desc:'Solid line',        pattern:[] },
     dashed:     { desc:'Dashed __ __ __',   pattern:[0.5,-0.25] },
@@ -12803,55 +13049,131 @@ function buildDXF(objects, units) {
     return best;
   }
 
+  // ── HEADER ──────────────────────────────────────────────────────────────
+  let _eMinX=Infinity,_eMinY=Infinity,_eMaxX=-Infinity,_eMaxY=-Infinity;
+  for (const o of objects) {
+    const bb = dxfEntityBBox(o);
+    if (!bb) continue;
+    if(bb.minX<_eMinX)_eMinX=bb.minX; if(bb.minY<_eMinY)_eMinY=bb.minY;
+    if(bb.maxX>_eMaxX)_eMaxX=bb.maxX; if(bb.maxY>_eMaxY)_eMaxY=bb.maxY;
+  }
+  const hasExt = _eMinX !== Infinity;
+  lines.push('0','SECTION','2','HEADER',
+    '9','$ACADVER','1','AC1014',
+    '9','$HANDSEED','5','FFFF',
+    '9','$INSUNITS','70',insunits,
+    '9','$MEASUREMENT','70', (units === 'in') ? '0' : '1',
+    '9','$LTSCALE','40', f(1),
+    '9','$DIMSCALE','40','1.0',
+    '9','$DIMTXT','40', f(DIM_TXT),
+    '9','$DIMASZ','40', f(DIM_ARROW),
+    '9','$DIMEXE','40', f(DIM_EXT),
+    '9','$DIMEXO','40', f(DIM_GAP),
+    '9','$TEXTSTYLE','7','KAD');
+  if (hasExt) {
+    lines.push('9','$EXTMIN','10',f(_eMinX),'20',f(_eMinY),'30','0.0',
+               '9','$EXTMAX','10',f(_eMaxX),'20',f(_eMaxY),'30','0.0');
+  }
+  lines.push('0','ENDSEC');
+
+  // ── TABLES ──────────────────────────────────────────────────────────────
+  // Spec order: VPORT, LTYPE, LAYER, STYLE, VIEW, UCS, APPID, DIMSTYLE,
+  // BLOCK_RECORD. Readers that validate will reject an out-of-order set.
+  lines.push('0','SECTION','2','TABLES');
+
+  tableStart('VPORT', 1);
+  rec('VPORT','AcDbSymbolTableRecord','AcDbViewportTableRecord');
+  lines.push('2','*ACTIVE','70','0',
+    '10','0.0','20','0.0','11','1.0','21','1.0',
+    '12', f(hasExt ? (_eMinX+_eMaxX)/2 : 0), '22', f(hasExt ? (_eMinY+_eMaxY)/2 : 0),
+    '13','0.0','23','0.0','14','10.0','24','10.0','15','10.0','25','10.0',
+    '16','0.0','26','0.0','36','1.0','17','0.0','27','0.0','37','0.0',
+    '40', f(hasExt ? Math.max(_eMaxY-_eMinY, 1) : 100), '41','1.5','42','50.0',
+    '43','0.0','44','0.0','50','0.0','51','0.0','71','0','72','100','73','1',
+    '74','3','75','0','76','0','77','0','78','0');
+  lines.push('0','ENDTAB');
+
   const usedLt = new Set(['continuous']);
   for (const lay of Object.values(LAYERS)) if (DXF_LT[lay.ltype]) usedLt.add(lay.ltype);
   const ltList = [...usedLt];
-
-  lines.push('0','SECTION','2','TABLES');
-  lines.push('0','TABLE','2','LTYPE','70',String(ltList.length));
+  tableStart('LTYPE', ltList.length + 2);
+  // ByBlock and ByLayer must exist and must be the first two records.
+  for (const nm of ['ByBlock','ByLayer']) {
+    rec('LTYPE','AcDbSymbolTableRecord','AcDbLinetypeTableRecord');
+    lines.push('2',nm,'70','0','3','','72','65','73','0','40','0.0');
+  }
   for (const key of ltList) {
     const lt = DXF_LT[key];
     const total = lt.pattern.reduce((s,v)=>s+Math.abs(cvt(v)),0);
-    lines.push('0','LTYPE','2',key.toUpperCase(),'70','0','3',lt.desc,
+    rec('LTYPE','AcDbSymbolTableRecord','AcDbLinetypeTableRecord');
+    lines.push('2',key.toUpperCase(),'70','0','3',lt.desc,
                '72','65','73',String(lt.pattern.length),'40',total.toFixed(4));
-    for (const seg of lt.pattern) lines.push('49', cvt(seg).toFixed(4));
+    for (const seg of lt.pattern) lines.push('49', cvt(seg).toFixed(4), '74','0');
   }
   lines.push('0','ENDTAB');
 
   const layKeys = Object.keys(LAYERS);
-  lines.push('0','TABLE','2','LAYER','70',String(layKeys.length));
+  const hasZero = layKeys.includes('0');
+  tableStart('LAYER', layKeys.length + (hasZero ? 0 : 1));
+  if (!hasZero) {
+    // Layer 0 is special in DXF — blocks inherit from it — and must exist.
+    rec('LAYER','AcDbSymbolTableRecord','AcDbLayerTableRecord');
+    lines.push('2','0','70','0','62','7','6','CONTINUOUS','370','-3');
+  }
   for (const key of layKeys) {
     const lay = LAYERS[key];
     const aci = hexToACI(lay.color);
-    lines.push('0','LAYER','2',lay.name,'70', lay.locked ? '4' : '0',
+    rec('LAYER','AcDbSymbolTableRecord','AcDbLayerTableRecord');
+    lines.push('2',lay.name,'70', lay.locked ? '4' : '0',
                '62', String(lay.visible === false ? -aci : aci),
                '6', (DXF_LT[lay.ltype] ? lay.ltype : 'continuous').toUpperCase(),
-               // 370 is lineweight in 1/100 mm. Without it the whole line-weight
-               // hierarchy — heavy outline, light hidden, lightest dimension —
-               // was being thrown away on every export.
+               // 370 is lineweight in 1/100 mm, snapped to the ISO ladder.
                '370', String(kadWeightToDxfLw(lay.weight)));
   }
   lines.push('0','ENDTAB');
 
-  // TEXT entities referenced a style that was never defined. Declare it.
-  lines.push('0','TABLE','2','STYLE','70','1',
-             '0','STYLE','2','KAD','70','0','40','0.0','41','1.0','50','0.0',
-             '71','0','42', f(DIM_TXT), '3','txt','4','');
+  tableStart('STYLE', 2);
+  for (const nm of ['STANDARD','KAD']) {
+    rec('STYLE','AcDbSymbolTableRecord','AcDbTextStyleTableRecord');
+    lines.push('2',nm,'70','0','40','0.0','41','1.0','50','0.0',
+               '71','0','42', f(DIM_TXT), '3','txt','4','');
+  }
   lines.push('0','ENDTAB');
 
-  // A dimension style, so DIMENSION entities have proportions to regenerate
-  // from rather than inheriting whatever the receiving app defaults to.
-  lines.push('0','TABLE','2','DIMSTYLE','70','1',
-             '0','DIMSTYLE','2','KAD','70','0',
+  tableStart('VIEW', 0); lines.push('0','ENDTAB');
+  tableStart('UCS',  0); lines.push('0','ENDTAB');
+
+  tableStart('APPID', 1);
+  rec('APPID','AcDbSymbolTableRecord','AcDbRegAppTableRecord');
+  lines.push('2','ACAD','70','0');
+  lines.push('0','ENDTAB');
+
+  tableStart('DIMSTYLE', 1);
+  lines.push('100','AcDbDimStyleTable','71','1');
+  rec('DIMSTYLE','AcDbSymbolTableRecord','AcDbDimStyleTableRecord');
+  lines.push('2','KAD','70','0',
              '40','1.0',              // DIMSCALE
-             '41', f(DIM_ARROW),      // DIMASZ  arrow size
-             '42', f(DIM_GAP),        // DIMEXO  extension line offset
-             '44', f(DIM_EXT),        // DIMEXE  extension line extend
-             '140', f(DIM_TXT),       // DIMTXT  text height
-             '147', f(1),             // DIMGAP  text gap
-             '172','1',               // DIMTOFL force line inside extensions
-             '271', String(unitMode === 'in' ? 3 : 2),  // DIMDEC decimals
-             '340','KAD');            // text style
+             '41', f(DIM_ARROW),      // DIMASZ
+             '42', f(DIM_GAP),        // DIMEXO
+             '44', f(DIM_EXT),        // DIMEXE
+             '140', f(DIM_TXT),       // DIMTXT
+             '147', f(1),             // DIMGAP
+             '172','1',               // DIMTOFL
+             '271', String(units === 'in' ? 3 : 2),  // DIMDEC
+             '340','KAD');
+  lines.push('0','ENDTAB');
+
+  // BLOCK_RECORD: one per block in the BLOCKS section. Required from R13 on;
+  // its absence is the single most common reason a hand-built DXF is refused.
+  const _dims = objects.filter(o => o.type === 'DIM');
+  const _dimBlockName = new Map();
+  _dims.forEach((o, idx) => _dimBlockName.set(o.id, '*D' + (idx + 1)));
+  const blockNames = ['*Model_Space','*Paper_Space', ..._dims.map(o=>_dimBlockName.get(o.id))];
+  tableStart('BLOCK_RECORD', blockNames.length);
+  for (const bn of blockNames) {
+    rec('BLOCK_RECORD','AcDbSymbolTableRecord','AcDbBlockTableRecord');
+    lines.push('2',bn,'70','0');
+  }
   lines.push('0','ENDTAB','0','ENDSEC');
 
   const _ocsNormal = (o) => {
@@ -12861,7 +13183,6 @@ function buildDXF(objects, units) {
     const N = planeNormal(P);
     return ['210', f(N.x), '220', f(N.y), '230', f(N.z)];
   };
-
   const _ocsFor = (o) => {
     const pid = storedPlaneOf(o);
     if (pid === 'World') return [];
@@ -12875,69 +13196,73 @@ function buildDXF(objects, units) {
   };
 
   // ── BLOCKS ──────────────────────────────────────────────────────────────
-  const _dims = objects.filter(o => o.type === 'DIM');
-  const _dimBlockName = new Map();
+  // AutoCAD writes each dimension twice: an anonymous *D<n> block holding the
+  // drawn graphics, and a DIMENSION entity holding the measurement intent.
+  // Readers that regenerate dimensions use the intent; readers that don't
+  // still show correct geometry from the block.
   lines.push('0','SECTION','2','BLOCKS');
-  // R14 expects the two model/paper space block records to exist.
   for (const bn of ['*Model_Space','*Paper_Space']) {
-    lines.push('0','BLOCK','8','0','2',bn,'70','0',
-               '10','0.0','20','0.0','30','0.0','3',bn,'1','',
-               '0','ENDBLK','8','0');
+    ent('BLOCK','0','AcDbBlockBegin');
+    lines.push('2',bn,'70','0','10','0.0','20','0.0','30','0.0','3',bn,'1','');
+    ent('ENDBLK','0','AcDbBlockEnd');
   }
-  _dims.forEach((o, idx) => {
-    const name = '*D' + (idx + 1);
-    _dimBlockName.set(o.id, name);
+  _dims.forEach((o) => {
+    const name = _dimBlockName.get(o.id);
     const g = dimGeometry({x:o.x1,y:o.y1},{x:o.x2,y:o.y2});
-    lines.push('0','BLOCK','8',o.layer,'2',name,'70','1',
-               '10','0.0','20','0.0','30','0.0','3',name,'1','');
-    // extension lines
-    lines.push('0','LINE','8',o.layer,'10',f(g.e1a.x),'20',f(g.e1a.y),'30','0.0',
-                                       '11',f(g.e1b.x),'21',f(g.e1b.y),'31','0.0');
-    lines.push('0','LINE','8',o.layer,'10',f(g.e2a.x),'20',f(g.e2a.y),'30','0.0',
-                                       '11',f(g.e2b.x),'21',f(g.e2b.y),'31','0.0');
-    // dimension line
-    lines.push('0','LINE','8',o.layer,'10',f(g.d1.x),'20',f(g.d1.y),'30','0.0',
-                                       '11',f(g.d2.x),'21',f(g.d2.y),'31','0.0');
-    // arrowheads as filled SOLIDs, pointing outward at each end
+    ent('BLOCK',o.layer,'AcDbBlockBegin');
+    lines.push('2',name,'70','1','10','0.0','20','0.0','30','0.0','3',name,'1','');
+    const seg = (a,b) => {
+      ent('LINE',o.layer,'AcDbLine');
+      lines.push('10',f(a.x),'20',f(a.y),'30','0.0','11',f(b.x),'21',f(b.y),'31','0.0');
+    };
+    seg(g.e1a, g.e1b);      // extension line 1
+    seg(g.e2a, g.e2b);      // extension line 2
+    seg(g.d1,  g.d2);       // dimension line
     const ux = Math.cos(g.ang), uy = Math.sin(g.ang);
     const px = Math.cos(g.perp), py = Math.sin(g.perp);
     const AW = DIM_ARROW / 3;
     for (const [tip, dir] of [[g.d1, 1], [g.d2, -1]]) {
       const bx = tip.x + dir*ux*DIM_ARROW, by = tip.y + dir*uy*DIM_ARROW;
-      lines.push('0','SOLID','8',o.layer,
-        '10',f(tip.x),        '20',f(tip.y),        '30','0.0',
-        '11',f(bx + px*AW),   '21',f(by + py*AW),   '31','0.0',
-        '12',f(bx - px*AW),   '22',f(by - py*AW),   '32','0.0',
-        '13',f(bx - px*AW),   '23',f(by - py*AW),   '33','0.0');
+      ent('SOLID',o.layer,'AcDbTrace');
+      lines.push('10',f(tip.x),      '20',f(tip.y),      '30','0.0',
+                 '11',f(bx + px*AW), '21',f(by + py*AW), '31','0.0',
+                 '12',f(bx - px*AW), '22',f(by - py*AW), '32','0.0',
+                 '13',f(bx - px*AW), '23',f(by - py*AW), '33','0.0');
     }
-    // the measurement text, centred on the dimension line
-    lines.push('0','TEXT','8',o.layer,
-      '10',f(g.mid.x),'20',f(g.mid.y),'30','0.0',
-      '40',f(DIM_TXT),'1',String(o.label || g.label),
-      '50',(g.textAng*180/Math.PI).toFixed(6),
-      '7','KAD','72','1','73','2',
-      '11',f(g.mid.x),'21',f(g.mid.y),'31','0.0');
-    lines.push('0','ENDBLK','8',o.layer);
+    ent('TEXT',o.layer,'AcDbText');
+    lines.push('10',f(g.mid.x),'20',f(g.mid.y),'30','0.0',
+               '40',f(DIM_TXT),'1',String(o.label || g.label),
+               '50',(g.textAng*180/Math.PI).toFixed(6),
+               '7','KAD','72','1','11',f(g.mid.x),'21',f(g.mid.y),'31','0.0',
+               '100','AcDbText','73','2');
+    ent('ENDBLK',o.layer,'AcDbBlockEnd');
   });
   lines.push('0','ENDSEC');
 
+  // ── ENTITIES ────────────────────────────────────────────────────────────
   lines.push('0','SECTION','2','ENTITIES');
   for(const o of objects){
-    if(o.type==='LINE')
-      lines.push('0','LINE','8',o.layer,'10',f(o.x1),'20',f(o.y1),'30','0.0000','11',f(o.x2),'21',f(o.y2),'31','0.0000', ..._ocsFor(o));
-    if(o.type==='POINT')
-      lines.push('0','POINT','8',o.layer,'10',f(o.x),'20',f(o.y),'30','0.0000', ..._ocsFor(o));
+    if(o.type==='LINE'){
+      ent('LINE',o.layer,'AcDbLine');
+      lines.push('10',f(o.x1),'20',f(o.y1),'30','0.0000',
+                 '11',f(o.x2),'21',f(o.y2),'31','0.0000', ..._ocsFor(o));
+    }
+    if(o.type==='POINT'){
+      ent('POINT',o.layer,'AcDbPoint');
+      lines.push('10',f(o.x),'20',f(o.y),'30','0.0000', ..._ocsFor(o));
+    }
     if(o.type==='HATCH' && o.loops && o.loops.length){
       const pat = HATCH_PATTERNS[o.pattern] || HATCH_PATTERNS.ANSI31;
       const solid = pat.solid ? '1' : '0';
       const fams = pat.lines || [];
       const ordered = hatchOrderLoops(o.loops);
-      lines.push('0','HATCH','8',o.layer,
+      ent('HATCH',o.layer,'AcDbHatch');
+      lines.push(
         '10','0.0','20','0.0','30','0.0',          // elevation point
         ...(_ocsNormal(o)),                        // extrusion from the UCS
         '2', o.pattern,
         '70', solid,
-        '71','0',                                   // non-associative — see addHatch()
+        '71','0',                                   // non-associative
         '91', String(ordered.length));
       ordered.forEach((L, li) => {
         lines.push('92', li === 0 ? '3' : '2',      // 1=external | 2=polyline
@@ -12945,13 +13270,12 @@ function buildDXF(objects, units) {
                    '73','1',                        // closed
                    '93', String(L.length));
         for (const p of L) lines.push('10', f(p.x), '20', f(p.y));
-        lines.push('97','0');                       // no source boundary objects
+        lines.push('97','0');
       });
-      lines.push('75','0',                          // hatch style: normal / odd parity
-                 '76','1',                          // predefined pattern
+      lines.push('75','0','76','1',
                  '52', (o.angle||0).toFixed(6),
                  '41', (o.scale||1).toFixed(6),
-                 '77','0',                          // not doubled
+                 '77','0',
                  '78', String(fams.length));
       for (const fam of fams) {
         const [fa, fox, foy, fdx, fdy, dash] = fam;
@@ -12961,16 +13285,16 @@ function buildDXF(objects, units) {
                    '79', String(dash ? dash.length : 0));
         if (dash) for (const d of dash) lines.push('49', f(d));
       }
-      lines.push('98','0');                         // no seed points
+      lines.push('98','0');
     }
     if(o.type==='POLYLINE' && o.pts && o.pts.length>=2){
-      lines.push('0','LWPOLYLINE','8',o.layer,
-        '90',String(o.pts.length),  // vertex count
-        '70',o.closed?'1':'0',      // closed flag
-        '43','0.0');                 // constant width
+      ent('LWPOLYLINE',o.layer,'AcDbPolyline');
+      lines.push('90',String(o.pts.length),
+                 '70',o.closed?'1':'0',
+                 '43','0.0');
       for(const p of o.pts){
         lines.push('10',f(p.x),'20',f(p.y));
-        // 42 is the bulge for the segment STARTING at this vertex. Omitted
+        // 42 is the bulge for the segment STARTING at this vertex; omitted
         // when zero, exactly as AutoCAD writes it.
         if(p.b) lines.push('42', (+p.b).toFixed(8));
       }
@@ -12978,13 +13302,13 @@ function buildDXF(objects, units) {
     }
     if(o.type==='BEZIER' && o.beziers && o.beziers.length>=1){
       for(const b of o.beziers){
-        lines.push('0','SPLINE','8',o.layer,
-          ...(_ocsNormal(o)),                   // planar, normal from the UCS
-          '70','8',    // flags: bit 3 (8) = planar
+        ent('SPLINE',o.layer,'AcDbSpline');
+        lines.push(...(_ocsNormal(o)),
+          '70','8',    // planar
           '71','3',    // degree
-          '72','8',    // knot count
-          '73','4',    // control-point count
-          '74','0');   // fit-point count
+          '72','8',    // knots
+          '73','4',    // control points
+          '74','0');   // fit points
         for(const k of [0,0,0,0,1,1,1,1]) lines.push('40',k.toFixed(1));
         for(const [px,py] of [[b.x0,b.y0],[b.cx1,b.cy1],[b.cx2,b.cy2],[b.x3,b.y3]])
           lines.push('10',f(px),'20',f(py),'30','0.0000');
@@ -12992,45 +13316,55 @@ function buildDXF(objects, units) {
       if(o.closed){
         const first=o.beziers[0], last=o.beziers[o.beziers.length-1];
         if(Math.hypot(last.x3-first.x0, last.y3-first.y0) > 1e-6){
-          lines.push('0','LINE','8',o.layer,'10',f(last.x3),'20',f(last.y3),'30','0.0000',
+          ent('LINE',o.layer,'AcDbLine');
+          lines.push('10',f(last.x3),'20',f(last.y3),'30','0.0000',
                      '11',f(first.x0),'21',f(first.y0),'31','0.0000');
         }
       }
     }
-    if(o.type==='CIRCLE')
-      lines.push('0','CIRCLE','8',o.layer,'10',f(o.cx),'20',f(o.cy),'30','0.0000','40',f(o.r), ..._ocsFor(o));
+    if(o.type==='CIRCLE'){
+      ent('CIRCLE',o.layer,'AcDbCircle');
+      lines.push('10',f(o.cx),'20',f(o.cy),'30','0.0000','40',f(o.r), ..._ocsFor(o));
+    }
     if(o.type==='ARC'){
       if (Math.abs(o.endA - o.startA) >= Math.PI*2 - 1e-9) {
-        lines.push('0','CIRCLE','8',o.layer,'10',f(o.cx),'20',f(o.cy),'30','0.0000','40',f(o.r), ..._ocsFor(o));
+        ent('CIRCLE',o.layer,'AcDbCircle');
+        lines.push('10',f(o.cx),'20',f(o.cy),'30','0.0000','40',f(o.r), ..._ocsFor(o));
       } else {
-      const norm360 = d => ((d % 360) + 360) % 360;
-      const deg = a => norm360(a * 180 / Math.PI).toFixed(6);
-      const s = o.ccw ? o.startA : o.endA;
-      const e = o.ccw ? o.endA   : o.startA;
-      lines.push('0','ARC','8',o.layer,'10',f(o.cx),'20',f(o.cy),'30','0.0000',
-                 '40',f(o.r),'50',deg(s),'51',deg(e), ..._ocsFor(o));
+        const norm360 = d => ((d % 360) + 360) % 360;
+        const deg = a => norm360(a * 180 / Math.PI).toFixed(6);
+        const s = o.ccw ? o.startA : o.endA;
+        const e = o.ccw ? o.endA   : o.startA;
+        // ARC declares two classes: the circle it lies on, then the arc.
+        ent('ARC',o.layer,'AcDbCircle');
+        lines.push('10',f(o.cx),'20',f(o.cy),'30','0.0000','40',f(o.r),
+                   '100','AcDbArc','50',deg(s),'51',deg(e), ..._ocsFor(o));
       }
     }
     if(o.type==='DIM'){
       const g = dimGeometry({x:o.x1,y:o.y1},{x:o.x2,y:o.y2});
-      lines.push('0','DIMENSION','8',o.layer,
-        '2', _dimBlockName.get(o.id) || '*D1',   // the graphics block above
-        '10',f(g.d1.x),'20',f(g.d1.y),'30','0.0',   // dimension line location
-        '11',f(g.mid.x),'21',f(g.mid.y),'31','0.0', // text midpoint
-        '70','33',      // 1 = aligned, +32 = block is anonymous/generated
-        '1', String(o.label || g.label),  // text override: what KAD actually shows
-        '13',f(o.x1),'23',f(o.y1),'33','0.0',       // first extension origin
-        '14',f(o.x2),'24',f(o.y2),'34','0.0',       // second extension origin
-        '3','KAD',      // dimension style
+      ent('DIMENSION',o.layer,'AcDbDimension');
+      lines.push(
+        '2', _dimBlockName.get(o.id) || '*D1',
+        '10',f(g.d1.x),'20',f(g.d1.y),'30','0.0',    // dimension line location
+        '11',f(g.mid.x),'21',f(g.mid.y),'31','0.0',  // text midpoint
+        '70','33',      // 1 = aligned, +32 = block used by this dim only
+        '1', String(o.label || g.label),
+        '3','KAD',
+        '100','AcDbAlignedDimension',
+        '13',f(o.x1),'23',f(o.y1),'33','0.0',        // first extension origin
+        '14',f(o.x2),'24',f(o.y2),'34','0.0',        // second extension origin
         ..._ocsFor(o));
     }
     if(o.type==='TEXT'){
-      lines.push('0','TEXT','8',o.layer,'10',f(o.x),'20',f(o.y),'30','0.0000',
+      ent('TEXT',o.layer,'AcDbText');
+      lines.push('10',f(o.x),'20',f(o.y),'30','0.0000',
                  '40',f(o.height||5),'1',String(o.text==null?'':o.text),
-                 '50',(o.rotation||0).toFixed(6),   // was unrepresentable before
-                 '7','KAD');                         // style now actually exists
+                 '50',(o.rotation||0).toFixed(6),
+                 '7','KAD');
       if(o.halign) lines.push('72',String(o.halign),'11',f(o.x),'21',f(o.y),'31','0.0000');
       lines.push(..._ocsFor(o));
+      lines.push('100','AcDbText');   // TEXT genuinely declares its class twice
     }
   }
   lines.push('0','ENDSEC','0','EOF');
