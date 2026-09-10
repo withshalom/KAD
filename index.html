@@ -31,9 +31,9 @@
   KADsuite™ trademarks are not covered by the AGPL-3.0 license.
   Native builds are separate proprietary products.
 
-  Optional DWG import (kad-dwg.js / kad-dwg.wasm — not included in this
-  file, loaded lazily if present; see the DWG IMPORT block below) links
-  LibreDWG, GPL-3.0-or-later. AGPL-3.0 carries every GPL-3.0 obligation
+  Optional DWG import loads @mlightcad/libredwg-web as an ES module on
+  first use (see the DWG IMPORT block below), which links LibreDWG,
+  GPL-3.0-or-later. AGPL-3.0 carries every GPL-3.0 obligation
   plus Section 13's network-copyleft clause, so it is a strict superset;
   distributing the combined work under this file's AGPL-3.0-or-later
   license satisfies both licenses at once. See DWG-SUPPORT.md.
@@ -2103,7 +2103,7 @@ body.kanvas-mode #app {
         <div class="tb-dd-item" onclick="exportDXF();closeMenus()">Export .dxf<span class="dd-key">Ctrl+E</span></div>
         <div class="tb-dd-item" onclick="exportBOM();closeMenus()">Export BOM (.csv)<span class="dd-key"></span></div>
         <div class="tb-dd-item" onclick="document.getElementById('load-dxf').click();closeMenus()">Import .dxf<span class="dd-key"></span></div>
-        <div class="tb-dd-item" style="display:none;" onclick="document.getElementById('load-dwg').click();closeMenus()">Import .dwg<span class="dd-key"></span></div>
+        <div class="tb-dd-item" id="menu-import-dwg" style="display:none;" onclick="document.getElementById('load-dwg').click();closeMenus()">Import .dwg<span class="dd-key"></span></div>
         <div class="tb-dd-item" onclick="document.getElementById('load-nc1').click();closeMenus()">Import .nc1<span class="dd-key"></span></div>
         <div class="tb-dd-item" onclick="openPDF();closeMenus()">Import PDF<span class="dd-key">Ctrl ⇧ O</span></div>
         <div class="tb-dd-item" style="display:none;" onclick="openSTEP();closeMenus()">Import STEP<span class="dd-key"></span></div>
@@ -2380,8 +2380,8 @@ body.kanvas-mode #app {
       Import .dxf
     </button>
     <input type="file" id="load-dxf" accept=".dxf,.DXF" onchange="importDXF(event)">
-    <button class="op-btn dwg" style="display:none;" onclick="document.getElementById('load-dwg').click()"
-            title="Import an AutoCAD .dwg — requires the LibreDWG WASM module (kad-dwg.js / kad-dwg.wasm)">
+    <button class="op-btn dwg" id="op-btn-dwg" style="display:none;" onclick="document.getElementById('load-dwg').click()"
+            title="Import an AutoCAD .dwg — fetches the LibreDWG WASM reader on first use">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
       Import .dwg
     </button>
@@ -3622,15 +3622,54 @@ body.kanvas-mode #app {
 'use strict';
 
 
-const KAD_APP_VERSION = '1.0.0';
+const KAD_APP_VERSION = '1.1.0';
 
 // Public changelog. Only list features once they're fully live (no display:none
 // gates, no feature flags left off). Newest entry first. Keep entries short —
 // this is the "what shipped", not the dev log; that stays in KAD-DEV-NOTES.md.
 const KAD_CHANGELOG = [
   {
-    version: '1.0.0',
+    version: '1.1.0',
+    date: '2026-09-10',
+    groups: [
+      {
+        label: 'DWG Import',
+        items: [
+          'AutoCAD .dwg files open directly — no conversion step, via LibreDWG compiled to WebAssembly',
+          'Needs an internet connection the first time a .dwg is opened, while the reader downloads',
+          'Block references expand in place, nested ones included, with rotation, scale, and mirroring applied',
+          'Polylines keep their arc segments; text, points, ellipses, and splines come across alongside lines, circles, and arcs',
+          'Drawing units are read from the file and offered in the import dialog, the same as DXF',
+          'Dimensions and hatches are not converted yet — the import dialog reports whatever was skipped',
+        ],
+      },
+    ],
+  },
+  {
+    version: '1.0.1',
     date: '2026-09-09',
+    groups: [
+      {
+        label: 'DXF Round-Trip Fidelity',
+        items: [
+          'DXF export rebuilt to R14 spec — entity handles, class subclass markers, and the full symbol table set (VPORT, STYLE, APPID, DIMSTYLE, BLOCK_RECORD)',
+          'Dimensions now export and re-import instead of being dropped, via a proper DIMENSION entity and its anonymous block',
+          'DXF import no longer explodes polylines into loose lines — LWPOLYLINE and POLYLINE come back in as one object',
+          'Hatches and splines now round-trip on import, matching what export already produced',
+          'Line weight, text rotation, and non-World UCS orientation now survive export on every entity type',
+        ],
+      },
+      {
+        label: 'Drafting',
+        items: [
+          'Polyline arc segments — press A while drawing to bow a segment into an arc, tangent to the one before it',
+        ],
+      },
+    ],
+  },
+  {
+    version: '1.0.0',
+    date: '2026-09-04',
     groups: [
       {
         label: 'Drafting',
@@ -3669,22 +3708,6 @@ const KAD_CHANGELOG = [
         items: [
           'Touch and compact sidebar layouts for mobile',
           'Coordinate entry and keyboard shortcut reference panel',
-        ],
-      },
-      {
-        label: 'DXF Round-Trip Fidelity',
-        items: [
-          'DXF export rebuilt to R14 spec — entity handles, class subclass markers, and the full symbol table set (VPORT, STYLE, APPID, DIMSTYLE, BLOCK_RECORD)',
-          'Dimensions now export and re-import instead of being dropped, via a proper DIMENSION entity and its anonymous block',
-          'DXF import no longer explodes polylines into loose lines — LWPOLYLINE and POLYLINE come back in as one object',
-          'Hatches and splines now round-trip on import, matching what export already produced',
-          'Line weight, text rotation, and non-World UCS orientation now survive export on every entity type',
-        ],
-      },
-      {
-        label: 'Drafting',
-        items: [
-          'Polyline arc segments — press A while drawing to bow a segment into an arc, tangent to the one before it',
         ],
       },
     ],
@@ -12822,99 +12845,489 @@ async function stepCommitImport() {
 
 // DXF is plain text, so parseDXF() is pure JS and ships inside this file.
 // DWG is a compiled binary format with no practical JS reader, so it is
-// handled by LibreDWG (GPL-3.0-or-later) cross-compiled to WebAssembly and
-// loaded as a SIDE MODULE — two extra files next to this page, not a
-// rewrite of anything here. AGPL-3.0 carries every GPL-3.0 obligation plus
-// Section 13's network-copyleft clause — a strict superset — so combining
-// them and distributing the result under this file's AGPL-3.0-or-later
-// license satisfies both. See DWG-SUPPORT.md §5.
+// handled by LibreDWG (GPL-3.0-or-later) cross-compiled to WebAssembly.
+// Rather than build that WASM by hand, KAD loads the maintained
+// @mlightcad/libredwg-web package as an ES module on first use. AGPL-3.0
+// carries every GPL-3.0 obligation plus Section 13's network-copyleft
+// clause — a strict superset — so combining them and distributing the
+// result under this file's AGPL-3.0-or-later license satisfies both.
+// See DWG-SUPPORT.md §5.
+//
+// SELF-HOSTING (recommended for offline / PWA use): copy the ESM build and
+// the wasm/ folder out of the npm package, drop them beside this page, and
+// point .esm and .wasm at them. Nothing else in this file changes. Both can
+// also be overridden at runtime via window.KAD_DWG_ESM / window.KAD_DWG_WASM
+// before the first import, which is handy for testing another version.
 const KAD_DWG = {
-  loaderSrc: 'kad-dwg.js',    // Emscripten glue, MODULARIZE=1
-  wasmSrc:   'kad-dwg.wasm',  // compiled LibreDWG + bridge
-  factory:   'KadDwgModule',  // -s EXPORT_NAME
-  scriptP:   null,            // in-flight glue-script load
-  moduleP:   null,            // in-flight/settled module instantiation
+  esm:  'https://cdn.jsdelivr.net/npm/@mlightcad/libredwg-web@0.7.10/+esm',
+  wasm: 'https://cdn.jsdelivr.net/npm/@mlightcad/libredwg-web@0.7.10/wasm/',
+  modP: null,          // in-flight/settled module load
+
+  // DXF carries angles in degrees, LibreDWG carries them in radians, and the
+  // wrapper sits between the two. 'auto' sniffs each file; set 'deg' or 'rad'
+  // to pin it if a drawing ever comes in with the wrong sweep.
+  angleUnits: 'auto',
+
+  // Set by each import for console inspection. .db is the raw DwgDatabase
+  // straight from the reader, .report says what was converted and what was
+  // not. First stop when something is missing from an import.
+  last: null,
 };
 
-function kadDwgLoadScript() {
-  if (typeof window[KAD_DWG.factory] === 'function') return Promise.resolve();
-  if (KAD_DWG.scriptP) return KAD_DWG.scriptP;
-
-  KAD_DWG.scriptP = new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src   = KAD_DWG.loaderSrc;
-    s.async = true;
-    s.onload = () => {
-      if (typeof window[KAD_DWG.factory] === 'function') resolve();
-      else reject(new Error(KAD_DWG.loaderSrc + ' loaded but defined no ' + KAD_DWG.factory + '()'));
-    };
-    s.onerror = () => reject(new Error(KAD_DWG.loaderSrc + ' not found beside this page'));
-    document.head.appendChild(s);
-  });
-  KAD_DWG.scriptP.catch(() => { KAD_DWG.scriptP = null; });
-  return KAD_DWG.scriptP;
-}
-
 function kadDwgModule() {
-  if (KAD_DWG.moduleP) return KAD_DWG.moduleP;
-  KAD_DWG.moduleP = kadDwgLoadScript().then(() => window[KAD_DWG.factory]({
-    locateFile: (path) => /\.wasm$/.test(path) ? KAD_DWG.wasmSrc : path,
-  }));
-  KAD_DWG.moduleP.catch(() => { KAD_DWG.moduleP = null; });
-  return KAD_DWG.moduleP;
+  if (KAD_DWG.modP) return KAD_DWG.modP;
+  KAD_DWG.modP = (async () => {
+    const mod = await import(window.KAD_DWG_ESM || KAD_DWG.esm);
+    const ns  = (mod && mod.LibreDwg) ? mod : ((mod && mod.default) || mod);
+    if (!ns || !ns.LibreDwg || typeof ns.LibreDwg.create !== 'function')
+      throw new Error('libredwg-web loaded but exposed no LibreDwg.create()');
+    const lib = await ns.LibreDwg.create(window.KAD_DWG_WASM || KAD_DWG.wasm);
+    return { lib, fileType: ns.Dwg_File_Type || { DWG: 0, DXF: 1 } };
+  })();
+  KAD_DWG.modP.catch(() => { KAD_DWG.modP = null; });
+  return KAD_DWG.modP;
 }
 
-function kadDwgAvailable() { return typeof window[KAD_DWG.factory] === 'function'; }
+// KAD.services.dependencies.dwg still points here — same contract as the old
+// script-tag loader: call it, get a promise that settles when the reader is
+// ready to use.
+function kadDwgLoadScript() { return kadDwgModule(); }
+
+// The reader is fetched on demand, so "available" means "we have somewhere to
+// fetch it from", not "it is already in memory". Blank out KAD_DWG.esm to ship
+// a build with DWG import switched off.
+function kadDwgAvailable() {
+  return typeof KAD_DWG.esm === 'string' && KAD_DWG.esm.length > 0;
+}
+
+// The Import .dwg menu item and toolbar button ship hidden. This unhides them.
+function kadDwgRevealControls() {
+  if (!kadDwgAvailable()) return;
+  for (const id of ['menu-import-dwg', 'op-btn-dwg']) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = '';
+  }
+}
+if (document.readyState === 'loading')
+  document.addEventListener('DOMContentLoaded', kadDwgRevealControls);
+else
+  kadDwgRevealControls();
+
+
+// ---------------------------------------------------------------------------
+// Reading values out of the reader's objects.
+//
+// Field names come from the wrapper's documented interfaces, with the obvious
+// alternates accepted alongside them. That tolerance is deliberate: a renamed
+// field should cost one line in the skipped report, not a silently empty
+// import.
+// ---------------------------------------------------------------------------
+
+function _dwgNum(v) { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; }
+
+function _dwgLayer(e) {
+  return (e && typeof e.layer === 'string' && e.layer.trim()) ? e.layer.trim() : 'Layer_0';
+}
+
+// Points arrive as {x,y,z}, [x,y] or occasionally {0:x,1:y}.
+function _dwgPt(p) {
+  if (!p) return null;
+  if (Array.isArray(p)) return { x: _dwgNum(p[0]), y: _dwgNum(p[1]) };
+  if (typeof p !== 'object') return null;
+  if ('x' in p || 'y' in p) return { x: _dwgNum(p.x), y: _dwgNum(p.y) };
+  if (0 in p || 1 in p)     return { x: _dwgNum(p[0]), y: _dwgNum(p[1]) };
+  return null;
+}
+
+// First defined value among candidate property names.
+function _dwgPick(obj, names) {
+  if (!obj) return undefined;
+  for (const n of names) if (obj[n] !== undefined && obj[n] !== null) return obj[n];
+  return undefined;
+}
+
+function _dwgPtFrom(obj, names) {
+  for (const n of names) { const p = _dwgPt(obj && obj[n]); if (p) return p; }
+  return null;
+}
+
+
+// ---------------------------------------------------------------------------
+// Block placement transforms.
+//
+// A transform is a 2x3 affine matrix [a,b,c,d,e,f], same argument order as
+// canvas setTransform: x' = a*x + c*y + e, y' = b*x + d*y + f. Carrying a
+// matrix rather than a decomposed offset/scale/rotation triple is what makes
+// nested INSERTs come out right — decomposed values only compose correctly
+// when every scale in the chain is uniform.
+// ---------------------------------------------------------------------------
+
+const DWG_IDENTITY = [1, 0, 0, 1, 0, 0];
+
+function _dwgXfPoint(m, p) {
+  return { x: m[0] * p.x + m[2] * p.y + m[4],
+           y: m[1] * p.x + m[3] * p.y + m[5] };
+}
+
+// The transform that applies `inner` first, then `outer`.
+function _dwgXfCompose(outer, inner) {
+  const A = outer[0], B = outer[1], C = outer[2], D = outer[3], E = outer[4], F = outer[5];
+  const a = inner[0], b = inner[1], c = inner[2], d = inner[3], e = inner[4], f = inner[5];
+  return [A * a + C * b,       B * a + D * b,
+          A * c + C * d,       B * c + D * d,
+          A * e + C * f + E,   B * e + D * f + F];
+}
+
+// An INSERT places its block's base point at the insertion point, after
+// scaling and rotating the block's geometry about that base point.
+function _dwgXfFromInsert(insertion, sx, sy, rotRad, base) {
+  const cos = Math.cos(rotRad), sin = Math.sin(rotRad);
+  const a = sx * cos, b = sx * sin, c = -sy * sin, d = sy * cos;
+  return [a, b, c, d,
+          insertion.x - (a * base.x + c * base.y),
+          insertion.y - (b * base.x + d * base.y)];
+}
+
+function _dwgXfDet(m)      { return m[0] * m[3] - m[2] * m[1]; }
+function _dwgXfMirrored(m) { return _dwgXfDet(m) < 0; }
+function _dwgXfScale(m)    { return Math.sqrt(Math.abs(_dwgXfDet(m))) || 1; }
+
+// Rotation of the transform's first basis vector, in degrees. Under a mirror
+// this doubles as the reflection axis angle, which is what _dwgXfMapAngle uses.
+function _dwgXfAngle(m) { return Math.atan2(m[1], m[0]) * 180 / Math.PI; }
+
+function _dwgDeg360(deg) { const d = deg % 360; return d < 0 ? d + 360 : d; }
+
+// Maps an angle measured on a circle through the transform, in degrees. A
+// mirrored transform reflects angles about its axis instead of adding to them.
+// The result is wrapped into [0,360) to match what parseDXF emits — atan2 of a
+// negative zero would otherwise hand back an equivalent but negative angle.
+function _dwgXfMapAngle(m, deg) {
+  return _dwgDeg360(_dwgXfMirrored(m) ? _dwgXfAngle(m) - deg : deg + _dwgXfAngle(m));
+}
+
+// True when the transform scales x and y equally and keeps them square, i.e.
+// circles stay circles. Non-uniform placements get counted as approximated.
+function _dwgXfUniform(m) {
+  const n1 = Math.hypot(m[0], m[1]), n2 = Math.hypot(m[2], m[3]);
+  if (!(n1 > 0) || !(n2 > 0)) return false;
+  const skew = Math.abs(m[0] * m[2] + m[1] * m[3]) / (n1 * n2);
+  return Math.abs(n1 - n2) <= 1e-6 * Math.max(n1, n2) && skew <= 1e-6;
+}
+
+
+// ---------------------------------------------------------------------------
+// Locating things inside the DwgDatabase.
+// ---------------------------------------------------------------------------
+
+// The model-space entity list, wherever the wrapper put it. The last resort is
+// a shallow search for the largest entity-shaped array; it flags the report so
+// an unrecognised layout shows up rather than passing as an empty drawing.
+function _dwgEntityList(db, report) {
+  if (Array.isArray(db.entities)) return db.entities;
+  if (db.entities && Array.isArray(db.entities.entities)) return db.entities.entities;
+  if (Array.isArray(db.modelSpace)) return db.modelSpace;
+
+  const MODEL = ['*MODEL_SPACE', '*MODELSPACE', 'MODEL_SPACE', '$MODEL_SPACE'];
+  const blocks = db.blocks;
+  if (blocks) {
+    const list = Array.isArray(blocks) ? blocks : Object.keys(blocks).map(k => blocks[k]);
+    for (const blk of list) {
+      const nm = String((blk && (blk.name || blk.blockName)) || '').toUpperCase();
+      if (MODEL.indexOf(nm) >= 0 && Array.isArray(blk.entities)) return blk.entities;
+    }
+  }
+
+  let best = null;
+  const isEntity = (o) => o && typeof o === 'object' && typeof o.type === 'string';
+  const walk = (node, depth) => {
+    if (!node || typeof node !== 'object' || depth > 4) return;
+    if (Array.isArray(node)) {
+      if (node.length && isEntity(node[0]) && (!best || node.length > best.length)) best = node;
+      return;
+    }
+    for (const k of Object.keys(node)) walk(node[k], depth + 1);
+  };
+  walk(db, 0);
+  if (best) report.guessedEntityList = true;
+  return best || [];
+}
+
+// Uppercased block name -> { entities, base }, for expanding INSERTs.
+function _dwgBlockIndex(db) {
+  const idx = new Map();
+  const b = db && db.blocks;
+  if (!b) return idx;
+
+  const add = (name, blk) => {
+    if (!name || !blk) return;
+    const ents = Array.isArray(blk.entities) ? blk.entities
+               : (blk.entities && Array.isArray(blk.entities.entities)) ? blk.entities.entities
+               : null;
+    if (!ents) return;
+    idx.set(String(name).toUpperCase(), {
+      entities: ents,
+      base: _dwgPtFrom(blk, ['basePoint', 'position', 'origin']) || { x: 0, y: 0 },
+    });
+  };
+
+  if (Array.isArray(b)) for (const blk of b) add(blk && (blk.name || blk.blockName), blk);
+  else for (const k of Object.keys(b)) add((b[k] && (b[k].name || b[k].blockName)) || k, b[k]);
+  return idx;
+}
+
+// Whether this file's ARC angles — and therefore its rotations — are radians.
+// An angle past 2*PI can only be degrees. Absent that proof, a non-zero angle
+// that fits inside 2*PI is read as radians, since a drawing whose every arc
+// sweeps under 6.28 DEGREES is far rarer than one in radians. With no arc
+// angles at all there is nothing to go on, so degrees wins: it leaves every
+// rotation untouched.
+function _dwgUsesRadians(roots, blocks) {
+  if (KAD_DWG.angleUnits === 'deg') return false;
+  if (KAD_DWG.angleUnits === 'rad') return true;
+
+  const KEYS = ['startAngle', 'start_angle', 'startA', 'endAngle', 'end_angle', 'endA'];
+  let max = 0;
+  const scan = (list) => {
+    if (!Array.isArray(list)) return;
+    for (const e of list) {
+      if (!e || e.type !== 'ARC') continue;
+      for (const k of KEYS) {
+        const v = Math.abs(_dwgNum(e[k]));
+        if (v > max) max = v;
+      }
+    }
+  };
+  scan(roots);
+  // The root may hold nothing but INSERTs, so block definitions get a look too.
+  blocks.forEach((blk) => scan(blk.entities));
+
+  if (max > 6.2832) return false;   // proof of degrees
+  return max > 0;                   // evidence of radians, or nothing to go on
+}
+
+
+// ---------------------------------------------------------------------------
+// DwgDatabase -> the shape parseDXF() produces, so the import dialog and
+// everything downstream of it cannot tell the two sources apart.
+// ---------------------------------------------------------------------------
+
+const KAD_DWG_MAX_DEPTH = 8;   // nested block recursion ceiling
 
 function kadDwgNormalize(raw) {
-  const out = { lines: [], circles: [], arcs: [], scaleMM: 1, rawInsUnits: 0, skipped: 0 };
+  const out = { lines: [], circles: [], arcs: [], polys: [], texts: [],
+                points: [], dims: [], hatches: [], beziers: [],
+                scaleMM: 1, rawInsUnits: 0, skipped: 0 };
   if (!raw || typeof raw !== 'object') { out.error = 'reader returned no data'; return out; }
   if (raw.error) { out.error = String(raw.error); return out; }
 
-  const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
-  const lay = (e) => (e && typeof e.layer === 'string' && e.layer.trim()) ? e.layer.trim() : 'Layer_0';
+  const header = raw.header || raw.HEADER || {};
+  let insunits = _dwgPick(raw, ['insunits', 'rawInsUnits']);
+  if (insunits === undefined) insunits = _dwgPick(header, ['INSUNITS', '$INSUNITS', 'insunits']);
+  insunits = Number.isFinite(parseFloat(insunits)) ? parseInt(insunits, 10) : 0;
+  out.rawInsUnits = insunits;
+  out.scaleMM     = (DXF_INSUNITS_TO_MM[insunits] != null) ? DXF_INSUNITS_TO_MM[insunits] : 1;
 
-  const ins = Number.isFinite(raw.insunits) ? raw.insunits
-            : Number.isFinite(raw.rawInsUnits) ? raw.rawInsUnits : 0;
-  out.rawInsUnits = ins;
-  out.scaleMM     = (DXF_INSUNITS_TO_MM[ins] != null ? DXF_INSUNITS_TO_MM[ins] : 1);
-  out.skipped     = Number.isFinite(raw.skipped) ? raw.skipped : 0;
+  const report  = { converted: 0, paperSpace: 0, approximated: 0,
+                    unhandled: {}, missingBlocks: [] };
+  const blocks  = _dwgBlockIndex(raw);
+  const roots   = _dwgEntityList(raw, report);
+  const toDeg   = _dwgUsesRadians(roots, blocks) ? 180 / Math.PI : 1;
 
-  for (const l of (raw.lines || [])) {
-    out.lines.push({ type:'LINE', layer:lay(l),
-      x1:num(l.x1), y1:num(l.y1), x2:num(l.x2), y2:num(l.y2) });
-  }
+  const skip = (what) => {
+    report.unhandled[what] = (report.unhandled[what] || 0) + 1;
+    out.skipped++;
+  };
 
-  for (const c of (raw.circles || [])) {
-    const r = num(c.r != null ? c.r : c.radius);
-    if (!(r > 0)) continue;   // a zero/negative radius is not a circle KAD can draw
-    out.circles.push({ type:'CIRCLE', layer:lay(c), cx:num(c.cx), cy:num(c.cy), r });
-  }
+  function emit(ents, xf, depth) {
+    if (!Array.isArray(ents)) return;
 
-  for (const a of (raw.arcs || [])) {
-    const r = num(a.r != null ? a.r : a.radius);
-    if (!(r > 0)) continue;
-    let sA, eA;
-    if (a.startA != null || a.endA != null) { sA = num(a.startA); eA = num(a.endA); }
-    else { sA = num(a.start_angle) * 180/Math.PI; eA = num(a.end_angle) * 180/Math.PI; }
-    out.arcs.push({ type:'ARC', layer:lay(a), cx:num(a.cx), cy:num(a.cy), r, startA:sA, endA:eA });
-  }
+    const at       = (p) => _dwgXfPoint(xf, p);
+    const scale    = _dwgXfScale(xf);
+    const mirrored = _dwgXfMirrored(xf);
+    const uniform  = _dwgXfUniform(xf);
 
-  for (const p of (raw.polylines || [])) {
-    const src = p.verts || p.points || [];
-    const verts = src.map(v => Array.isArray(v)
-      ? { x:num(v[0]), y:num(v[1]) }
-      : { x:num(v.x),  y:num(v.y)  });
-    const L = lay(p);
-    for (let i = 0; i < verts.length - 1; i++) {
-      out.lines.push({ type:'LINE', layer:L,
-        x1:verts[i].x, y1:verts[i].y, x2:verts[i+1].x, y2:verts[i+1].y });
+    for (const e of ents) {
+      if (!e || typeof e !== 'object') continue;
+      const type = String(e.type || '').toUpperCase();
+      if (!type) continue;
+      if (e.isInPaperSpace)      { report.paperSpace++; continue; }
+      if (e.isVisible === false) continue;
+
+      const layer = _dwgLayer(e);
+
+      switch (type) {
+        case 'LINE': {
+          const a = _dwgPtFrom(e, ['startPoint', 'start', 'p1']);
+          const b = _dwgPtFrom(e, ['endPoint', 'end', 'p2']);
+          if (!a || !b) { skip(type); break; }
+          const A = at(a), B = at(b);
+          out.lines.push({ type: 'LINE', layer, x1: A.x, y1: A.y, x2: B.x, y2: B.y, plane: 'World' });
+          report.converted++;
+          break;
+        }
+
+        case 'LWPOLYLINE':
+        case 'POLYLINE':
+        case 'POLYLINE_2D':
+        case 'POLYLINE_3D': {
+          const src = _dwgPick(e, ['vertices', 'verts', 'points']) || [];
+          const pts = [];
+          for (const v of src) {
+            const p = _dwgPt(v);
+            if (!p) continue;
+            const q = at(p);
+            // A bulge is tan(theta/4): scale-invariant, but it changes hand
+            // under a mirror.
+            const bulge = _dwgNum(_dwgPick(v, ['bulge', 'b']));
+            if (bulge) q.b = mirrored ? -bulge : bulge;
+            pts.push(q);
+          }
+          if (pts.length < 2) { skip(type); break; }
+          const closed = (e.closed === true) || !!(_dwgNum(_dwgPick(e, ['flag', 'flags'])) & 1);
+          out.polys.push({ type: 'POLYLINE', layer, closed, pts, plane: 'World' });
+          report.converted++;
+          break;
+        }
+
+        case 'CIRCLE': {
+          const c = _dwgPtFrom(e, ['center', 'centerPoint', 'position']);
+          const r = Math.abs(_dwgNum(_dwgPick(e, ['radius', 'r']))) * scale;
+          if (!c || !(r > 0)) { skip(type); break; }
+          if (!uniform) report.approximated++;
+          const C = at(c);
+          out.circles.push({ type: 'CIRCLE', layer, cx: C.x, cy: C.y, r, plane: 'World' });
+          report.converted++;
+          break;
+        }
+
+        case 'ARC': {
+          const c = _dwgPtFrom(e, ['center', 'centerPoint', 'position']);
+          const r = Math.abs(_dwgNum(_dwgPick(e, ['radius', 'r']))) * scale;
+          if (!c || !(r > 0)) { skip(type); break; }
+          if (!uniform) report.approximated++;
+          const C  = at(c);
+          const s0 = _dwgNum(_dwgPick(e, ['startAngle', 'start_angle', 'startA'])) * toDeg;
+          const e0 = _dwgNum(_dwgPick(e, ['endAngle',   'end_angle',   'endA']))   * toDeg;
+          // A mirror reverses sweep direction, so the endpoints trade places.
+          const startA = _dwgXfMapAngle(xf, mirrored ? e0 : s0);
+          const endA   = _dwgXfMapAngle(xf, mirrored ? s0 : e0);
+          out.arcs.push({ type: 'ARC', layer, cx: C.x, cy: C.y, r, startA, endA, plane: 'World' });
+          report.converted++;
+          break;
+        }
+
+        case 'ELLIPSE': {
+          // DXF stores ellipse sweep as a parameter in radians even where arcs
+          // use degrees, so this one judges its own units by magnitude.
+          const c     = _dwgPtFrom(e, ['center', 'centerPoint']);
+          const major = _dwgPtFrom(e, ['majorAxisEndPoint', 'majorAxis', 'majorAxisVector']);
+          const ratio = _dwgNum(_dwgPick(e, ['axisRatio', 'minorAxisRatio', 'ratio']));
+          const semiA = major ? Math.hypot(major.x, major.y) : 0;
+          if (!c || !(semiA > 0) || !(ratio > 0)) { skip(type); break; }
+
+          let s0 = _dwgNum(_dwgPick(e, ['startAngle', 'start_angle', 'startParameter']));
+          let e0 = _dwgNum(_dwgPick(e, ['endAngle',   'end_angle',   'endParameter']));
+          if (Math.abs(s0) > 6.2832 || Math.abs(e0) > 6.2832) {
+            s0 *= Math.PI / 180; e0 *= Math.PI / 180;
+          }
+          if (!(Math.abs(e0 - s0) > 1e-9)) { s0 = 0; e0 = Math.PI * 2; }
+
+          const semiB = semiA * ratio;
+          const cosT  = major.x / semiA, sinT = major.y / semiA;
+          const STEPS = 72, pts = [];
+          for (let k = 0; k <= STEPS; k++) {
+            const t  = s0 + (e0 - s0) * k / STEPS;
+            const lx = semiA * Math.cos(t), ly = semiB * Math.sin(t);
+            pts.push(at({ x: c.x + lx * cosT - ly * sinT,
+                          y: c.y + lx * sinT + ly * cosT }));
+          }
+          out.polys.push({ type: 'POLYLINE', layer, plane: 'World', pts,
+                           closed: Math.abs((e0 - s0) - Math.PI * 2) < 1e-6 });
+          report.converted++;
+          report.approximated++;
+          break;
+        }
+
+        case 'SPLINE': {
+          // Through the control points — the same approximation parseDXF makes.
+          const cps = _dwgPick(e, ['controlPoints', 'fitPoints', 'controlPointList']) || [];
+          const pts = [];
+          for (const v of cps) { const p = _dwgPt(v); if (p) pts.push(at(p)); }
+          if (pts.length < 2) { skip(type); break; }
+          out.polys.push({ type: 'POLYLINE', layer, closed: !!e.closed, pts, plane: 'World' });
+          report.converted++;
+          report.approximated++;
+          break;
+        }
+
+        case 'POINT': {
+          const p = _dwgPtFrom(e, ['position', 'point', 'center', 'startPoint']);
+          if (!p) { skip(type); break; }
+          const P = at(p);
+          out.points.push({ type: 'POINT', layer, x: P.x, y: P.y, plane: 'World' });
+          report.converted++;
+          break;
+        }
+
+        case 'TEXT':
+        case 'MTEXT':
+        case 'ATTRIB': {
+          let text = _dwgPick(e, ['text', 'textString', 'value', 'contents']);
+          if (typeof text !== 'string') { skip(type); break; }
+          if (type === 'MTEXT' && typeof dxfStripMTextCodes === 'function')
+            text = dxfStripMTextCodes(text);
+          if (text === '') { skip(type); break; }
+
+          const p = _dwgPtFrom(e, ['startPoint', 'insertionPoint', 'position', 'attachmentPoint'])
+                    || { x: 0, y: 0 };
+          const P  = at(p);
+          const h  = Math.abs(_dwgNum(_dwgPick(e, ['textHeight', 'height', 'nominalTextHeight'])));
+          const rot = _dwgNum(_dwgPick(e, ['rotation', 'rotationAngle'])) * toDeg;
+          out.texts.push({ type: 'TEXT', layer, x: P.x, y: P.y, text,
+                           height: (h > 0 ? h : 5) * scale,
+                           rotation: _dwgXfMapAngle(xf, rot),
+                           halign: _dwgNum(_dwgPick(e, ['halign', 'horizontalAlignment'])),
+                           plane: 'World' });
+          report.converted++;
+          break;
+        }
+
+        case 'INSERT': {
+          if (depth >= KAD_DWG_MAX_DEPTH) { skip('INSERT (nested past ' + KAD_DWG_MAX_DEPTH + ')'); break; }
+          const name = String(_dwgPick(e, ['name', 'blockName', 'block']) || '');
+          const blk  = blocks.get(name.toUpperCase());
+          if (!blk) { report.missingBlocks.push(name || '(unnamed)'); skip(type); break; }
+
+          const insertion = _dwgPtFrom(e, ['insertionPoint', 'position', 'startPoint']) || { x: 0, y: 0 };
+          const sx  = _dwgNum(_dwgPick(e, ['xScale', 'scaleX', 'xscale'])) || 1;
+          const sy  = _dwgNum(_dwgPick(e, ['yScale', 'scaleY', 'yscale'])) || 1;
+          const rot = _dwgNum(_dwgPick(e, ['rotation', 'rotationAngle'])) * toDeg;
+          const local = _dwgXfFromInsert(insertion, sx, sy, rot * Math.PI / 180, blk.base);
+          emit(blk.entities, _dwgXfCompose(xf, local), depth + 1);
+          break;
+        }
+
+        // Deliberately not converted: DIMENSION (KAD regenerates dimension
+        // geometry from its own dimstyle, which a DWG dim does not carry
+        // across), HATCH, LEADER, IMAGE, and 3D solids.
+        default:
+          skip(type);
+      }
     }
-    if (p.closed && verts.length > 2) {
-      const last = verts[verts.length-1], first = verts[0];
-      out.lines.push({ type:'LINE', layer:L, x1:last.x, y1:last.y, x2:first.x, y2:first.y });
-    }
   }
+
+  emit(roots, DWG_IDENTITY, 0);
+
+  KAD_DWG.last = { db: raw, report };
+  if (out.skipped || report.paperSpace || report.guessedEntityList)
+    console.info('[KAD] DWG import report:', report,
+                 '\nRaw reader output is at KAD_DWG.last.db');
+  if (report.missingBlocks.length)
+    console.warn('[KAD] DWG import could not resolve block definitions:',
+                 Array.from(new Set(report.missingBlocks)));
+  if (!report.converted && !out.skipped)
+    out.error = 'reader returned a drawing with no entities';
 
   return out;
 }
@@ -12925,34 +13338,31 @@ async function importDWG(event) {
   if (!file) return;
   const reset = () => { input.value = ''; };
 
-  let Module;
+  let lib, fileType;
   try {
     showToast('Loading DWG reader…');
-    Module = await kadDwgModule();
+    ({ lib, fileType } = await kadDwgModule());
   } catch (err) {
-    showToast('DWG support not installed — ' + err.message);
+    showToast('DWG reader unavailable — ' + err.message);
     reset(); return;
   }
 
-  let raw = null, ptr = 0, jsonPtr = 0;
+  let db = null, dwg = null;
   try {
-    const buf = new Uint8Array(await file.arrayBuffer());
-    ptr = Module._malloc(buf.length);
-    if (!ptr) throw new Error('could not allocate ' + buf.length + ' bytes');
-    Module.HEAPU8.set(buf, ptr);
-
-    jsonPtr = Module.ccall('kad_dwg_to_json', 'number', ['number','number'], [ptr, buf.length]);
-    if (!jsonPtr) throw new Error('reader returned no result');
-    raw = JSON.parse(Module.UTF8ToString(jsonPtr));
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    dwg = lib.dwg_read_data(bytes, fileType.DWG);
+    if (!dwg) throw new Error('reader returned nothing');
+    if (dwg.error) throw new Error('reader error code ' + dwg.error);
+    db = lib.convert(dwg);
+    if (!db) throw new Error('reader produced no drawing database');
   } catch (err) {
     showToast('DWG read error: ' + err.message);
     reset(); return;
   } finally {
-    if (jsonPtr) { try { Module._kad_free(jsonPtr); } catch (e) {} }
-    if (ptr)     { try { Module._free(ptr);        } catch (e) {} }
+    if (dwg) { try { lib.dwg_free(dwg); } catch (e) {} }
   }
 
-  const parsed = kadDwgNormalize(raw);
+  const parsed = kadDwgNormalize(db);
   if (parsed.error) { showToast('DWG error: ' + parsed.error); reset(); return; }
   if (!openImportDialog(parsed, file.name, 'dwg')) reset();
 }
