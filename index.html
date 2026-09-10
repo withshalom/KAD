@@ -2553,11 +2553,11 @@ body.kanvas-mode #app {
 
   <div id="dyn-lenang-box" style="display:none;">
     <div class="dyn-field">
-      <label>LEN</label>
+      <label id="dyn-len-label">LEN</label>
       <input id="dyn-len-input" type="number" step="0.1" inputmode="decimal" autocomplete="off"/>
       <span id="dyn-len-unit">mm</span>
     </div>
-    <div class="dyn-field">
+    <div class="dyn-field" id="dyn-ang-field">
       <label>ANG</label>
       <input id="dyn-ang-input" type="number" step="1" inputmode="decimal" autocomplete="off"/>
       <span>°</span>
@@ -6150,6 +6150,7 @@ function getDynAnchor() {
   if (activeTool==='line' && lineState.active) return { x:lineState.x1, y:lineState.y1 };
   if (activeTool==='arc'  && arcState.phase===1 && arcState.p1) return arcState.p1;
   if (activeTool==='arc'  && arcState.phase===2 && arcState.p2) return arcState.p2;
+  if (activeTool==='circle' && circleState.active) return { x:circleState.cx, y:circleState.cy };
   return null;
 }
 
@@ -6167,6 +6168,16 @@ function updateDynBox(anchor) {
   if (!box) return;
   if (!anchor) { box.style.display='none'; return; }
   box.style.display = 'flex';
+
+  // A circle has no heading, so the distance-to-cursor field is a radius, not
+  // a length, and the angle field next to it never does anything — showing it
+  // anyway invites someone to "fix" a circle that looks wrong by typing into
+  // a control that was never wired to it.
+  const isCircle = (activeTool === 'circle');
+  const lenLbl   = document.getElementById('dyn-len-label');
+  const angField = document.getElementById('dyn-ang-field');
+  if (lenLbl)   lenLbl.textContent   = isCircle ? 'R' : 'LEN';
+  if (angField) angField.style.display = isCircle ? 'none' : '';
 
   const dist = Math.hypot(mouseWorld.x-anchor.x, mouseWorld.y-anchor.y);
   const ang  = ((Math.atan2(mouseWorld.y-anchor.y, mouseWorld.x-anchor.x)*180/Math.PI)+360)%360;
@@ -8625,7 +8636,14 @@ function onMouseDown(e) {
       const wp=snapActive&&snapPoint?snapPoint:mouseWorld;
       if(!circleState.active){
         circleState={active:true,cx:wp.x,cy:wp.y};
-        openCirclePrompt();
+        resetDynBox();
+      } else {
+        // commitCircle already guards r<1e-6 and toasts either way, so a
+        // click back on the center just gets a "too small" toast and the
+        // tool stays armed for another try, matching every other draw tool.
+        const r = Math.hypot(wp.x-circleState.cx, wp.y-circleState.cy);
+        commitCircle(circleState.cx, circleState.cy, r);
+        if (r >= 1e-6) { circleState = {active:false}; resetDynBox(); }
       }
       render();return;
     }
@@ -8995,6 +9013,13 @@ function commitInProgressDraw() {
     commitRect(rectState.x1,rectState.y1,wp.x,wp.y);
     rectState={active:false};
     document.getElementById('rect-preview').style.display='none';
+    render(); return true;
+  }
+  if(activeTool==='circle'&&circleState.active){
+    const wp=snapActive&&snapPoint?snapPoint:mouseWorld;
+    const r = Math.hypot(wp.x-circleState.cx, wp.y-circleState.cy);
+    commitCircle(circleState.cx, circleState.cy, r);
+    if (r >= 1e-6) { circleState = {active:false}; resetDynBox(); }
     render(); return true;
   }
   return false;
