@@ -12853,14 +12853,26 @@ async function stepCommitImport() {
 // result under this file's AGPL-3.0-or-later license satisfies both.
 // See DWG-SUPPORT.md §5.
 //
-// SELF-HOSTING (recommended for offline / PWA use): copy the ESM build and
-// the wasm/ folder out of the npm package, drop them beside this page, and
-// point .esm and .wasm at them. Nothing else in this file changes. Both can
-// also be overridden at runtime via window.KAD_DWG_ESM / window.KAD_DWG_WASM
-// before the first import, which is handy for testing another version.
+// SELF-HOSTING (recommended for offline / PWA use, and the fix if the CDN
+// layout ever moves): copy the ESM build and the .wasm out of the npm package,
+// drop them beside this page, and point .esm and .wasm at them. Nothing else
+// in this file changes. Both can also be set at runtime via
+// window.KAD_DWG_ESM / window.KAD_DWG_WASM before the first import.
 const KAD_DWG = {
   esm:  'https://cdn.jsdelivr.net/npm/@mlightcad/libredwg-web@0.7.10/+esm',
-  wasm: 'https://cdn.jsdelivr.net/npm/@mlightcad/libredwg-web@0.7.10/wasm/',
+
+  // Directory holding LibreDWG's .wasm. Leave null and the candidates below
+  // get probed once on first use; set it — or window.KAD_DWG_WASM — to a
+  // folder you host yourself and the probe is skipped entirely.
+  wasm: null,
+  wasmDirs: [
+    'https://cdn.jsdelivr.net/npm/@mlightcad/libredwg-web@0.7.10/wasm/',
+    'https://cdn.jsdelivr.net/npm/@mlightcad/libredwg-web@0.7.10/dist/',
+    'https://cdn.jsdelivr.net/npm/@mlightcad/libredwg-web@0.7.10/',
+  ],
+  wasmNames: ['libredwg-web.wasm', 'libredwg.wasm'],
+  wasmDir: null,       // filled in by the probe, then reused
+
   modP: null,          // in-flight/settled module load
 
   // DXF carries angles in degrees, LibreDWG carries them in radians, and the
@@ -12874,6 +12886,37 @@ const KAD_DWG = {
   last: null,
 };
 
+// Emscripten reports nothing more useful than "fetching of the wasm failed"
+// when its URL 404s, so the wasm gets located before the reader is asked to
+// load it. Each candidate is fetched just far enough to confirm the file is
+// there and is really wasm. Safe to call from the console to diagnose.
+async function kadDwgFindWasmDir() {
+  const fixed = window.KAD_DWG_WASM || KAD_DWG.wasm || KAD_DWG.wasmDir;
+  if (fixed) return fixed;
+
+  const tried = [];
+  for (const dir of KAD_DWG.wasmDirs) {
+    for (const name of KAD_DWG.wasmNames) {
+      const url = dir + name;
+      try {
+        const res = await fetch(url, { headers: { Range: 'bytes=0-3' } });
+        if (!res.ok) { tried.push('HTTP ' + res.status + '  ' + url); continue; }
+        const head = new Uint8Array(await res.arrayBuffer());
+        if (head[0] === 0x00 && head[1] === 0x61 && head[2] === 0x73 && head[3] === 0x6d) {
+          console.info('[KAD] LibreDWG wasm found at ' + url);
+          KAD_DWG.wasmDir = dir;
+          return dir;
+        }
+        tried.push('not wasm  ' + url);
+      } catch (err) {
+        tried.push('unreachable  ' + url);
+      }
+    }
+  }
+  console.error('[KAD] LibreDWG wasm not found. Tried:\n' + tried.join('\n'));
+  throw new Error('wasm not found at any known URL (see console)');
+}
+
 function kadDwgModule() {
   if (KAD_DWG.modP) return KAD_DWG.modP;
   KAD_DWG.modP = (async () => {
@@ -12881,7 +12924,17 @@ function kadDwgModule() {
     const ns  = (mod && mod.LibreDwg) ? mod : ((mod && mod.default) || mod);
     if (!ns || !ns.LibreDwg || typeof ns.LibreDwg.create !== 'function')
       throw new Error('libredwg-web loaded but exposed no LibreDwg.create()');
-    const lib = await ns.LibreDwg.create(window.KAD_DWG_WASM || KAD_DWG.wasm);
+
+    const dir = await kadDwgFindWasmDir();
+    let lib;
+    try {
+      lib = await ns.LibreDwg.create(dir);
+    } catch (err) {
+      // Some builds resolve the wasm themselves and choke on an explicit path.
+      console.warn('[KAD] LibreDwg.create("' + dir + '") failed, retrying with ' +
+                   'the package default —', err.message);
+      lib = await ns.LibreDwg.create();
+    }
     return { lib, fileType: ns.Dwg_File_Type || { DWG: 0, DXF: 1 } };
   })();
   KAD_DWG.modP.catch(() => { KAD_DWG.modP = null; });
