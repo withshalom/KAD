@@ -510,6 +510,22 @@ button, .tb-menu-item, .tb-dd-item, .layer-row, .tab-item, .sb-item.sb-toggle {
   display: none; align-items: center; justify-content: center;
 }
 #osnap-overlay.open { display: flex; }
+.dlg-sub {
+  font-family: var(--fu);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--t3);
+  margin: 2px 0 6px;
+}
+.dlg-sub + .dlg-note { margin-top: 0; }
+#draft-modes-list { margin-bottom: 14px; }
+#draft-modes-list .osnap-row { grid-template-columns: 1fr auto auto; }
+#draft-modes-list .osnap-key {
+  font-family: var(--fu);
+  font-size: 11px;
+  color: var(--t3);
+  opacity: 0.7;
+}
 #osnap-dialog {
   background: var(--panel); border: 1px solid var(--border-hi);
   border-radius: 6px;
@@ -1825,7 +1841,25 @@ body.kanvas-mode #app {
 .mobile-mode #statusbar {
   gap: 4px;
   padding: 0 8px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.mobile-mode #statusbar::-webkit-scrollbar { display: none; }
+
+/* Read-only fields are shown elsewhere on a phone — MODE is the command bar's
+   state chip, GRID is in the grid menu — so their width goes to the toggles. */
+.mobile-mode .sb-readout { display: none; }
+
+/* Whatever else scrolls out of reach, the way into Drafting Modes stays put. */
+.mobile-mode .sb-modes {
+  position: sticky;
+  left: 0;
+  order: -1;
+  z-index: 2;
+  background: var(--panel);
+  box-shadow: 6px 0 6px -6px rgba(0,0,0,0.55);
 }
 .mobile-mode .sb-item {
   font-size: 11px;
@@ -2932,15 +2966,15 @@ body.kanvas-mode #app {
 </div>
 
 <div id="statusbar">
-  <div class="sb-item"><span>MODE</span><span class="sb-val act" id="sb-mode">READY</span></div>
+  <div class="sb-item sb-readout"><span>MODE</span><span class="sb-val act" id="sb-mode">READY</span></div>
   <div class="sb-item sb-toggle" onclick="planView()" title="Orbited views can't be drawn in \u2014 click to return to plan"><span>VIEW</span><span class="sb-val ok" id="orbit-label">PLAN</span></div>
   <div class="sb-item sb-toggle" onclick="toggleSnap()" title="Object snap (F3)"><span>OSNAP</span><span class="sb-val ok" id="sb-snap">ON</span></div>
-  <div class="sb-item sb-toggle" onclick="openSnapSettings()" title="Which snaps are running"><span>MODES</span><span class="sb-val act" id="sb-osnap-count">11/14</span></div>
+  <div class="sb-item sb-toggle sb-modes" onclick="openSnapSettings()" title="Drafting modes and running snaps"><span>MODES</span><span class="sb-val act" id="sb-osnap-count">11/14</span></div>
   <div class="sb-item sb-toggle" onclick="toggleOrtho()" title="Ortho \u2014 lock to 0\u00b0/90\u00b0 (F8)"><span>ORTHO</span><span class="sb-val" id="sb-ortho">OFF</span></div>
   <div class="sb-item sb-toggle" onclick="togglePolar()" title="Polar tracking (F10)"><span>POLAR</span><span class="sb-val" id="sb-polar">OFF</span></div>
   <div class="sb-item sb-toggle" onclick="toggleGridSnap()" title="Snap to grid (F9)"><span>GSNAP</span><span class="sb-val" id="sb-gsnap">OFF</span></div>
   <div class="sb-item sb-toggle" onclick="toggleOtrack()" title="Object snap tracking (F11)"><span>OTRACK</span><span class="sb-val ok" id="sb-otrack">ON</span></div>
-  <div class="sb-item"><span>GRID</span><span class="sb-val" id="sb-grid">10mm</span></div>
+  <div class="sb-item sb-readout"><span>GRID</span><span class="sb-val" id="sb-grid">10mm</span></div>
   <div class="sb-right">
     <div class="sb-hotkeys">
       <div class="sb-item"><span>L</span><span class="sb-val">line</span></div>
@@ -3183,10 +3217,13 @@ body.kanvas-mode #app {
 <div id="osnap-overlay">
   <div id="osnap-dialog">
     <div class="dlg-head">
-      <span class="dlg-title">Running Object Snaps</span>
+      <span class="dlg-title">Drafting Modes</span>
       <button class="dlg-close" onclick="closeSnapSettings()">&times;</button>
     </div>
     <div class="dlg-body">
+      <div class="dlg-sub">Modes</div>
+      <div id="draft-modes-list"></div>
+      <div class="dlg-sub">Running object snaps</div>
       <p class="dlg-note">Snaps left running here are found automatically while you
         draw. <b>Nearest</b> and <b>Apparent intersection</b> start off on purpose:
         both are available almost everywhere, so leaving them on makes every other
@@ -3622,12 +3659,27 @@ body.kanvas-mode #app {
 'use strict';
 
 
-const KAD_APP_VERSION = '1.1.0';
+const KAD_APP_VERSION = '1.1.1';
 
 // Public changelog. Only list features once they're fully live (no display:none
 // gates, no feature flags left off). Newest entry first. Keep entries short —
 // this is the "what shipped", not the dev log; that stays in KAD-DEV-NOTES.md.
 const KAD_CHANGELOG = [
+  {
+    version: '1.1.1',
+    date: '2026-09-10',
+    groups: [
+      {
+        label: 'Interface',
+        items: [
+          'Drafting mode toggles (osnap, ortho, polar, grid snap, otrack) now live in the Snap Settings dialog, renamed Drafting Modes — previously they were only clickable on Classic\'s bottom rail or a wide status bar, leaving them unreachable on a phone in Touch or Compact',
+          'MODES stays pinned to the left of the status bar on mobile, so the way into that dialog never scrolls out of reach',
+          'The mobile status bar scrolls horizontally again — it was set to hidden overflow, which cut off every toggle past the screen edge',
+          'MODE and GRID readouts are hidden on mobile, freeing their width for the toggles; both are already shown in the command bar and grid menu',
+        ],
+      },
+    ],
+  },
   {
     version: '1.1.0',
     date: '2026-09-10',
@@ -5950,7 +6002,40 @@ function togglePolar() {
   render();
 }
 
+// The five drafting modes live on Classic's bottom rail and in the status bar,
+// neither of which a phone can reach in Touch or Compact. This dialog is the
+// one place all of them are reachable in every layout.
+const DRAFT_MODE_ROWS = [
+  {label:'Object snap',          key:'F3',  on:() => snapEnabled, act:() => toggleSnap()},
+  {label:'Ortho',                key:'F8',  on:() => orthoMode,   act:() => toggleOrtho()},
+  {label:'Polar tracking',       key:'F10', on:() => polarOn,     act:() => togglePolar()},
+  {label:'Grid snap',            key:'F9',  on:() => gridSnapOn,  act:() => toggleGridSnap()},
+  {label:'Object snap tracking', key:'F11', on:() => OTRACK.on,   act:() => toggleOtrack()},
+];
+
+function renderDraftModes() {
+  const box = document.getElementById('draft-modes-list');
+  if (!box) return;
+  box.innerHTML = '';
+  for (const m of DRAFT_MODE_ROWS) {
+    const row = document.createElement('div');
+    row.className = 'osnap-row' + (m.on() ? ' on' : '');
+    row.onclick = () => { m.act(); renderDraftModes(); };
+
+    const nm = document.createElement('span');
+    nm.className = 'osnap-name'; nm.textContent = m.label;
+    const kb = document.createElement('span');
+    kb.className = 'osnap-key';  kb.textContent = m.key;
+    const st = document.createElement('span');
+    st.className = 'osnap-state'; st.textContent = '';   // ON/OFF comes from CSS
+
+    row.appendChild(nm); row.appendChild(kb); row.appendChild(st);
+    box.appendChild(row);
+  }
+}
+
 function openSnapSettings() {
+  renderDraftModes();
   const box = document.getElementById('osnap-list');
   if (!box) return;
   box.innerHTML = '';
