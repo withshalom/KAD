@@ -1820,9 +1820,13 @@ body.kanvas-mode #app {
 #angle-lock-toggle svg { width: 15px; height: 15px; flex-shrink: 0; }
 
 /* The top bar's unit chip scrolls out of reach on a narrow screen, so the
-   unit shown beside the live coordinates doubles as the switch. */
+   unit shown beside the live coordinates doubles as the switch. #coord-overlay
+   itself is pointer-events:none — deliberately, so it never steals clicks and
+   drags meant for the canvas underneath it — so this one label has to opt
+   itself back in, or the tap handler on it can never be reached at all. */
 .coord-unit-tap {
   cursor: pointer;
+  pointer-events: auto;
   padding: 1px 6px;
   border: 1px solid var(--border);
   border-radius: 4px;
