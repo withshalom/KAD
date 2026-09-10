@@ -1923,20 +1923,30 @@ body.kanvas-mode #app {
 }
 .mobile-mode .tb-menu::-webkit-scrollbar { display: none; }
 .mobile-mode .tb-menu-item { padding: 0 7px; font-size: 13px; }
-.mobile-mode .tb-right { gap: 4px; flex-shrink: 0; }
-.mobile-mode .tb-badge { font-size:10px; padding:1px 5px; margin:0; flex-shrink:0; }
-.mobile-mode .tb-aux-btn .t-label { display: none; }
-
-/* Aux controls (layout, grid, theme, crosshair, units) overflowed the right
-   edge with no way to reach them. */
+/* flex-shrink:0 would keep this at full content width and push the overflow
+   onto #topbar itself, where #app's overflow:hidden clips it silently — so
+   this is bounded and scrolls its own contents instead, the same pattern
+   .tb-menu uses two rules up. */
 .mobile-mode .tb-right {
+  gap: 4px;
+  flex: 0 1 auto;
+  min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
-  min-width: 0;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 14px), transparent);
+          mask-image: linear-gradient(to right, #000 calc(100% - 14px), transparent);
 }
-.mobile-mode .tb-right::-webkit-scrollbar { display: none; }  
+.mobile-mode .tb-right::-webkit-scrollbar { display: none; }
+/* #unit-toggle sets overflow:hidden for its own rounded corners, which under
+   flexbox rules also drops its automatic minimum width to 0 — without this,
+   the browser crushes it (and the aux buttons) toward nothing instead of
+   leaving the row's actual content width alone to scroll. */
+.mobile-mode .tb-right > * { flex-shrink: 0; }
+.mobile-mode .tb-badge { font-size:10px; padding:1px 5px; margin:0; flex-shrink:0; }
+.mobile-mode .tb-aux-btn .t-label { display: none; }
+
 .mobile-mode .brand,
 .mobile-mode #topbar > .tb-sep { display: none; }
 
