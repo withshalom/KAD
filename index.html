@@ -2202,12 +2202,15 @@ body.kanvas-mode #app {
         <div class="tb-dd-item" onclick="openPDF();closeMenus()">Import PDF<span class="dd-key">Ctrl ⇧ O</span></div>
         <div class="tb-dd-item" style="display:none;" onclick="openSTEP();closeMenus()">Import STEP<span class="dd-key"></span></div>
         <div class="tb-dd-item" onclick="document.getElementById('vec-file-input').click();closeMenus()">Import .svg / .kvs<span class="dd-key"></span></div>
+        <div class="tb-dd-sep"></div>
+        <div class="tb-dd-item" onclick="skadOpenFile();closeMenus()">Import .scad<span class="dd-key">SDO</span></div>
+        <div class="tb-dd-item" onclick="exportSCAD();closeMenus()">Export .scad<span class="dd-key">Ctrl &#8679; E</span></div>
       </div>
     </div>
     <div class="tb-menu-item" id="menu-edit" data-menu="edit">Edit
       <div class="tb-dropdown" id="dd-edit">
         <div class="tb-dd-item" onclick="deleteSelected();closeMenus()">Delete Selected<span class="dd-key">Del</span></div>
-        <div class="tb-dd-item" onclick="GeoMemory.clear();render();showToast('KANVAS cleared');closeMenus()">Clear All<span class="dd-key"></span></div>
+        <div class="tb-dd-item" onclick="GeoMemory.clear();render();showToast('Model space cleared');closeMenus()">Clear All<span class="dd-key"></span></div>
         <div class="tb-dd-sep"></div>
         <div class="tb-dd-item" onclick="joinSelected();closeMenus()">Join → Polyline<span class="dd-key">J</span></div>
         <div class="tb-dd-item" onclick="explodeSelected();closeMenus()">Explode Polyline<span class="dd-key">EX</span></div>
@@ -2259,6 +2262,8 @@ body.kanvas-mode #app {
         <div class="tb-dd-item" onclick="setTool('offset');closeMenus()">Offset<span class="dd-key">O</span></div>
         <div class="tb-dd-item" onclick="setTool('mirror');closeMenus()">Mirror<span class="dd-key">M</span></div>
         <div class="tb-dd-item" onclick="setTool('dim');closeMenus()">Dimension<span class="dd-key">D</span></div>
+        <div class="tb-dd-sep"></div>
+        <div class="tb-dd-item" onclick="skadEnter();closeMenus()">SCAD Script&#8230;<span class="dd-key">SD</span></div>
       </div>
     </div>
     <div class="tb-menu-item" id="menu-tools" data-menu="tools">Tools
@@ -3724,12 +3729,29 @@ body.kanvas-mode #app {
 'use strict';
 
 
-const KAD_APP_VERSION = '1.1.1';
+const KAD_APP_VERSION = '1.2.0';
 
 // Public changelog. Only list features once they're fully live (no display:none
 // gates, no feature flags left off). Newest entry first. Keep entries short —
 // this is the "what shipped", not the dev log; that stays in KAD-DEV-NOTES.md.
 const KAD_CHANGELOG = [
+  {
+    version: '1.2.0',
+    date: '2026-09-14',
+    groups: [
+      {
+        label: 'SCAD scripting',
+        items: [
+          'New SCAD tool — KAD now READS OpenSCAD, not just writes it. Type SD (or SCAD) in the command line, or use the SCAD toolbar button, and the command bar becomes a script console: every line is OpenSCAD until Esc. A statement can span as many Enter presses as it needs \u2014 the bar holds it until the brackets close',
+          'SKAD \u2014 SCAD into KAD \u2014 is KAD\'s own OpenSCAD-subset interpreter, written here rather than ported. It evaluates scripts into real KAD entities \u2014 a circle arrives as a true CIRCLE you can snap, dimension and export to DXF, not a tessellated blob. square, circle, polygon, text, translate/rotate/scale/mirror/multmatrix/resize, offset, hull, union, for, if, let, modules, functions, list comprehensions and the maths library are all supported',
+          'linear_extrude and rotate_extrude keep their 2D profile so real-world 3D-printing scripts still yield usable outlines; 3D primitives (cube, cylinder, sphere, polyhedron) are skipped by name and line rather than silently dropped',
+          'difference() and intersection() keep every child outline \u2014 which is exactly how a plate with bolt holes reads in KAD \u2014 and say so each run; use TRIM for a true cut',
+          'A script that errors adds nothing at all: errors report line and column, and every approximation the run made is reported, never silent',
+          'Import .scad and Export .scad are both in the File menu now \u2014 export had no menu entry at all before, only Ctrl+Shift+E \u2014 closing the round trip: export, edit a parameter, bring it back',
+        ],
+      },
+    ],
+  },
   {
     version: '1.1.1',
     date: '2026-09-10',
@@ -7635,6 +7657,7 @@ function cancelTool() {
   if(typeof breakState    !== 'undefined') breakState    = {active:false,hit:null,pt1:null};
   if(typeof stretchState  !== 'undefined') stretchState  = {active:false,endpt:null,obj:null,which:null};
   if(typeof resetDynBox   === 'function') resetDynBox();
+  if(typeof SKAD_MODE    !== 'undefined' && SKAD_MODE) SKAD_MODE.buffer = '';
   document.getElementById('rect-preview').style.display='none';
 }
 
@@ -7676,7 +7699,8 @@ function toolHasPending() {
     (typeof dimState        !== 'undefined' && dimState    && dimState.active)    ||
     (typeof measureState    !== 'undefined' && measureState && measureState.active) ||
     (typeof mirrorLineState !== 'undefined' && mirrorLineState && mirrorLineState.active) ||
-    (typeof rotateState     !== 'undefined' && rotateState && rotateState.phase === 1)
+    (typeof rotateState     !== 'undefined' && rotateState && rotateState.phase === 1) ||
+    (typeof SKAD_MODE      !== 'undefined' && SKAD_MODE && !!SKAD_MODE.buffer.trim())
   );
 }
 
@@ -7710,7 +7734,7 @@ function repeatLastCommand() {
 }
 
 // No 'select' entry: idle has no button to light up.
-const btnMap={pline:'btn-pline',line:'btn-line',rect:'btn-rect',polygon:'btn-polygon',offset:'btn-offset',rotate:'btn-rotate',circle:'btn-circle',arc:'btn-arc',kompass:'btn-kompass',fillet:'btn-fillet',chamfer:'btn-chamfer',mirror:'btn-mirror',dim:'btn-dim',trim:'btn-trim',extend:'btn-extend',break:'btn-break',scale:'btn-scale',stretch:'btn-stretch',text:'btn-text',hatch:'btn-hatch'};
+const btnMap={pline:'btn-pline',line:'btn-line',rect:'btn-rect',polygon:'btn-polygon',offset:'btn-offset',rotate:'btn-rotate',circle:'btn-circle',arc:'btn-arc',kompass:'btn-kompass',fillet:'btn-fillet',chamfer:'btn-chamfer',mirror:'btn-mirror',dim:'btn-dim',trim:'btn-trim',extend:'btn-extend',break:'btn-break',scale:'btn-scale',stretch:'btn-stretch',text:'btn-text',hatch:'btn-hatch',scad:'btn-scad'};
 
 const HINTS = {
     select:  '<span>Click</span> to select · click empty space then <span>click</span> again for a window · L→R window, R→L crossing · <span>Space</span> repeats last command',
@@ -7735,6 +7759,7 @@ const HINTS = {
     text:    '<span>Click</span> to place · type the text · <span>Enter</span> commits · <span>Esc</span> cancel',
     dim:     '<span>Click</span> first point → <span>click</span> second · chains from the last point · <span>Esc</span> cancel',
     scale:   'Select objects, then type <span>SC</span> in the command bar to set a scale factor',
+    scad:    'Type OpenSCAD in the command bar \u00b7 <span>Enter</span> runs \u00b7 a statement can span lines until its brackets close \u00b7 <span>HELP</span> for the subset \u00b7 <span>RUN</span> repeats \u00b7 <span>LOG</span> shows notes \u00b7 <span>Esc</span> exits',
 };
 
 // One place decides the hint line, so the polyline arc toggle can refresh it
@@ -14972,6 +14997,1712 @@ function commitSCADExport() {
 }
 function exportSCAD() { openSCADDialog(); }
 
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  SKAD — SCAD into KAD: KAD's own OpenSCAD-subset interpreter (the READ side
+//  of .scad)
+//  ────────────────────────────────────────────────────────────────────────────
+//  buildSCAD() above has always been able to WRITE .scad. It could never read
+//  one back — not even its own output. SKAD closes that loop.
+//
+//  This is an independent implementation of the OpenSCAD *language* (syntax and
+//  semantics are not copyrightable), written from the published language
+//  reference. No OpenSCAD source is used, translated, or derived here, so this
+//  carries no third-party licence obligations at all: it is AGPL-3.0-or-later
+//  with the rest of KAD, and it is equally shippable inside a proprietary
+//  wrapper build. That was the whole point of writing it instead of loading
+//  openscad-wasm (GPL-2.0-or-later — fine for the web build, poison for the
+//  wrapper). See SCAD-SCRIPTING.md.
+//
+//  SCOPE — tier S1, the 2D subset, evaluated into real KAD entities:
+//    primitives   square circle polygon text
+//    transforms   translate rotate scale mirror multmatrix resize offset hull
+//    booleans     union · difference/intersection (outline semantics, see below)
+//    control      for if let echo assert, modules, functions, list comprehensions
+//    passthrough  linear_extrude / rotate_extrude / projection / render / color
+//                 evaluate their 2D children and report the wrapper as ignored
+//    reported     3D primitives (cube sphere cylinder polyhedron surface) and
+//                 minkowski / intersection_for are SKIPPED with a named, lined
+//                 warning — never silently dropped, and never fatal, so a mixed
+//                 script still yields everything 2D in it
+//
+//  Two honest approximations, both reported every time they fire:
+//    • difference()/intersection() keep every child's OUTLINE. KAD's model
+//      space is outline geometry — there is no filled region to subtract from —
+//      and a plate with bolt holes is exactly "outer profile + inner profiles",
+//      which is the same convention buildSCAD() writes out. For a real cut,
+//      draw it and TRIM.
+//    • offset() is a naive miter offset with no self-intersection cleanup.
+//      Exact on circles, exact on convex polygons, approximate in tight
+//      concavities.
+//
+//  Numbers are millimetres, always, regardless of the current display unit —
+//  same rule as the .scad files KAD writes. Angles in degrees, as OpenSCAD.
+// ══════════════════════════════════════════════════════════════════════════════
+
+const SKAD_ACTIVE = true;   // phase gate — one flip disables the tool, the
+                            // KOMMAND words and the toolbar button together
+
+const SKAD = (function () {
+  'use strict';
+
+  const VERSION = '1.0';
+
+  // Limits. A runaway for-loop in a script must not take the tab with it.
+  const MAX_SHAPES = 20000;
+  const MAX_ITERS  = 300000;
+  const MAX_DEPTH  = 120;
+  const MAX_MS     = 4000;
+
+  // ── Errors ──────────────────────────────────────────────────────────────────
+  function KErr(msg, line, col) {
+    const e = new Error(msg);
+    e.skad = true; e.line = line || 0; e.col = col || 0;
+    return e;
+  }
+
+  // ══ LEXER ══════════════════════════════════════════════════════════════════
+  const PUNCT3 = [];
+  const PUNCT2 = ['<=', '>=', '==', '!=', '&&', '||'];
+  const PUNCT1 = '+-*/%^=<>?:,;()[]{}.!#';
+
+  function lex(src) {
+    const out = [];
+    let i = 0, line = 1, col = 1;
+    const n = src.length;
+
+    function push(t, v, l, c) { out.push({ t, v, line: l, col: c }); }
+
+    while (i < n) {
+      const ch = src[i];
+
+      if (ch === '\n') { i++; line++; col = 1; continue; }
+      if (ch === ' ' || ch === '\t' || ch === '\r') { i++; col++; continue; }
+
+      // comments
+      if (ch === '/' && src[i + 1] === '/') {
+        while (i < n && src[i] !== '\n') i++;
+        continue;
+      }
+      if (ch === '/' && src[i + 1] === '*') {
+        const sl = line, sc = col;
+        i += 2; col += 2;
+        let closed = false;
+        while (i < n) {
+          if (src[i] === '*' && src[i + 1] === '/') { i += 2; col += 2; closed = true; break; }
+          if (src[i] === '\n') { line++; col = 1; } else col++;
+          i++;
+        }
+        if (!closed) throw KErr('unterminated /* comment', sl, sc);
+        continue;
+      }
+
+      // numbers — 12, 1.5, .5, 1e3, 1.2e-4
+      if (/[0-9]/.test(ch) || (ch === '.' && /[0-9]/.test(src[i + 1] || ''))) {
+        const sl = line, sc = col;
+        let s = '';
+        while (i < n && /[0-9]/.test(src[i])) { s += src[i++]; col++; }
+        if (src[i] === '.') { s += src[i++]; col++; while (i < n && /[0-9]/.test(src[i])) { s += src[i++]; col++; } }
+        if (src[i] === 'e' || src[i] === 'E') {
+          let j = i + 1, exp = src[i];
+          if (src[j] === '+' || src[j] === '-') { exp += src[j]; j++; }
+          if (/[0-9]/.test(src[j] || '')) {
+            exp += src[j]; j++;
+            while (j < n && /[0-9]/.test(src[j])) { exp += src[j]; j++; }
+            col += (j - i); i = j; s += exp;
+          }
+        }
+        push('num', parseFloat(s), sl, sc);
+        continue;
+      }
+
+      // strings
+      if (ch === '"') {
+        const sl = line, sc = col;
+        i++; col++;
+        let s = '';
+        while (i < n && src[i] !== '"') {
+          if (src[i] === '\\') {
+            const e = src[i + 1];
+            s += e === 'n' ? '\n' : e === 't' ? '\t' : e === 'r' ? '\r' :
+                 e === '\\' ? '\\' : e === '"' ? '"' : e;
+            i += 2; col += 2; continue;
+          }
+          if (src[i] === '\n') throw KErr('unterminated string', sl, sc);
+          s += src[i++]; col++;
+        }
+        if (i >= n) throw KErr('unterminated string', sl, sc);
+        i++; col++;
+        push('str', s, sl, sc);
+        continue;
+      }
+
+      // identifiers (incl. $special)
+      if (/[A-Za-z_$]/.test(ch)) {
+        const sl = line, sc = col;
+        let s = '';
+        while (i < n && /[A-Za-z0-9_$]/.test(src[i])) { s += src[i++]; col++; }
+        push('id', s, sl, sc);
+        continue;
+      }
+
+      // include <...> / use <...> are caught in the parser, but the <...> path
+      // would otherwise lex as comparison operators — grab it here.
+      if (ch === '<' && out.length && out[out.length - 1].t === 'id' &&
+          (out[out.length - 1].v === 'include' || out[out.length - 1].v === 'use')) {
+        const sl = line, sc = col;
+        let s = '';
+        i++; col++;
+        while (i < n && src[i] !== '>' && src[i] !== '\n') { s += src[i++]; col++; }
+        if (src[i] === '>') { i++; col++; }
+        push('path', s, sl, sc);
+        continue;
+      }
+
+      const two = src.substr(i, 2);
+      if (PUNCT2.indexOf(two) >= 0) { push('op', two, line, col); i += 2; col += 2; continue; }
+      if (PUNCT1.indexOf(ch) >= 0)  { push('op', ch,  line, col); i++;   col++;   continue; }
+      if (ch === '%')               { push('op', '%', line, col); i++;   col++;   continue; }
+
+      throw KErr('unexpected character ' + JSON.stringify(ch), line, col);
+    }
+    push('eof', null, line, col);
+    return out;
+  }
+
+  // ══ BRACKET BALANCE (multi-line buffering in the KOMMAND bar) ══════════════
+  // Cheap scanner that ignores brackets inside comments and strings. Returns
+  // the open depth so the bar knows whether a statement is still being typed.
+  function balance(src) {
+    let depth = 0, i = 0, inBlock = false, err = null;
+    const n = src.length;
+    while (i < n) {
+      const ch = src[i], nx = src[i + 1];
+      if (inBlock) { if (ch === '*' && nx === '/') { inBlock = false; i += 2; continue; } i++; continue; }
+      if (ch === '/' && nx === '/') { while (i < n && src[i] !== '\n') i++; continue; }
+      if (ch === '/' && nx === '*') { inBlock = true; i += 2; continue; }
+      if (ch === '"') {
+        i++;
+        while (i < n && src[i] !== '"') { if (src[i] === '\\') i++; i++; }
+        i++; continue;
+      }
+      if (ch === '(' || ch === '[' || ch === '{') depth++;
+      else if (ch === ')' || ch === ']' || ch === '}') { depth--; if (depth < 0) { err = 'unmatched ' + ch; depth = 0; } }
+      i++;
+    }
+    return { depth, inBlock, balanced: depth === 0 && !inBlock, error: err };
+  }
+
+  // ══ PARSER ═════════════════════════════════════════════════════════════════
+  function parse(src) {
+    const tk = lex(src);
+    let p = 0;
+
+    const peek = (k) => tk[p + (k || 0)];
+    const at = (t, v) => tk[p].t === t && (v === undefined || tk[p].v === v);
+    const atOp = (v) => at('op', v);
+    const atId = (v) => at('id', v);
+    function next() { return tk[p++]; }
+    function expect(t, v) {
+      if (!at(t, v)) {
+        const g = tk[p];
+        throw KErr('expected ' + (v || t) + ' but found ' +
+          (g.t === 'eof' ? 'end of script' : JSON.stringify(String(g.v))), g.line, g.col);
+      }
+      return next();
+    }
+
+    // ── expressions ──
+    function parseExpr() { return parseTernary(); }
+
+    function parseTernary() {
+      const c = parseOr();
+      if (atOp('?')) {
+        const tok = next();
+        const a = parseExpr();
+        expect('op', ':');
+        const b = parseExpr();
+        return { k: 'cond', c, a, b, line: tok.line };
+      }
+      return c;
+    }
+    function parseOr() {
+      let l = parseAnd();
+      while (atOp('||')) { const t = next(); l = { k: 'bin', op: '||', l, r: parseAnd(), line: t.line }; }
+      return l;
+    }
+    function parseAnd() {
+      let l = parseEq();
+      while (atOp('&&')) { const t = next(); l = { k: 'bin', op: '&&', l, r: parseEq(), line: t.line }; }
+      return l;
+    }
+    function parseEq() {
+      let l = parseRel();
+      while (atOp('==') || atOp('!=')) { const t = next(); l = { k: 'bin', op: t.v, l, r: parseRel(), line: t.line }; }
+      return l;
+    }
+    function parseRel() {
+      let l = parseAdd();
+      while (atOp('<') || atOp('>') || atOp('<=') || atOp('>=')) {
+        const t = next(); l = { k: 'bin', op: t.v, l, r: parseAdd(), line: t.line };
+      }
+      return l;
+    }
+    function parseAdd() {
+      let l = parseMul();
+      while (atOp('+') || atOp('-')) { const t = next(); l = { k: 'bin', op: t.v, l, r: parseMul(), line: t.line }; }
+      return l;
+    }
+    function parseMul() {
+      let l = parseUnary();
+      while (atOp('*') || atOp('/') || atOp('%')) { const t = next(); l = { k: 'bin', op: t.v, l, r: parseUnary(), line: t.line }; }
+      return l;
+    }
+    function parseUnary() {
+      if (atOp('-') || atOp('+') || atOp('!')) {
+        const t = next();
+        return { k: 'un', op: t.v, e: parseUnary(), line: t.line };
+      }
+      return parsePow();
+    }
+    function parsePow() {
+      const b = parsePostfix();
+      if (atOp('^')) { const t = next(); return { k: 'bin', op: '^', l: b, r: parseUnary(), line: t.line }; }
+      return b;
+    }
+    function parsePostfix() {
+      let e = parsePrimary();
+      for (;;) {
+        if (atOp('[')) {
+          const t = next();
+          const idx = parseExpr();
+          expect('op', ']');
+          e = { k: 'index', e, idx, line: t.line };
+        } else if (atOp('.') && peek(1).t === 'id') {
+          const t = next();
+          const m = next().v;
+          if (m !== 'x' && m !== 'y' && m !== 'z')
+            throw KErr('only .x .y .z member access is supported, not .' + m, t.line, t.col);
+          e = { k: 'index', e, idx: { k: 'num', v: m === 'x' ? 0 : m === 'y' ? 1 : 2 }, line: t.line };
+        } else return e;
+      }
+    }
+
+    function parsePrimary() {
+      const t = peek();
+
+      if (t.t === 'num') { next(); return { k: 'num', v: t.v, line: t.line }; }
+      if (t.t === 'str') { next(); return { k: 'str', v: t.v, line: t.line }; }
+
+      if (t.t === 'id') {
+        if (t.v === 'true')  { next(); return { k: 'bool', v: true,  line: t.line }; }
+        if (t.v === 'false') { next(); return { k: 'bool', v: false, line: t.line }; }
+        if (t.v === 'undef') { next(); return { k: 'undef', line: t.line }; }
+        if (t.v === 'let' && peek(1).t === 'op' && peek(1).v === '(') {
+          next(); next();
+          const binds = parseAssignList(')');
+          expect('op', ')');
+          return { k: 'letexpr', binds, e: parseExpr(), line: t.line };
+        }
+        if (peek(1).t === 'op' && peek(1).v === '(') {
+          next(); next();
+          const args = parseArgs();
+          expect('op', ')');
+          return { k: 'call', name: t.v, args, line: t.line, col: t.col };
+        }
+        next();
+        return { k: 'var', name: t.v, line: t.line, col: t.col };
+      }
+
+      if (atOp('(')) { next(); const e = parseExpr(); expect('op', ')'); return e; }
+
+      if (atOp('[')) {
+        const open = next();
+        if (atOp(']')) { next(); return { k: 'vec', items: [], line: open.line }; }
+
+        // list comprehension?
+        if (atId('for') || atId('each') || (atId('let') && peek(1).v === '(')) {
+          const comp = parseComprehension();
+          expect('op', ']');
+          return { k: 'listcomp', body: comp, line: open.line };
+        }
+
+        const first = parseExpr();
+        // range [a : b] or [a : s : b]
+        if (atOp(':')) {
+          next();
+          const second = parseExpr();
+          if (atOp(':')) {
+            next();
+            const third = parseExpr();
+            expect('op', ']');
+            return { k: 'range', start: first, step: second, end: third, line: open.line };
+          }
+          expect('op', ']');
+          return { k: 'range', start: first, step: null, end: second, line: open.line };
+        }
+        const items = [first];
+        while (atOp(',')) {
+          next();
+          if (atOp(']')) break;               // trailing comma
+          items.push(parseExpr());
+        }
+        expect('op', ']');
+        return { k: 'vec', items, line: open.line };
+      }
+
+      throw KErr('unexpected ' + (t.t === 'eof' ? 'end of script' : JSON.stringify(String(t.v))), t.line, t.col);
+    }
+
+    // list comprehension element chain
+    function parseComprehension() {
+      const t = peek();
+      if (atId('for')) {
+        next(); expect('op', '(');
+        const binds = parseAssignList(')');
+        expect('op', ')');
+        return { k: 'cfor', binds, body: parseComprehension(), line: t.line };
+      }
+      if (atId('each')) {
+        next();
+        return { k: 'ceach', e: parseComprehension(), line: t.line };
+      }
+      if (atId('let') && peek(1).v === '(') {
+        next(); expect('op', '(');
+        const binds = parseAssignList(')');
+        expect('op', ')');
+        return { k: 'clet', binds, body: parseComprehension(), line: t.line };
+      }
+      if (atId('if')) {
+        next(); expect('op', '(');
+        const c = parseExpr();
+        expect('op', ')');
+        const then = parseComprehension();
+        if (atId('else')) { next(); return { k: 'cif', c, then, els: parseComprehension(), line: t.line }; }
+        return { k: 'cif', c, then, els: null, line: t.line };
+      }
+      // plain element, possibly a comma-separated list of them
+      const items = [parseExpr()];
+      while (atOp(',')) {
+        next();
+        if (atOp(']')) break;
+        items.push(parseComprehension());
+      }
+      return items.length === 1 && items[0].k !== 'cfor' ? { k: 'celem', e: items[0], line: t.line }
+                                                         : { k: 'cseq', items, line: t.line };
+    }
+
+    function parseAssignList(endOp) {
+      const binds = [];
+      while (!at('op', endOp) && !at('eof')) {
+        const nameTok = expect('id');
+        expect('op', '=');
+        binds.push({ name: nameTok.v, e: parseExpr(), line: nameTok.line });
+        if (atOp(',')) next(); else break;
+      }
+      return binds;
+    }
+
+    function parseArgs() {
+      const args = [];
+      while (!atOp(')') && !at('eof')) {
+        if (peek().t === 'id' && peek(1).t === 'op' && peek(1).v === '=' && peek(2).v !== '=') {
+          const nameTok = next(); next();
+          args.push({ name: nameTok.v, e: parseExpr(), line: nameTok.line });
+        } else {
+          args.push({ name: null, e: parseExpr(), line: peek().line });
+        }
+        if (atOp(',')) next(); else break;
+      }
+      return args;
+    }
+
+    function parseParams() {
+      const ps = [];
+      while (!atOp(')') && !at('eof')) {
+        const nameTok = expect('id');
+        let def = null;
+        if (atOp('=')) { next(); def = parseExpr(); }
+        ps.push({ name: nameTok.v, def });
+        if (atOp(',')) next(); else break;
+      }
+      return ps;
+    }
+
+    // ── statements ──
+    function parseStatement() {
+      // modifiers
+      if (atOp('*') || atOp('!') || atOp('#') || atOp('%')) {
+        const t = next();
+        const s = parseStatement();
+        return { k: 'modifier', mod: t.v, s, line: t.line };
+      }
+
+      if (atOp(';')) { next(); return { k: 'nop' }; }
+
+      if (atOp('{')) {
+        const t = next();
+        const body = [];
+        while (!atOp('}')) {
+          if (at('eof')) throw KErr('unclosed { block', t.line, t.col);
+          body.push(parseStatement());
+        }
+        next();
+        return { k: 'block', body, line: t.line };
+      }
+
+      if (atId('include') || atId('use')) {
+        const t = next();
+        if (peek().t === 'path') next();
+        return { k: 'unsupported', what: t.v + ' <>', line: t.line,
+                 note: 'SKAD has no file system — paste the library code inline instead' };
+      }
+
+      if (atId('module')) {
+        const t = next();
+        const nameTok = expect('id');
+        expect('op', '(');
+        const params = parseParams();
+        expect('op', ')');
+        const body = parseStatement();
+        return { k: 'moddef', name: nameTok.v, params, body, line: t.line };
+      }
+
+      if (atId('function')) {
+        const t = next();
+        const nameTok = expect('id');
+        expect('op', '(');
+        const params = parseParams();
+        expect('op', ')');
+        expect('op', '=');
+        const e = parseExpr();
+        if (atOp(';')) next();
+        return { k: 'fundef', name: nameTok.v, params, e, line: t.line };
+      }
+
+      if (atId('for') || atId('intersection_for')) {
+        const t = next();
+        expect('op', '(');
+        const binds = parseAssignList(')');
+        expect('op', ')');
+        const body = parseStatement();
+        return { k: 'for', binds, body, line: t.line, isect: t.v === 'intersection_for' };
+      }
+
+      if (atId('if')) {
+        const t = next();
+        expect('op', '(');
+        const c = parseExpr();
+        expect('op', ')');
+        const then = parseStatement();
+        let els = null;
+        if (atId('else')) { next(); els = parseStatement(); }
+        return { k: 'if', c, then, els, line: t.line };
+      }
+
+      if (atId('let') && peek(1).v === '(') {
+        const t = next();
+        expect('op', '(');
+        const binds = parseAssignList(')');
+        expect('op', ')');
+        return { k: 'letstmt', binds, body: parseStatement(), line: t.line };
+      }
+
+      // assignment:  name = expr ;
+      if (peek().t === 'id' && peek(1).t === 'op' && peek(1).v === '=' && peek(2).v !== '=') {
+        const nameTok = next(); next();
+        const e = parseExpr();
+        if (atOp(';')) next();
+        return { k: 'assign', name: nameTok.v, e, line: nameTok.line };
+      }
+
+      // module instantiation:  name ( args ) child
+      if (peek().t === 'id') {
+        const nameTok = next();
+        let args = [];
+        if (atOp('(')) { next(); args = parseArgs(); expect('op', ')'); }
+        let child = null;
+        if (atOp(';')) next();
+        else if (atOp('}') || at('eof')) { /* bare — treated as empty */ }
+        else child = parseStatement();
+        return { k: 'inst', name: nameTok.v, args, child, line: nameTok.line, col: nameTok.col };
+      }
+
+      const bad = peek();
+      throw KErr('unexpected ' + (bad.t === 'eof' ? 'end of script' : JSON.stringify(String(bad.v))),
+                 bad.line, bad.col);
+    }
+
+    const prog = [];
+    while (!at('eof')) prog.push(parseStatement());
+    return prog;
+  }
+
+  // ══ VALUES / MATH ══════════════════════════════════════════════════════════
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const isVec = (v) => Array.isArray(v);
+  const D2R = Math.PI / 180, R2D = 180 / Math.PI;
+
+  function num(v, fb) { return isNum(v) ? v : (fb === undefined ? undefined : fb); }
+  function truthy(v) {
+    if (v === undefined || v === null || v === false) return false;
+    if (v === true) return true;
+    if (isNum(v)) return v !== 0;
+    if (typeof v === 'string') return v.length > 0;
+    if (isVec(v)) return v.length > 0;
+    return true;
+  }
+
+  // ── 2×3 affine, same convention as KAD's transform system:
+  //    x' = a*x + c*y + e ;  y' = b*x + d*y + f
+  const M_ID = [1, 0, 0, 1, 0, 0];
+  function mMul(m, n) {  // apply n, then m  (m ∘ n)
+    return [
+      m[0] * n[0] + m[2] * n[1],
+      m[1] * n[0] + m[3] * n[1],
+      m[0] * n[2] + m[2] * n[3],
+      m[1] * n[2] + m[3] * n[3],
+      m[0] * n[4] + m[2] * n[5] + m[4],
+      m[1] * n[4] + m[3] * n[5] + m[5],
+    ];
+  }
+  const mTranslate = (x, y) => [1, 0, 0, 1, x, y];
+  const mScale = (x, y) => [x, 0, 0, y, 0, 0];
+  function mRotate(deg) {
+    const a = deg * D2R, c = Math.cos(a), s = Math.sin(a);
+    return [c, s, -s, c, 0, 0];
+  }
+  function mApply(m, x, y) { return { x: m[0] * x + m[2] * y + m[4], y: m[1] * x + m[3] * y + m[5] }; }
+  // Conformal = rotation × uniform scale (± reflection): circles stay circles.
+  function mConformal(m) {
+    const sx = Math.hypot(m[0], m[1]), sy = Math.hypot(m[2], m[3]);
+    if (sx < 1e-12 || sy < 1e-12) return null;
+    const dot = (m[0] * m[2] + m[1] * m[3]) / (sx * sy);
+    if (Math.abs(dot) > 1e-9) return null;            // sheared
+    if (Math.abs(sx - sy) > 1e-9 * Math.max(sx, sy)) return null;  // non-uniform
+    return sx;
+  }
+
+  // OpenSCAD's fragment count for a circle of radius r.
+  function fragments(r, fn, fa, fs) {
+    if (r < 1e-9) return 3;
+    if (fn > 0) return fn >= 3 ? Math.floor(fn) : 3;
+    return Math.ceil(Math.max(Math.min(360 / fa, r * 2 * Math.PI / fs), 5));
+  }
+
+  // ══ EVALUATOR ══════════════════════════════════════════════════════════════
+  function evaluate(src, opts) {
+    opts = opts || {};
+    const t0 = Date.now();
+    const shapes = [];            // {kind:'poly'|'circle'|'text', ...} world mm
+    const echoes = [];
+    const warnOnce = Object.create(null);
+    const warnings = [];
+    let iters = 0;
+
+    function warn(msg, line, once) {
+      const key = once || (msg + '@' + line);
+      if (warnOnce[key]) { warnOnce[key].count++; return; }
+      const w = { msg, line: line || 0, count: 1 };
+      warnOnce[key] = w;
+      warnings.push(w);
+    }
+    function tick(line) {
+      if (++iters > MAX_ITERS) throw KErr('script exceeded ' + MAX_ITERS + ' evaluation steps — check your loops', line);
+      if ((iters & 1023) === 0 && Date.now() - t0 > MAX_MS)
+        throw KErr('script ran longer than ' + (MAX_MS / 1000) + 's and was stopped', line);
+    }
+    function emit(s, line) {
+      if (shapes.length >= MAX_SHAPES) throw KErr('script produced more than ' + MAX_SHAPES + ' shapes', line);
+      shapes.push(s);
+    }
+
+    // ── scope ──
+    function Scope(parent) { this.v = Object.create(null); this.parent = parent; }
+    Scope.prototype.get = function (k) {
+      let s = this;
+      while (s) { if (k in s.v) return s.v[k]; s = s.parent; }
+      return undefined;
+    };
+    Scope.prototype.has = function (k) {
+      let s = this;
+      while (s) { if (k in s.v) return true; s = s.parent; }
+      return false;
+    };
+    Scope.prototype.set = function (k, val) { this.v[k] = val; };
+
+    const root = new Scope(null);
+    root.set('$fn', 0); root.set('$fa', 12); root.set('$fs', 2);
+    root.set('$t', 0);  root.set('$preview', true); root.set('$children', 0);
+    root.set('PI', Math.PI);
+
+    const modules = Object.create(null);
+    const functions = Object.create(null);
+
+    // ── builtin functions ──
+    const BUILTIN_FN = {
+      abs: (a) => Math.abs(num(a[0], 0)),
+      sign: (a) => Math.sign(num(a[0], 0)),
+      sin: (a) => Math.sin(num(a[0], 0) * D2R),
+      cos: (a) => Math.cos(num(a[0], 0) * D2R),
+      tan: (a) => Math.tan(num(a[0], 0) * D2R),
+      asin: (a) => Math.asin(num(a[0], 0)) * R2D,
+      acos: (a) => Math.acos(num(a[0], 0)) * R2D,
+      atan: (a) => Math.atan(num(a[0], 0)) * R2D,
+      atan2: (a) => Math.atan2(num(a[0], 0), num(a[1], 0)) * R2D,
+      sqrt: (a) => Math.sqrt(num(a[0], 0)),
+      pow: (a) => Math.pow(num(a[0], 0), num(a[1], 0)),
+      exp: (a) => Math.exp(num(a[0], 0)),
+      ln: (a) => Math.log(num(a[0], 0)),
+      log: (a) => Math.log10(num(a[0], 0)),
+      floor: (a) => Math.floor(num(a[0], 0)),
+      ceil: (a) => Math.ceil(num(a[0], 0)),
+      round: (a) => Math.round(num(a[0], 0)),
+      min: (a) => flatNums(a).reduce((x, y) => Math.min(x, y), Infinity),
+      max: (a) => flatNums(a).reduce((x, y) => Math.max(x, y), -Infinity),
+      norm: (a) => Math.hypot.apply(null, (isVec(a[0]) ? a[0] : [a[0]]).map((v) => num(v, 0))),
+      cross: (a) => {
+        const u = a[0], v = a[1];
+        if (!isVec(u) || !isVec(v)) return undefined;
+        if (u.length === 2 && v.length === 2) return u[0] * v[1] - u[1] * v[0];
+        return [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+      },
+      len: (a) => (isVec(a[0]) ? a[0].length : (typeof a[0] === 'string' ? a[0].length : undefined)),
+      concat: (a) => {
+        const out = [];
+        for (const v of a) { if (isVec(v)) out.push.apply(out, v); else if (v !== undefined) out.push(v); }
+        return out;
+      },
+      str: (a) => a.map(fmtVal).join(''),
+      chr: (a) => (isVec(a[0]) ? a[0] : [a[0]]).map((c) => String.fromCharCode(num(c, 0))).join(''),
+      ord: (a) => (typeof a[0] === 'string' && a[0].length ? a[0].charCodeAt(0) : undefined),
+      is_undef: (a) => a[0] === undefined,
+      is_num: (a) => isNum(a[0]),
+      is_string: (a) => typeof a[0] === 'string',
+      is_bool: (a) => typeof a[0] === 'boolean',
+      is_list: (a) => isVec(a[0]),
+      version: () => [2021, 1, 0],
+      version_num: () => 20210100,
+      rands: (a) => {
+        const lo = num(a[0], 0), hi = num(a[1], 1), n = Math.max(1, Math.floor(num(a[2], 1)));
+        const out = [];
+        for (let i = 0; i < n; i++) out.push(lo + Math.random() * (hi - lo));
+        return out;
+      },
+      lookup: (a) => {
+        const x = num(a[0], 0), tbl = a[1];
+        if (!isVec(tbl) || !tbl.length) return undefined;
+        const rows = tbl.filter((r) => isVec(r) && r.length >= 2).slice().sort((p, q) => p[0] - q[0]);
+        if (!rows.length) return undefined;
+        if (x <= rows[0][0]) return rows[0][1];
+        if (x >= rows[rows.length - 1][0]) return rows[rows.length - 1][1];
+        for (let i = 1; i < rows.length; i++) {
+          if (x <= rows[i][0]) {
+            const t = (x - rows[i - 1][0]) / (rows[i][0] - rows[i - 1][0]);
+            return rows[i - 1][1] + t * (rows[i][1] - rows[i - 1][1]);
+          }
+        }
+        return undefined;
+      },
+      search: (a) => {
+        const needle = a[0], hay = a[1];
+        if (typeof needle === 'string' && typeof hay === 'string') {
+          const out = [];
+          for (const ch of needle) { const i = hay.indexOf(ch); if (i >= 0) out.push(i); }
+          return out;
+        }
+        if (!isVec(hay)) return [];
+        const list = isVec(needle) ? needle : [needle];
+        return list.map((nv) => {
+          for (let i = 0; i < hay.length; i++) {
+            const h = hay[i];
+            if (h === nv) return i;
+            if (isVec(h) && h[0] === nv) return i;
+          }
+          return [];
+        });
+      },
+    };
+    function flatNums(a) {
+      const out = [];
+      (function walk(v) {
+        if (isVec(v)) v.forEach(walk);
+        else if (isNum(v)) out.push(v);
+      })(a);
+      return out;
+    }
+    function fmtVal(v) {
+      if (v === undefined) return 'undef';
+      if (v === true) return 'true';
+      if (v === false) return 'false';
+      if (isNum(v)) return String(parseFloat(v.toFixed(6)));
+      if (isVec(v)) return '[' + v.map(fmtVal).join(', ') + ']';
+      return String(v);
+    }
+
+    // ── expression evaluation ──
+    function ev(node, sc, depth) {
+      tick(node && node.line);
+      if (depth > MAX_DEPTH) throw KErr('expression nested deeper than ' + MAX_DEPTH, node.line);
+      switch (node.k) {
+        case 'num': return node.v;
+        case 'str': return node.v;
+        case 'bool': return node.v;
+        case 'undef': return undefined;
+        case 'var': {
+          if (sc.has(node.name)) return sc.get(node.name);
+          warn('unknown variable "' + node.name + '" — treated as undef', node.line);
+          return undefined;
+        }
+        case 'vec': return node.items.map((it) => ev(it, sc, depth + 1));
+        case 'range': {
+          const a = num(ev(node.start, sc, depth + 1), 0);
+          const b = num(ev(node.end, sc, depth + 1), 0);
+          const st = node.step ? num(ev(node.step, sc, depth + 1), 1) : 1;
+          return { __range: true, start: a, step: st, end: b };
+        }
+        case 'un': {
+          const v = ev(node.e, sc, depth + 1);
+          if (node.op === '!') return !truthy(v);
+          if (node.op === '+') return v;
+          if (isVec(v)) return v.map((x) => (isNum(x) ? -x : x));
+          return isNum(v) ? -v : undefined;
+        }
+        case 'bin': return binop(node, sc, depth);
+        case 'cond': return truthy(ev(node.c, sc, depth + 1)) ? ev(node.a, sc, depth + 1) : ev(node.b, sc, depth + 1);
+        case 'index': {
+          const base = ev(node.e, sc, depth + 1);
+          const i = ev(node.idx, sc, depth + 1);
+          if (typeof base === 'string') return isNum(i) ? base[Math.floor(i)] : undefined;
+          if (!isVec(base) || !isNum(i)) return undefined;
+          return base[Math.floor(i)];
+        }
+        case 'letexpr': {
+          const s2 = new Scope(sc);
+          for (const b of node.binds) s2.set(b.name, ev(b.e, s2, depth + 1));
+          return ev(node.e, s2, depth + 1);
+        }
+        case 'listcomp': {
+          const out = [];
+          comp(node.body, sc, out, depth + 1);
+          return out;
+        }
+        case 'call': return callFn(node, sc, depth);
+      }
+      throw KErr('cannot evaluate ' + node.k, node.line);
+    }
+
+    function binop(node, sc, depth) {
+      const op = node.op;
+      if (op === '&&') return truthy(ev(node.l, sc, depth + 1)) ? truthy(ev(node.r, sc, depth + 1)) : false;
+      if (op === '||') return truthy(ev(node.l, sc, depth + 1)) ? true : truthy(ev(node.r, sc, depth + 1));
+      const a = ev(node.l, sc, depth + 1), b = ev(node.r, sc, depth + 1);
+      switch (op) {
+        case '+':
+          if (isVec(a) && isVec(b)) return a.map((x, i) => num(x, 0) + num(b[i], 0));
+          if (typeof a === 'string' || typeof b === 'string') return String(fmtVal(a)) + String(fmtVal(b));
+          return num(a, 0) + num(b, 0);
+        case '-':
+          if (isVec(a) && isVec(b)) return a.map((x, i) => num(x, 0) - num(b[i], 0));
+          return num(a, 0) - num(b, 0);
+        case '*':
+          if (isVec(a) && isNum(b)) return a.map((x) => (isVec(x) ? x.map((y) => y * b) : num(x, 0) * b));
+          if (isNum(a) && isVec(b)) return b.map((x) => (isVec(x) ? x.map((y) => y * a) : num(x, 0) * a));
+          if (isVec(a) && isVec(b)) {
+            // matrix × vector / matrix × matrix / dot product
+            if (isVec(a[0]) && isVec(b[0])) {
+              return a.map((row) => b[0].map((_, j) => row.reduce((s, rv, k) => s + num(rv, 0) * num(b[k][j], 0), 0)));
+            }
+            if (isVec(a[0])) return a.map((row) => row.reduce((s, rv, k) => s + num(rv, 0) * num(b[k], 0), 0));
+            if (isVec(b[0])) return b[0].map((_, j) => a.reduce((s, av, k) => s + num(av, 0) * num(b[k][j], 0), 0));
+            return a.reduce((s, x, i) => s + num(x, 0) * num(b[i], 0), 0);
+          }
+          return num(a, 0) * num(b, 0);
+        case '/':
+          if (isVec(a) && isNum(b)) return a.map((x) => (isVec(x) ? x.map((y) => y / b) : num(x, 0) / b));
+          return num(a, 0) / num(b, 0);
+        case '%': return num(a, 0) % num(b, 0);
+        case '^': return Math.pow(num(a, 0), num(b, 0));
+        case '<': return num(a, 0) < num(b, 0);
+        case '>': return num(a, 0) > num(b, 0);
+        case '<=': return num(a, 0) <= num(b, 0);
+        case '>=': return num(a, 0) >= num(b, 0);
+        case '==': return deepEq(a, b);
+        case '!=': return !deepEq(a, b);
+      }
+      throw KErr('unknown operator ' + op, node.line);
+    }
+    function deepEq(a, b) {
+      if (isVec(a) && isVec(b)) return a.length === b.length && a.every((x, i) => deepEq(x, b[i]));
+      return a === b;
+    }
+
+    function rangeList(r, line) {
+      const out = [];
+      let st = r.step;
+      if (!isNum(st) || st === 0) st = 1;
+      if ((r.end - r.start) / st < 0) return out;
+      const n = Math.floor((r.end - r.start) / st) + 1;
+      if (n > MAX_ITERS) throw KErr('range [' + r.start + ':' + st + ':' + r.end + '] is too large', line);
+      for (let i = 0; i < n; i++) out.push(r.start + i * st);
+      return out;
+    }
+    function iterable(v, line) {
+      if (v && v.__range) return rangeList(v, line);
+      if (isVec(v)) return v;
+      if (v === undefined) return [];
+      return [v];
+    }
+
+    function comp(node, sc, out, depth) {
+      tick(node.line);
+      if (depth > MAX_DEPTH) throw KErr('comprehension nested too deep', node.line);
+      switch (node.k) {
+        case 'celem': { out.push(ev(node.e, sc, depth)); return; }
+        case 'cseq': { for (const it of node.items) comp(it.k ? it : { k: 'celem', e: it }, sc, out, depth + 1); return; }
+        case 'ceach': {
+          const v = ev(node.e.k === 'celem' ? node.e.e : node.e, sc, depth);
+          for (const x of iterable(v, node.line)) out.push(x);
+          return;
+        }
+        case 'clet': {
+          const s2 = new Scope(sc);
+          for (const b of node.binds) s2.set(b.name, ev(b.e, s2, depth));
+          comp(node.body, s2, out, depth + 1);
+          return;
+        }
+        case 'cif': {
+          if (truthy(ev(node.c, sc, depth))) comp(node.then, sc, out, depth + 1);
+          else if (node.els) comp(node.els, sc, out, depth + 1);
+          return;
+        }
+        case 'cfor': {
+          const lists = node.binds.map((b) => iterable(ev(b.e, sc, depth), node.line));
+          const names = node.binds.map((b) => b.name);
+          (function rec(i, s2) {
+            if (i === names.length) { comp(node.body, s2, out, depth + 1); return; }
+            for (const val of lists[i]) {
+              tick(node.line);
+              const s3 = new Scope(s2);
+              s3.set(names[i], val);
+              rec(i + 1, s3);
+            }
+          })(0, sc);
+          return;
+        }
+        default: { out.push(ev(node, sc, depth)); }
+      }
+    }
+
+    function bindArgs(params, args, sc, depth, callerLine, label) {
+      const inner = new Scope(root);
+      // special vars propagate into every call
+      for (const k of ['$fn', '$fa', '$fs', '$t', '$preview']) inner.set(k, sc.get(k));
+      const used = Object.create(null);
+      let positional = 0;
+      const named = Object.create(null);
+      for (const a of args) {
+        if (a.name) named[a.name] = ev(a.e, sc, depth + 1);
+      }
+      for (const a of args) {
+        if (a.name) continue;
+        while (positional < params.length && (params[positional].name in named)) positional++;
+        if (positional < params.length) {
+          inner.set(params[positional].name, ev(a.e, sc, depth + 1));
+          used[params[positional].name] = true;
+          positional++;
+        } else {
+          warn('too many arguments to ' + label + '() — extra one ignored', callerLine);
+          ev(a.e, sc, depth + 1);
+        }
+      }
+      for (const k in named) {
+        if (k.charAt(0) === '$') { inner.set(k, named[k]); continue; }
+        if (!params.some((p) => p.name === k)) {
+          warn('unknown argument "' + k + '" to ' + label + '() — ignored', callerLine);
+          continue;
+        }
+        inner.set(k, named[k]); used[k] = true;
+      }
+      for (const p of params) {
+        if (!inner.has(p.name) || (!(p.name in inner.v))) {
+          inner.set(p.name, p.def ? ev(p.def, inner, depth + 1) : undefined);
+        }
+      }
+      return inner;
+    }
+
+    function callFn(node, sc, depth) {
+      if (depth > MAX_DEPTH) throw KErr('function recursion deeper than ' + MAX_DEPTH + ' in ' + node.name + '()', node.line);
+      const f = functions[node.name];
+      if (f) {
+        const inner = bindArgs(f.params, node.args, sc, depth, node.line, node.name);
+        return ev(f.e, inner, depth + 1);
+      }
+      const b = BUILTIN_FN[node.name];
+      if (b) {
+        const vals = node.args.map((a) => ev(a.e, sc, depth + 1));
+        return b(vals, sc);
+      }
+      warn('unknown function ' + node.name + '() — treated as undef', node.line);
+      return undefined;
+    }
+
+    // ── argument helpers for modules ──
+    function argMap(params, args, sc, depth, line, label) {
+      const s = bindArgs(params.map((p) => ({ name: p, def: null })), args, sc, depth, line, label);
+      const o = Object.create(null);
+      for (const p of params) o[p] = s.get(p);
+      o.$fn = num(s.get('$fn'), 0); o.$fa = num(s.get('$fa'), 12); o.$fs = num(s.get('$fs'), 2);
+      return o;
+    }
+
+    function vec2(v, fb) {
+      if (isVec(v)) return [num(v[0], fb), num(v[1], fb)];
+      if (isNum(v)) return [v, v];
+      return [fb, fb];
+    }
+
+    // ── shape helpers ──
+    function circlePts(cx, cy, r, n) {
+      const pts = [];
+      for (let i = 0; i < n; i++) {
+        const a = 2 * Math.PI * i / n;
+        pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+      }
+      return pts;
+    }
+    function xfPoly(pts, m) { return pts.map((p) => { const q = mApply(m, p[0], p[1]); return [q.x, q.y]; }); }
+
+    function convexHull(pts) {
+      if (pts.length < 3) return pts.slice();
+      const ps = pts.slice().sort((a, b) => (a[0] - b[0]) || (a[1] - b[1]));
+      const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+      const lower = [];
+      for (const p of ps) {
+        while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+        lower.push(p);
+      }
+      const upper = [];
+      for (let i = ps.length - 1; i >= 0; i--) {
+        const p = ps[i];
+        while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+        upper.push(p);
+      }
+      upper.pop(); lower.pop();
+      return lower.concat(upper);
+    }
+
+    // Naive miter offset of a closed polygon. Exact for convex input; no
+    // self-intersection cleanup, which is reported at the call site.
+    function offsetPoly(pts, d) {
+      const n = pts.length;
+      if (n < 3 || Math.abs(d) < 1e-12) return pts.slice();
+      // Positive d must grow the shape regardless of winding.
+      let area2 = 0;
+      for (let i = 0; i < n; i++) {
+        const a = pts[i], b = pts[(i + 1) % n];
+        area2 += a[0] * b[1] - b[0] * a[1];
+      }
+      const sgn = area2 >= 0 ? 1 : -1;
+      const out = [];
+      for (let i = 0; i < n; i++) {
+        const p0 = pts[(i - 1 + n) % n], p1 = pts[i], p2 = pts[(i + 1) % n];
+        const e0 = [p1[0] - p0[0], p1[1] - p0[1]];
+        const e1 = [p2[0] - p1[0], p2[1] - p1[1]];
+        const l0 = Math.hypot(e0[0], e0[1]) || 1, l1 = Math.hypot(e1[0], e1[1]) || 1;
+        // outward normal for this winding
+        const n0 = [sgn * e0[1] / l0, -sgn * e0[0] / l0];
+        const n1 = [sgn * e1[1] / l1, -sgn * e1[0] / l1];
+        let bx = n0[0] + n1[0], by = n0[1] + n1[1];
+        const bl = Math.hypot(bx, by);
+        if (bl < 1e-9) { out.push([p1[0] + n1[0] * d, p1[1] + n1[1] * d]); continue; }
+        bx /= bl; by /= bl;
+        const cosHalf = Math.max(0.1, (bx * n1[0] + by * n1[1]));   // miter cap at 10×
+        const ml = d / cosHalf;
+        out.push([p1[0] + bx * ml, p1[1] + by * ml]);
+      }
+      return out;
+    }
+
+    // ══ MODULE INSTANTIATION ═════════════════════════════════════════════════
+    // Each module call returns the list of shapes it produced, so the boolean
+    // and transform wrappers can operate on their children's output.
+    const PASSTHRU_3D = { linear_extrude: 'height', rotate_extrude: 'angle' };
+    const SKIP_3D = ['cube', 'sphere', 'cylinder', 'polyhedron', 'surface', 'import',
+                     'minkowski', 'projection_3d'];
+
+    function runStatements(list, sc, m, depth, sink) {
+      for (const s of list) runStatement(s, sc, m, depth, sink);
+    }
+
+    function collect(stmt, sc, m, depth) {
+      const bag = [];
+      if (stmt) runStatement(stmt, sc, m, depth + 1, bag);
+      return bag;
+    }
+
+    function runStatement(node, sc, m, depth, sink) {
+      tick(node.line);
+      if (depth > MAX_DEPTH) throw KErr('module recursion deeper than ' + MAX_DEPTH, node.line);
+
+      switch (node.k) {
+        case 'nop': return;
+        case 'block': {
+          const s2 = new Scope(sc);
+          hoist(node.body, s2, depth);
+          runStatements(node.body, s2, m, depth, sink);
+          return;
+        }
+        case 'assign': sc.set(node.name, ev(node.e, sc, depth)); return;
+        case 'moddef': modules[node.name] = { params: node.params, body: node.body, scope: sc }; return;
+        case 'fundef': functions[node.name] = { params: node.params, e: node.e, scope: sc }; return;
+        case 'unsupported':
+          warn(node.what + ' is not supported — ' + node.note, node.line, 'u:' + node.what);
+          return;
+        case 'modifier': {
+          if (node.mod === '*') return;                       // disable subtree
+          if (node.mod === '%') {                             // background: not drawn
+            warn('% (background) modifier — subtree skipped, as OpenSCAD does for rendering', node.line, 'm%');
+            return;
+          }
+          // ! (root) and # (debug) both just draw
+          runStatement(node.s, sc, m, depth + 1, sink);
+          return;
+        }
+        case 'if': {
+          if (truthy(ev(node.c, sc, depth))) runStatement(node.then, sc, m, depth + 1, sink);
+          else if (node.els) runStatement(node.els, sc, m, depth + 1, sink);
+          return;
+        }
+        case 'letstmt': {
+          const s2 = new Scope(sc);
+          for (const b of node.binds) s2.set(b.name, ev(b.e, s2, depth));
+          runStatement(node.body, s2, m, depth + 1, sink);
+          return;
+        }
+        case 'for': {
+          if (node.isect) {
+            warn('intersection_for() is not supported — iterating as a plain for()', node.line, 'ifor');
+          }
+          const lists = node.binds.map((b) => iterable(ev(b.e, sc, depth), node.line));
+          const names = node.binds.map((b) => b.name);
+          (function rec(i, s2) {
+            if (i === names.length) { runStatement(node.body, s2, m, depth + 1, sink); return; }
+            for (const val of lists[i]) {
+              tick(node.line);
+              const s3 = new Scope(s2);
+              s3.set(names[i], val);
+              rec(i + 1, s3);
+            }
+          })(0, sc);
+          return;
+        }
+        case 'inst': return instantiate(node, sc, m, depth, sink);
+      }
+      throw KErr('cannot run ' + node.k, node.line);
+    }
+
+    // Module and function definitions are visible to statements above them in
+    // the same block, exactly as in OpenSCAD.
+    function hoist(list, sc, depth) {
+      for (const s of list) {
+        if (s.k === 'moddef') modules[s.name] = { params: s.params, body: s.body, scope: sc };
+        else if (s.k === 'fundef') functions[s.name] = { params: s.params, e: s.e, scope: sc };
+      }
+    }
+
+    function instantiate(node, sc, m, depth, sink) {
+      const name = node.name;
+      const line = node.line;
+
+      // ── user modules ──
+      if (modules[name]) {
+        const def = modules[name];
+        const inner = bindArgs(def.params, node.args, sc, depth, line, name);
+        const kids = node.child;
+        inner.set('$children', kids ? 1 : 0);
+        inner.set('__children__', { stmt: kids, scope: sc, m });
+        runStatement(def.body, inner, m, depth + 1, sink);
+        return;
+      }
+
+      if (name === 'children' || name === 'child') {
+        const holder = sc.get('__children__');
+        if (holder && holder.stmt) runStatement(holder.stmt, holder.scope, m, depth + 1, sink);
+        return;
+      }
+
+      // ── transforms ──
+      if (name === 'translate') {
+        const a = argMap(['v'], node.args, sc, depth, line, name);
+        const v = vec2(a.v, 0);
+        runStatement(node.child || { k: 'nop' }, sc, mMul(m, mTranslate(v[0], v[1])), depth + 1, sink);
+        return;
+      }
+      if (name === 'rotate') {
+        const a = argMap(['a', 'v'], node.args, sc, depth, line, name);
+        let deg = 0;
+        if (isVec(a.a)) {
+          deg = num(a.a[2], 0);
+          if (Math.abs(num(a.a[0], 0)) > 1e-9 || Math.abs(num(a.a[1], 0)) > 1e-9)
+            warn('rotate() about X or Y has no meaning in 2D — only the Z component was used', line, 'rotxy');
+        } else deg = num(a.a, 0);
+        if (isVec(a.v)) warn('rotate(a, v) axis form is treated as a Z rotation in 2D', line, 'rotv');
+        runStatement(node.child || { k: 'nop' }, sc, mMul(m, mRotate(deg)), depth + 1, sink);
+        return;
+      }
+      if (name === 'scale') {
+        const a = argMap(['v'], node.args, sc, depth, line, name);
+        const v = vec2(a.v, 1);
+        runStatement(node.child || { k: 'nop' }, sc, mMul(m, mScale(v[0] || 1, v[1] || 1)), depth + 1, sink);
+        return;
+      }
+      if (name === 'mirror') {
+        const a = argMap(['v'], node.args, sc, depth, line, name);
+        const v = vec2(a.v, 0);
+        const L = Math.hypot(v[0], v[1]);
+        if (L < 1e-12) { runStatement(node.child || { k: 'nop' }, sc, m, depth + 1, sink); return; }
+        const nx = v[0] / L, ny = v[1] / L;
+        // Householder reflection about the line through the origin normal to v
+        const refl = [1 - 2 * nx * nx, -2 * nx * ny, -2 * nx * ny, 1 - 2 * ny * ny, 0, 0];
+        runStatement(node.child || { k: 'nop' }, sc, mMul(m, refl), depth + 1, sink);
+        return;
+      }
+      if (name === 'multmatrix') {
+        const a = argMap(['m'], node.args, sc, depth, line, name);
+        const M = a.m;
+        if (!isVec(M) || !isVec(M[0])) { warn('multmatrix() needs a matrix — ignored', line); runStatement(node.child || { k: 'nop' }, sc, m, depth + 1, sink); return; }
+        const g = (r, c, d) => (isVec(M[r]) && isNum(M[r][c]) ? M[r][c] : d);
+        const sub = [g(0, 0, 1), g(1, 0, 0), g(0, 1, 0), g(1, 1, 1), g(0, 3, 0), g(1, 3, 0)];
+        runStatement(node.child || { k: 'nop' }, sc, mMul(m, sub), depth + 1, sink);
+        return;
+      }
+      if (name === 'color') {
+        // KAD carries colour on layers, not on entities — draw and move on.
+        runStatement(node.child || { k: 'nop' }, sc, m, depth + 1, sink);
+        return;
+      }
+      if (name === 'render' || name === 'group') {
+        runStatement(node.child || { k: 'nop' }, sc, m, depth + 1, sink);
+        return;
+      }
+      if (name === 'resize') {
+        const a = argMap(['newsize', 'auto'], node.args, sc, depth, line, name);
+        const kids = collect(node.child, sc, m, depth);
+        const bb = shapesBBox(kids);
+        const want = vec2(a.newsize, 0);
+        if (!bb) { for (const s of kids) sink.push(s); return; }
+        const w = bb.maxX - bb.minX, h = bb.maxY - bb.minY;
+        let sx = want[0] > 0 && w > 1e-12 ? want[0] / w : 1;
+        let sy = want[1] > 0 && h > 1e-12 ? want[1] / h : 1;
+        if (want[0] > 0 && !(want[1] > 0)) sy = sx;
+        if (want[1] > 0 && !(want[0] > 0)) sx = sy;
+        const M = mMul(mMul(mTranslate(bb.minX, bb.minY), mScale(sx, sy)), mTranslate(-bb.minX, -bb.minY));
+        for (const s of kids) sink.push(xfShape(s, M, line));
+        return;
+      }
+
+      // ── booleans ──
+      if (name === 'union') {
+        const kids = collect(node.child, sc, m, depth);
+        for (const s of kids) sink.push(s);
+        return;
+      }
+      if (name === 'difference' || name === 'intersection') {
+        const kids = collect(node.child, sc, m, depth);
+        if (kids.length > 1) {
+          warn(name + '() kept every child outline — KAD model space is outline geometry, ' +
+               'so a plate with holes reads correctly, but a partial cut does not. Use TRIM for a real cut.',
+               line, 'bool:' + name);
+        }
+        for (const s of kids) sink.push(s);
+        return;
+      }
+      if (name === 'hull') {
+        const kids = collect(node.child, sc, m, depth);
+        const pts = [];
+        for (const s of kids) {
+          if (s.kind === 'poly') pts.push.apply(pts, s.pts);
+          else if (s.kind === 'circle') pts.push.apply(pts, circlePts(s.cx, s.cy, s.r, Math.max(16, fragments(s.r, 0, 12, 2))));
+        }
+        if (pts.length >= 3) {
+          const h = convexHull(pts);
+          if (h.length >= 3) emitShape({ kind: 'poly', pts: h, closed: true }, sink, line);
+        } else for (const s of kids) sink.push(s);
+        return;
+      }
+      if (name === 'offset') {
+        const a = argMap(['r', 'delta', 'chamfer'], node.args, sc, depth, line, name);
+        const d = isNum(a.r) ? a.r : num(a.delta, 0);
+        const kids = collect(node.child, sc, m, depth);
+        if (Math.abs(d) < 1e-12) { for (const s of kids) sink.push(s); return; }
+        let approximated = false;
+        for (const s of kids) {
+          if (s.kind === 'circle') {
+            const r = s.r + d;
+            if (r > 1e-9) emitShape({ kind: 'circle', cx: s.cx, cy: s.cy, r }, sink, line);
+          } else if (s.kind === 'poly') {
+            approximated = true;
+            emitShape({ kind: 'poly', pts: offsetPoly(s.pts, d), closed: true }, sink, line);
+          } else sink.push(s);
+        }
+        if (approximated)
+          warn('offset() on a polygon is a naive miter offset — exact on convex shapes, ' +
+               'approximate in tight concavities (no self-intersection cleanup)', line, 'off');
+        return;
+      }
+
+      // ── 3D wrappers that carry a usable 2D profile ──
+      if (name in PASSTHRU_3D) {
+        const kids = collect(node.child, sc, m, depth);
+        warn(name + '() ignored — its 2D profile was kept as outline geometry. 3D needs KRAFT.', line, 'pt:' + name);
+        for (const s of kids) sink.push(s);
+        return;
+      }
+      if (name === 'projection') {
+        const kids = collect(node.child, sc, m, depth);
+        warn('projection() ignored — 2D children kept, 3D children skipped', line, 'proj');
+        for (const s of kids) sink.push(s);
+        return;
+      }
+
+      // ── 2D primitives ──
+      if (name === 'square') {
+        const a = argMap(['size', 'center'], node.args, sc, depth, line, name);
+        const s = vec2(a.size === undefined ? 1 : a.size, 1);
+        const c = truthy(a.center);
+        const x0 = c ? -s[0] / 2 : 0, y0 = c ? -s[1] / 2 : 0;
+        emitShape({ kind: 'poly', closed: true, pts: xfPoly(
+          [[x0, y0], [x0 + s[0], y0], [x0 + s[0], y0 + s[1]], [x0, y0 + s[1]]], m) }, sink, line);
+        return;
+      }
+      if (name === 'circle') {
+        const a = argMap(['r', 'd'], node.args, sc, depth, line, name);
+        let r = isNum(a.r) ? a.r : (isNum(a.d) ? a.d / 2 : 1);
+        if (r <= 0) { warn('circle() with radius ' + r + ' produced nothing', line); return; }
+        const fn = a.$fn;
+        const k = mConformal(m);
+        if (fn > 0) {                                  // $fn is an explicit polygon
+          const n = fragments(r, fn, a.$fa, a.$fs);
+          emitShape({ kind: 'poly', closed: true, pts: xfPoly(circlePts(0, 0, r, n), m) }, sink, line);
+        } else if (k !== null) {                       // stays a true CIRCLE entity
+          const c = mApply(m, 0, 0);
+          emitShape({ kind: 'circle', cx: c.x, cy: c.y, r: r * k }, sink, line);
+        } else {                                       // sheared/stretched → polyline
+          const n = fragments(r, 0, a.$fa, a.$fs);
+          warn('circle() under a non-uniform scale became a polyline', line, 'csq');
+          emitShape({ kind: 'poly', closed: true, pts: xfPoly(circlePts(0, 0, r, n), m) }, sink, line);
+        }
+        return;
+      }
+      if (name === 'polygon') {
+        const a = argMap(['points', 'paths', 'convexity'], node.args, sc, depth, line, name);
+        const P = a.points;
+        if (!isVec(P) || P.length < 3) { warn('polygon() needs at least 3 points — skipped', line); return; }
+        const pts = P.map((p) => (isVec(p) ? [num(p[0], 0), num(p[1], 0)] : [0, 0]));
+        if (isVec(a.paths) && a.paths.length) {
+          for (const path of a.paths) {
+            if (!isVec(path) || path.length < 3) continue;
+            const loop = path.map((i) => pts[Math.floor(num(i, 0))]).filter(Boolean);
+            if (loop.length >= 3) emitShape({ kind: 'poly', closed: true, pts: xfPoly(loop, m) }, sink, line);
+          }
+        } else {
+          emitShape({ kind: 'poly', closed: true, pts: xfPoly(pts, m) }, sink, line);
+        }
+        return;
+      }
+      if (name === 'text') {
+        const a = argMap(['text', 't', 'size', 'font', 'halign', 'valign', 'spacing', 'direction', 'language', 'script'],
+                         node.args, sc, depth, line, name);
+        const str = a.text !== undefined ? a.text : a.t;
+        if (str === undefined || str === '') { warn('text() with no string — skipped', line); return; }
+        const size = isNum(a.size) ? a.size : 10;
+        const p = mApply(m, 0, 0);
+        const k = mConformal(m);
+        const rot = Math.atan2(m[1], m[0]) * R2D;
+        if (a.font !== undefined || a.valign !== undefined || a.spacing !== undefined || a.direction !== undefined)
+          warn('text() font/valign/spacing/direction are not carried into KAD text', line, 'txtopt');
+        emitShape({ kind: 'text', x: p.x, y: p.y, text: String(str),
+                    height: size * (k === null ? 1 : k), rot,
+                    halign: a.halign === undefined ? 'left' : String(a.halign) }, sink, line);
+        return;
+      }
+
+      // ── 3D primitives: reported, skipped, non-fatal ──
+      if (SKIP_3D.indexOf(name) >= 0) {
+        warn(name + '() skipped — 3D geometry is not representable in KAD model space (KRAFT will handle it)',
+             line, 's3:' + name);
+        if (node.child) collect(node.child, sc, m, depth);   // still surface errors inside
+        return;
+      }
+
+      // ── statement-position builtins ──
+      if (name === 'echo') {
+        const parts = node.args.map((ag) => (ag.name ? ag.name + ' = ' : '') + fmtVal(ev(ag.e, sc, depth)));
+        echoes.push({ line, text: 'ECHO: ' + parts.join(', ') });
+        if (node.child) runStatement(node.child, sc, m, depth + 1, sink);
+        return;
+      }
+      if (name === 'assert') {
+        const a = node.args.length ? ev(node.args[0].e, sc, depth) : false;
+        if (!truthy(a)) {
+          const msg = node.args.length > 1 ? fmtVal(ev(node.args[1].e, sc, depth)) : '';
+          throw KErr('assertion failed' + (msg ? ': ' + msg : ''), line);
+        }
+        if (node.child) runStatement(node.child, sc, m, depth + 1, sink);
+        return;
+      }
+
+      warn('unknown module ' + name + '() — skipped', line, 'um:' + name);
+      if (node.child) collect(node.child, sc, m, depth);
+    }
+
+    function emitShape(s, sink, line) {
+      if (s.kind === 'poly') {
+        const pts = dedupe(s.pts);
+        if (pts.length < 3) { warn('a polygon collapsed to fewer than 3 distinct points — skipped', line); return; }
+        s.pts = pts;
+      }
+      if (sink) { sink.push(s); if (sink === shapes && shapes.length > MAX_SHAPES) throw KErr('too many shapes', line); }
+      else emit(s, line);
+    }
+    function dedupe(pts) {
+      const out = [];
+      for (const p of pts) {
+        if (!isFinite(p[0]) || !isFinite(p[1])) continue;
+        const last = out[out.length - 1];
+        if (last && Math.abs(last[0] - p[0]) < 1e-9 && Math.abs(last[1] - p[1]) < 1e-9) continue;
+        out.push([p[0], p[1]]);
+      }
+      while (out.length > 1) {
+        const a = out[0], b = out[out.length - 1];
+        if (Math.abs(a[0] - b[0]) < 1e-9 && Math.abs(a[1] - b[1]) < 1e-9) out.pop(); else break;
+      }
+      return out;
+    }
+    function xfShape(s, M, line) {
+      if (s.kind === 'poly') return { kind: 'poly', closed: true, pts: xfPoly(s.pts, M) };
+      if (s.kind === 'circle') {
+        const k = mConformal(M);
+        const c = mApply(M, s.cx, s.cy);
+        if (k !== null) return { kind: 'circle', cx: c.x, cy: c.y, r: s.r * k };
+        warn('a circle under a non-uniform transform became a polyline', line, 'xfc');
+        return { kind: 'poly', closed: true, pts: xfPoly(circlePts(s.cx, s.cy, s.r, fragments(s.r, 0, 12, 2)), M) };
+      }
+      if (s.kind === 'text') {
+        const p = mApply(M, s.x, s.y);
+        const k = mConformal(M);
+        return Object.assign({}, s, { x: p.x, y: p.y, height: s.height * (k === null ? 1 : k) });
+      }
+      return s;
+    }
+    function shapesBBox(list) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const s of list) {
+        if (s.kind === 'poly') for (const p of s.pts) { minX = Math.min(minX, p[0]); maxX = Math.max(maxX, p[0]); minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]); }
+        else if (s.kind === 'circle') { minX = Math.min(minX, s.cx - s.r); maxX = Math.max(maxX, s.cx + s.r); minY = Math.min(minY, s.cy - s.r); maxY = Math.max(maxY, s.cy + s.r); }
+        else if (s.kind === 'text') { minX = Math.min(minX, s.x); maxX = Math.max(maxX, s.x); minY = Math.min(minY, s.y); maxY = Math.max(maxY, s.y); }
+      }
+      return isFinite(minX) ? { minX, minY, maxX, maxY } : null;
+    }
+
+    // ── run ──
+    let ast;
+    try {
+      ast = parse(src);
+    } catch (e) {
+      if (e.skad) return { ok: false, entities: [], echoes, warnings, error: { line: e.line, col: e.col, message: e.message }, stats: { shapes: 0, ms: Date.now() - t0 } };
+      throw e;
+    }
+
+    try {
+      hoist(ast, root, 0);
+      runStatements(ast, root, M_ID, 0, shapes);
+    } catch (e) {
+      if (e.skad) return { ok: false, entities: toEntities(shapes), echoes, warnings, error: { line: e.line, col: e.col, message: e.message }, stats: { shapes: shapes.length, ms: Date.now() - t0 } };
+      throw e;
+    }
+
+    return { ok: true, entities: toEntities(shapes), echoes, warnings, error: null,
+             stats: { shapes: shapes.length, ms: Date.now() - t0, iters } };
+  }
+
+  // Shapes → KAD entity descriptors (mm, radians for KAD's own fields).
+  function toEntities(shapes) {
+    const out = [];
+    for (const s of shapes) {
+      if (s.kind === 'poly') {
+        out.push({ type: 'POLYLINE', closed: true, pts: s.pts.map((p) => ({ x: p[0], y: p[1] })) });
+      } else if (s.kind === 'circle') {
+        out.push({ type: 'CIRCLE', cx: s.cx, cy: s.cy, r: s.r });
+      } else if (s.kind === 'text') {
+        out.push({ type: 'TEXT', x: s.x, y: s.y, text: s.text, height: s.height });
+      }
+    }
+    return out;
+  }
+
+  return { VERSION, evaluate, balance, lex, parse, _toEntities: toEntities };
+})();
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  SCAD TOOL — the sticky mode that turns KOMMAND into a SCAD console
+//  ────────────────────────────────────────────────────────────────────────────
+//  KAD's command line reserves SPACE as its only token delimiter (see
+//  submitKommandText) and SCAD source is nothing but spaces, so SCAD input
+//  cannot be tokenised like a KOMMAND script. The SCAD tool resolves that by
+//  being a MODE rather than a command: while it is armed, submitKommandText
+//  hands the raw, unsplit, un-uppercased line straight to SKAD. Every other
+//  tool is sticky in KAD; this one is sticky too, and Esc leaves it — the same
+//  escalating Esc as everywhere else (pending buffer first, then the mode).
+//
+//  A statement may span as many Enter presses as it needs: the buffer holds
+//  until its brackets balance, so a module definition can be typed a line at a
+//  time and the bar shows SCAD… with the open depth while it waits.
+//
+//  Reach it by:  the SCAD toolbar button (every layout, from the TOOLS table)
+//                SD / SCAD / SKAD in the command line
+//  Note SC was already SCALE, so the short word is SD.
+// ══════════════════════════════════════════════════════════════════════════════
+
+const SKAD_MODE = {
+  buffer: '',        // partial statement waiting for its brackets to balance
+  lastSource: '',    // last thing actually evaluated — RUN repeats it
+  runs: 0,           // run counter, stamped onto entities for provenance
+  notes: [],         // warnings + echoes from the last run
+};
+
+function skadReset() { SKAD_MODE.buffer = ''; }
+
+function skadPrefixLabel() {
+  return SKAD_MODE.buffer.trim() ? 'SCAD…' : 'SCAD';
+}
+
+function skadEnter() {
+  if (!SKAD_ACTIVE) { kecho('SCAD is not enabled in this build', 'err'); return; }
+  if (activeSpace() === 'kanvas') { kecho('SCAD is model-space only — KD to switch back', 'err'); return; }
+  skadReset();
+  setTool('scad');
+  if (kInput) { kInput.focus(); }
+  if (kPrefix) kPrefix.textContent = skadPrefixLabel();
+  kecho('SCAD · type OpenSCAD, Enter runs · HELP · Esc exits', 'dim');
+}
+
+function skadExit(quiet) {
+  const had = !!SKAD_MODE.buffer.trim();
+  skadReset();
+  if (activeTool === 'scad') goIdle();
+  if (!quiet) kecho(had ? 'SCAD closed · unfinished statement discarded' : 'SCAD closed');
+  return had;
+}
+
+// Notes (warnings and echo output) are shown one after another in the toast, so
+// nothing a script reported is ever dropped on the floor. Silent approximation
+// is the bug class this whole file is built to avoid.
+let _skadNoteTimer = null;
+function skadShowNotes(notes) {
+  clearTimeout(_skadNoteTimer);
+  const list = notes.slice(0, 8);
+  let i = 0;
+  (function step() {
+    if (i >= list.length) return;
+    showToast(list[i++]);
+    _skadNoteTimer = setTimeout(step, 2300);
+  })();
+}
+
+function skadHelp() {
+  kecho('SCAD subset · see notes', 'dim');
+  skadShowNotes([
+    'SCAD 2D subset: square circle polygon text',
+    'translate rotate scale mirror multmatrix resize offset hull',
+    'union · difference/intersection keep outlines · for if let module function',
+    'linear_extrude keeps its 2D profile · cube/cylinder/sphere are skipped (KRAFT)',
+    'Numbers are mm always · angles in degrees · Y is up',
+    'Words: RUN repeats · LOG notes · SDO opens a .scad · SDX exports · UNDO · EXIT (or Esc)',
+  ]);
+}
+
+// Bare words accepted inside the mode. None of them is valid SCAD, so nothing
+// legitimate is being shadowed — and CLEAR/NEW are deliberately NOT here: a
+// destructive command should need the ordinary command line.
+const SKAD_WORDS = {
+  EXIT:   () => skadExit(),
+  ESC:    () => skadExit(),
+  ESCAPE: () => skadExit(),
+  QUIT:   () => skadExit(),
+  END:    () => skadExit(),
+  HELP:   () => skadHelp(),
+  '?':    () => skadHelp(),
+  RUN:    () => {
+    if (!SKAD_MODE.lastSource) { kecho('Nothing to re-run yet', 'err'); return; }
+    skadRun(SKAD_MODE.lastSource, true);
+  },
+  LOG:    () => {
+    if (!SKAD_MODE.notes.length) { kecho('No notes from the last run', 'dim'); return; }
+    kecho(SKAD_MODE.notes.length + ' note' + (SKAD_MODE.notes.length === 1 ? '' : 's') + ' from the last run', 'dim');
+    skadShowNotes(SKAD_MODE.notes);
+  },
+  UNDO:   () => { kecho(SPACE().undo() ? 'Undo' : 'Nothing to undo'); },
+  OPEN:   () => skadOpenFile(),
+  SDO:    () => skadOpenFile(),
+  SDX:    () => exportSCAD(),
+  EXPORT: () => exportSCAD(),
+  REDO:   () => { kecho(SPACE().redo() ? 'Redo' : 'Nothing to redo'); },
+  Z:      () => { SPACE().zoomFit(); kecho('Zoom fit'); },
+};
+
+// One raw line from the KOMMAND bar. Never uppercased, never space-split.
+function skadFeedLine(rawLine) {
+  const line = String(rawLine == null ? '' : rawLine).replace(/\s+$/, '');
+
+  if (!line.trim()) {
+    if (SKAD_MODE.buffer.trim()) {
+      const b = SKAD.balance(SKAD_MODE.buffer);
+      kecho('SCAD · ' + b.depth + ' bracket' + (b.depth === 1 ? '' : 's') + ' still open', 'dim');
+    } else {
+      kecho('SCAD · type OpenSCAD, Enter runs · HELP · Esc exits', 'dim');
+    }
+    if (kPrefix) kPrefix.textContent = skadPrefixLabel();
+    return;
+  }
+
+  // Bare control words only when no statement is part-typed, and only when the
+  // line is a single word with no SCAD punctuation in it.
+  if (!SKAD_MODE.buffer.trim() && /^[A-Za-z?]+$/.test(line.trim())) {
+    const w = SKAD_MODE_WORD(line.trim());
+    if (w) { w(); if (kPrefix) kPrefix.textContent = skadPrefixLabel(); return; }
+  }
+
+  SKAD_MODE.buffer += (SKAD_MODE.buffer ? '\n' : '') + line;
+
+  const bal = SKAD.balance(SKAD_MODE.buffer);
+  if (bal.error) {
+    kecho('SCAD · ' + bal.error + ' — buffer discarded', 'err');
+    skadReset();
+    if (kPrefix) kPrefix.textContent = skadPrefixLabel();
+    return;
+  }
+  if (!bal.balanced) {
+    kecho('SCAD… ' + bal.depth + ' open · keep typing, Esc discards', 'dim');
+    if (kPrefix) kPrefix.textContent = skadPrefixLabel();
+    return;
+  }
+
+  const source = SKAD_MODE.buffer;
+  skadReset();
+  skadRun(source, false);
+  if (kPrefix) kPrefix.textContent = skadPrefixLabel();
+}
+function SKAD_MODE_WORD(w) {
+  const k = w.toUpperCase();
+  return Object.prototype.hasOwnProperty.call(SKAD_WORDS, k) ? SKAD_WORDS[k] : null;
+}
+
+// Evaluate, then apply all-or-nothing. A script that errors part way through
+// adds nothing at all — half a plate is worse than no plate.
+function skadRun(source, isRerun) {
+  let res;
+  try {
+    res = SKAD.evaluate(source);
+  } catch (err) {
+    kecho('SCAD internal error: ' + err.message, 'err');
+    return null;
+  }
+
+  const notes = [];
+  for (const e of res.echoes) notes.push('line ' + e.line + ' · ' + e.text);
+  for (const w of res.warnings) notes.push('line ' + w.line + ' · ' + w.msg + (w.count > 1 ? ' (×' + w.count + ')' : ''));
+  SKAD_MODE.notes = notes;
+
+  if (!res.ok) {
+    const at = res.error.line ? ' line ' + res.error.line + (res.error.col ? ':' + res.error.col : '') : '';
+    kecho('SCAD error' + at + ' · ' + res.error.message, 'err');
+    if (notes.length) skadShowNotes(notes);
+    return null;
+  }
+
+  if (!res.entities.length) {
+    kecho('SCAD ran · no geometry produced' + (notes.length ? ' · ' + notes.length + ' note' + (notes.length === 1 ? '' : 's') + ', type LOG' : ''),
+          notes.length ? 'dim' : 'err');
+    if (notes.length) skadShowNotes(notes);
+    SKAD_MODE.lastSource = source;
+    return { added: 0 };
+  }
+
+  const made = skadApply(res.entities);
+  SKAD_MODE.lastSource = source;
+
+  const bits = [];
+  if (made.poly)   bits.push(made.poly + ' outline' + (made.poly === 1 ? '' : 's'));
+  if (made.circle) bits.push(made.circle + ' circle' + (made.circle === 1 ? '' : 's'));
+  if (made.text)   bits.push(made.text + ' text');
+  kecho('SCAD ' + (isRerun ? 're-ran' : 'ran') + ' · ' + bits.join(' · ') +
+        ' · ' + res.stats.ms + 'ms' +
+        (notes.length ? ' · ' + notes.length + ' note' + (notes.length === 1 ? '' : 's') + ', type LOG' : ''),
+        notes.length ? 'dim' : 'ok');
+  if (notes.length) skadShowNotes(notes);
+  return made;
+}
+
+// Entities in, real KAD objects out. Goes through the ordinary GeoMemory
+// mutators so plane stamping, dirty marking and the undo debounce all behave
+// exactly as they do for hand-drawn geometry — one run is one undo step.
+function skadApply(entities) {
+  const layer = (typeof activeLayer !== 'undefined' && activeLayer) ? activeLayer : 'Layer_0';
+  const runId = ++SKAD_MODE.runs;
+  const made = { poly: 0, circle: 0, text: 0, ids: [] };
+
+  for (const e of entities) {
+    let o = null;
+    if (e.type === 'POLYLINE') {
+      o = GeoMemory.addPolyline(e.pts, e.closed !== false, layer);
+      if (o) made.poly++;
+    } else if (e.type === 'CIRCLE') {
+      o = GeoMemory.addCircle(e.cx, e.cy, e.r, layer);
+      if (o) made.circle++;
+    } else if (e.type === 'TEXT') {
+      o = GeoMemory.addText(e.x, e.y, e.text, e.height, layer);
+      if (o) made.text++;
+    }
+    // Provenance: a later phase can re-run a script and replace only its own
+    // output. Additive fields, so .kad files stay readable by older clients and
+    // KAD_DOC_VERSION does not move.
+    if (o) { o.src = 'skad'; o.srcRun = runId; made.ids.push(o.id); }
+  }
+
+  if (typeof scheduleRender === 'function') scheduleRender(); else render();
+  return made;
+}
+
+// Load a .scad file straight into the mode. Reuses the hidden file input
+// pattern the other importers use.
+function skadOpenFile() {
+  let inp = document.getElementById('skad-file-input');
+  if (!inp) {
+    inp = document.createElement('input');
+    inp.type = 'file'; inp.id = 'skad-file-input'; inp.accept = '.scad,.txt';
+    inp.style.display = 'none';
+    inp.addEventListener('change', (ev) => {
+      const f = ev.target.files && ev.target.files[0];
+      if (!f) return;
+      const rd = new FileReader();
+      rd.onload = () => {
+        if (activeTool !== 'scad') skadEnter();
+        skadReset();
+        skadRun(String(rd.result || ''), false);
+      };
+      rd.onerror = () => kecho('Could not read ' + f.name, 'err');
+      rd.readAsText(f);
+      ev.target.value = '';
+    });
+    document.body.appendChild(inp);
+  }
+  inp.click();
+}
+
+
 const SAVE_MIME_EXT = {
   'application/json':'.json', 'image/svg+xml':'.svg', 'image/png':'.png',
   'text/plain':'.txt', 'application/pdf':'.pdf',
@@ -19541,7 +21272,12 @@ function kecho(msg, type) {
 
 function kommandClear() {
   if (kInput) kInput.value = '';
-  if (kPrefix) kPrefix.textContent = '≫';
+  // The bar's prefix is the mode readout too: while the SCAD console is
+  // armed it must keep saying so (and whether a statement is still open),
+  // or every clear would silently claim the mode had ended.
+  if (kPrefix) kPrefix.textContent =
+    (typeof SKAD_ACTIVE !== 'undefined' && SKAD_ACTIVE && activeTool === 'scad')
+      ? skadPrefixLabel() : '≫';
 }
 
 const KOMMANDS = {
@@ -19567,6 +21303,11 @@ const KOMMANDS = {
   'BR':      () => setTool('break'),
   'BREAK':   () => setTool('break'),
   'SC':      () => { if(!selectedIds.size){setTool('select');kecho('Select objects then type SC');} else openScaleDialog(); },
+  'SD':      () => skadEnter(),      // SCAD console. SC was taken by SCALE.
+  'SCAD':    () => skadEnter(),
+  'SKAD':   () => skadEnter(),
+  'SDO':     () => skadOpenFile(),   // open a .scad file into the console
+  'SDX':     () => exportSCAD(),      // .scad out — the other half of the round trip
   'SCALE':   () => openScaleDialog(),
   'AR':      () => openArrayDialog(),
   'ARRAY':   () => openArrayDialog(),
@@ -19797,6 +21538,10 @@ function submitKommandSingle(tokenText) {
 }
 
 function submitKommandText(rawText) {
+  // SCAD mode: space is KOMMAND's token delimiter and SCAD source is made of
+  // spaces, so nothing here may touch the line. Raw, unsplit, case intact.
+  if (SKAD_ACTIVE && activeTool === 'scad') { skadFeedLine(rawText); kommandClear(); return; }
+
   const hasTrailingSpace = /\s$/.test(rawText || '');
   const trimmed = (rawText || '').trim().replace(/\s*([,<])\s*/g, '$1');
   if (!trimmed) return;
@@ -19814,6 +21559,13 @@ kInput.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
     e.stopPropagation();
     kommandClear();
+    // Same escalation as the canvas Esc: an unfinished SCAD statement goes
+    // first, the mode itself only on the next press.
+    if (SKAD_ACTIVE && activeTool === 'scad') {
+      if (SKAD_MODE.buffer.trim()) { skadReset(); if (kPrefix) kPrefix.textContent = skadPrefixLabel(); kecho('SCAD \u00b7 statement discarded'); return; }
+      skadExit();
+      return;
+    }
     cancelTool();
     render();
     kecho('Cancelled');
@@ -19823,6 +21575,7 @@ kInput.addEventListener('keydown', function(e) {
   if (e.key === 'Enter') {
     e.preventDefault();
     if (!kInput.value.trim()) {
+      if (SKAD_ACTIVE && activeTool === 'scad') { skadFeedLine(''); return; }
       commitDynBoxOrFinishDraw();
       return;
     }
@@ -19848,7 +21601,8 @@ kInput.addEventListener('keydown', function(e) {
   setTimeout(() => {
     const v = kInput.value.trim();
     if (!kPrefix) return;
-    if (v.includes(' '))                      kPrefix.textContent = 'SCR';
+    if (SKAD_ACTIVE && activeTool === 'scad') kPrefix.textContent = skadPrefixLabel();
+    else if (v.includes(' '))                 kPrefix.textContent = 'SCR';
     else if (v.startsWith('@') && v.includes('<')) kPrefix.textContent = 'POL';
     else if (v.startsWith('@'))               kPrefix.textContent = 'REL';
     else if (v.match(/^[a-zA-Z]/))            kPrefix.textContent = 'KMD';
@@ -20081,6 +21835,8 @@ const TOOLS = [
    icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 7V5h16v2"/><line x1="12" y1="5" x2="12" y2="19"/><line x1="8" y1="19" x2="16" y2="19"/></svg>'},
   {id:'array', label:'ARRAY', tip:'Array', key:'N', group:'modify', w:1, act:"openArrayDialog()",
    icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="5" height="5"/><rect x="10" y="3" width="5" height="5"/><rect x="17" y="3" width="4" height="5"/><rect x="3" y="10" width="5" height="5"/><rect x="10" y="10" width="5" height="5"/><rect x="17" y="10" width="4" height="5"/></svg>'},
+  {id:'scad', label:'SCAD', tip:'SCAD script console', key:'S D', group:'draw', w:1, act:"skadEnter()",
+   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9.5 4C8 4 8 7 8 9c0 2-1.6 3-1.6 3S8 13 8 15c0 2 0 5 1.5 5"/><path d="M14.5 4C16 4 16 7 16 9c0 2 1.6 3 1.6 3S16 13 16 15c0 2 0 5-1.5 5"/><circle cx="12" cy="12" r="2.3"/></svg>'},
   // No SELECT entry: idle is a state you fall back to (Esc / the red X FAB),
   // not a mode you arm from a toolbar.
 ];
