@@ -3729,12 +3729,40 @@ body.kanvas-mode #app {
 'use strict';
 
 
-const KAD_APP_VERSION = '1.2.0';
+const KAD_APP_VERSION = '1.3.0';
 
 // Public changelog. Only list features once they're fully live (no display:none
 // gates, no feature flags left off). Newest entry first. Keep entries short —
 // this is the "what shipped", not the dev log; that stays in KAD-DEV-NOTES.md.
 const KAD_CHANGELOG = [
+  {
+    version: '1.3.0',
+    date: '2026-09-18',
+    groups: [
+      {
+        label: 'DWG import, rebuilt on the DXF engine',
+        items: [
+          'DWG files are now converted to DXF inside the reader and opened by KAD\u2019s own DXF parser, instead of being translated entity by entity. DXF is the authoritative pipeline \u2014 LibreDWG is the DWG reader and nothing more',
+          'Mirrored geometry imports the right way round. Arcs, circles and polylines written with a negative extrusion \u2014 which is what AutoCAD\u2019s MIRROR command produces \u2014 were being reflected across the Y axis and landing in the wrong place while looking entirely plausible',
+          'Block rotations and text rotations are correct. The old path guessed whether the file used degrees or radians by looking at arc angles alone, so a drawing with rotated blocks but no arcs could place a 90\u00b0 block at 1.57\u00b0',
+          'Hatches, dimensions and splines now come across from DWG; previously they were skipped outright',
+          'Layer colours, linetypes, lineweights and hidden-layer state come across from DWG, read from the file\u2019s own layer table',
+          'One less round trip on first use: the wasm is fetched from its known path instead of asking a second server where it lives',
+          'If a file defeats the conversion, the direct reader still opens it and says so, rather than failing',
+        ],
+      },
+      {
+        label: 'Blocks in DXF',
+        items: [
+          'DXF block references (INSERT) are expanded in place \u2014 nested ones included, with rotation, non-uniform scale, mirroring and the block\u2019s own base point applied. A DXF containing blocks previously imported with that geometry missing and no warning',
+          'Rectangular arrays on an INSERT are honoured, up to 1024 instances',
+          'Geometry drawn on layer 0 inside a block takes the layer the block is inserted on, the way AutoCAD defines it',
+          'Attribute text riding on a block reference is stepped over rather than dropped into the drawing as loose text',
+          'Blocks the file never defines, and nesting past 8 deep, are counted and reported in the import dialog instead of vanishing',
+        ],
+      },
+    ],
+  },
   {
     version: '1.2.0',
     date: '2026-09-14',
@@ -4098,11 +4126,15 @@ Object.defineProperties(KAD.formats = {}, {
     parse: parseNC1,   // import-only format — no export exists, see header
   }) },
   dwg: { enumerable: true, get: () => ({
-    normalize: kadDwgNormalize,
+    // DWG is read by converting to DXF and handing that to KAD's own parser,
+    // so there is no DWG-shaped model here on purpose. normalize() is the
+    // fallback translator, used only when the conversion yields nothing.
     import:    importDWG,        // import-only — no export exists, see header
+    toDxf:     (buf) => kadDwgModule().then(({ lib }) => lib.dwg_write_dxf(buf)),
+    normalize: kadDwgNormalize,  // fallback path
   }) },
   scad: { enumerable: true, get: () => ({
-    build: buildSCAD,            // export-only — no parse exists, see header
+    build: buildSCAD,
   }) },
 });
 
@@ -11128,6 +11160,146 @@ function dxfStripMTextCodes(t) {
     .trim();
 }
 
+// ── DXF BLOCK TRANSFORMS ────────────────────────────────────────────────────
+// These belong to the DXF parser and to nothing else. DWG import now arrives
+// as DXF text, so INSERT expansion has exactly one implementation and it is
+// this one — written to the DXF spec, not to any reader's idea of a drawing.
+//
+// A transform is a 2x3 affine [a,b,c,d,e,f], same argument order as canvas
+// setTransform: x' = a*x + c*y + e, y' = b*x + d*y + f. Carrying a matrix
+// rather than a decomposed offset/scale/rotation triple is what makes NESTED
+// inserts come out right — decomposed values only compose correctly when every
+// scale in the chain is uniform, and group 41/42 explicitly allows otherwise.
+const DXF_INSERT_MAX_DEPTH = 8;    // nested block recursion ceiling
+const DXF_INSERT_MAX_ARRAY = 1024; // 70/71 array instances honoured per INSERT
+
+function _dxfNewSink() {
+  return { lines:[], circles:[], arcs:[], polys:[], texts:[], points:[],
+           dims:[], hatches:[], beziers:[] };
+}
+const DXF_SINK_KEYS = ['lines','circles','arcs','polys','texts','points',
+                       'dims','hatches','beziers'];
+
+function _dxfMergeSink(dst, src) {
+  for (const k of DXF_SINK_KEYS) {
+    const a = dst[k], b = src[k];
+    for (let i = 0; i < b.length; i++) a.push(b[i]);
+  }
+  return dst;
+}
+
+// Block entities are plain data, so a structural copy is enough — and is what
+// lets one walk of a definition serve every instance in a 70/71 array.
+function _dxfCloneSink(s) { return JSON.parse(JSON.stringify(s)); }
+
+function _dxfXfPoint(m, x, y) {
+  return { x: m[0]*x + m[2]*y + m[4], y: m[1]*x + m[3]*y + m[5] };
+}
+// Uniform scale factor: the square root of the area the matrix multiplies by.
+function _dxfXfScale(m) {
+  const det = Math.abs(m[0]*m[3] - m[1]*m[2]);
+  return det > 0 ? Math.sqrt(det) : 1;
+}
+function _dxfXfMirrored(m) { return (m[0]*m[3] - m[1]*m[2]) < 0; }
+function _dxfXfUniform(m) {
+  const sx = Math.hypot(m[0], m[1]), sy = Math.hypot(m[2], m[3]);
+  return Math.abs(sx - sy) <= 1e-9 * Math.max(sx, sy, 1);
+}
+// Where a direction ends up, in DXF's own units: degrees, counter-clockwise.
+function _dxfXfAngle(m, deg) {
+  const r = (deg || 0) * Math.PI / 180;
+  const vx = m[0]*Math.cos(r) + m[2]*Math.sin(r);
+  const vy = m[1]*Math.cos(r) + m[3]*Math.sin(r);
+  const out = Math.atan2(vy, vx) * 180 / Math.PI;
+  return ((out % 360) + 360) % 360;
+}
+
+// An INSERT puts the block's base point (group 10/20 of the BLOCK record) at
+// the insertion point, having scaled and then rotated the definition.
+//   M = T(insertion) . R(rotation) . S(sx,sy) . T(-base)
+function _dxfXfFromInsert(ip, sx, sy, rotDeg, base) {
+  const r = (rotDeg || 0) * Math.PI / 180;
+  const cos = Math.cos(r), sin = Math.sin(r);
+  const a = cos * sx, b = sin * sx;
+  const c = -sin * sy, d = cos * sy;
+  const bx = (base && isFinite(base.x)) ? base.x : 0;
+  const by = (base && isFinite(base.y)) ? base.y : 0;
+  return [a, b, c, d,
+          ip.x - (a*bx + c*by),
+          ip.y - (b*bx + d*by)];
+}
+
+// Moves a whole sink into the parent frame, in place.
+function _dxfXfApply(m, sink) {
+  const scale = _dxfXfScale(m);
+  const mir   = _dxfXfMirrored(m);
+  const P     = (x, y) => _dxfXfPoint(m, x, y);
+
+  for (const o of sink.lines) {
+    const a = P(o.x1, o.y1), b = P(o.x2, o.y2);
+    o.x1 = a.x; o.y1 = a.y; o.x2 = b.x; o.y2 = b.y;
+  }
+  for (const o of sink.dims) {
+    const a = P(o.x1, o.y1), b = P(o.x2, o.y2);
+    o.x1 = a.x; o.y1 = a.y; o.x2 = b.x; o.y2 = b.y;
+  }
+  for (const o of sink.points) { const p = P(o.x, o.y); o.x = p.x; o.y = p.y; }
+
+  for (const o of sink.circles) {
+    const c = P(o.cx, o.cy); o.cx = c.x; o.cy = c.y;
+    o.r = Math.abs(o.r) * scale;
+  }
+  for (const o of sink.arcs) {
+    const c = P(o.cx, o.cy); o.cx = c.x; o.cy = c.y;
+    o.r = Math.abs(o.r) * scale;
+    // A DXF arc runs counter-clockwise from group 50 to group 51. A reflection
+    // reverses that sweep, so the two ends trade places as well as moving.
+    const s0 = o.startA, e0 = o.endA;
+    o.startA = _dxfXfAngle(m, mir ? e0 : s0);
+    o.endA   = _dxfXfAngle(m, mir ? s0 : e0);
+  }
+  for (const o of sink.polys) {
+    for (const p of (o.pts || [])) {
+      const q = P(p.x, p.y); p.x = q.x; p.y = q.y;
+      // A bulge is tan(theta/4): scale-invariant, but it changes hand under a
+      // reflection.
+      if (p.b) p.b = mir ? -p.b : p.b;
+    }
+  }
+  for (const o of sink.texts) {
+    const p = P(o.x, o.y); o.x = p.x; o.y = p.y;
+    if (typeof o.height === 'number')   o.height = Math.abs(o.height) * scale;
+    if (typeof o.rotation === 'number') o.rotation = _dxfXfAngle(m, o.rotation);
+  }
+  for (const o of sink.hatches) {
+    for (const loop of (o.loops || []))
+      for (const p of loop) { const q = P(p.x, p.y); p.x = q.x; p.y = q.y; }
+    if (typeof o.scale === 'number') o.scale = Math.abs(o.scale) * scale;
+    if (typeof o.angle === 'number') o.angle = _dxfXfAngle(m, o.angle);
+  }
+  for (const o of sink.beziers) {
+    for (const b of (o.beziers || [])) {
+      const p0 = P(b.x0, b.y0),  c1 = P(b.cx1, b.cy1);
+      const c2 = P(b.cx2, b.cy2), p3 = P(b.x3, b.y3);
+      b.x0 = p0.x;  b.y0 = p0.y;  b.cx1 = c1.x; b.cy1 = c1.y;
+      b.cx2 = c2.x; b.cy2 = c2.y; b.x3 = p3.x;  b.y3 = p3.y;
+    }
+  }
+  return sink;
+}
+
+// Layer "0" inside a block definition means "whatever layer the INSERT sits
+// on" — an AutoCAD rule, not a convenience. KAD's own no-code-8 default,
+// Layer_0, is treated the same way so a block built here behaves like one
+// built there.
+function _dxfRelayer(sink, layer) {
+  if (!layer || layer === '0' || layer === 'Layer_0') return sink;
+  for (const k of DXF_SINK_KEYS)
+    for (const o of sink[k])
+      if (o.layer === '0' || o.layer === 'Layer_0') o.layer = layer;
+  return sink;
+}
+
 function parseDXF(text) {
   const rawLines = text.split(/\r?\n/);
   const tokens = [];
@@ -11184,6 +11356,45 @@ function parseDXF(text) {
     flush();
   }
 
+  // ── BLOCKS section ────────────────────────────────────────────────────
+  // Indexed by upper-cased name so an INSERT can expand its definition in
+  // place. A definition is kept as a TOKEN RANGE, not parsed here: a block
+  // nobody inserts costs nothing, and a block inserted twenty times is walked
+  // once and copied.
+  const blockDefs = new Map();
+  {
+    let bStart = -1;
+    for (let t = 0; t < tokens.length; t++) {
+      if (tokens[t][0] === 2 && tokens[t][1] === 'BLOCKS') { bStart = t + 1; break; }
+    }
+    let t = bStart;
+    while (bStart >= 0 && t < tokens.length) {
+      const [c, v] = tokens[t];
+      if (c === 0 && (v === 'ENDSEC' || v === 'EOF')) break;
+      if (c !== 0 || v !== 'BLOCK') { t++; continue; }
+      let name = '', bx = 0, by = 0;
+      t++;
+      while (t < tokens.length && tokens[t][0] !== 0) {
+        const [bc, bv] = tokens[t];
+        if (bc === 2)  name = bv;
+        if (bc === 10) bx = parseFloat(bv);
+        if (bc === 20) by = parseFloat(bv);
+        t++;
+      }
+      const eStart = t;
+      while (t < tokens.length) {
+        const [ec, ev] = tokens[t];
+        if (ec === 0 && (ev === 'ENDBLK' || ev === 'ENDSEC' || ev === 'EOF')) break;
+        t++;
+      }
+      if (name && !blockDefs.has(name.toUpperCase()))
+        blockDefs.set(name.toUpperCase(), {
+          start: eStart, end: t,
+          base: { x: isFinite(bx) ? bx : 0, y: isFinite(by) ? by : 0 },
+        });
+    }
+  }
+
   let entStart = -1;
   for (let i = 0; i < tokens.length; i++) {
     if (tokens[i][0] === 2 && tokens[i][1] === 'ENTITIES') { entStart = i + 1; break; }
@@ -11226,349 +11437,444 @@ function parseDXF(text) {
     return id;
   }
 
-  const lines   = [];
-  const circles = [];
-  const arcs    = [];
-  const polys   = [];   // whole polylines, bulges intact — no longer exploded
-  const texts   = [];
-  const points  = [];
-  const dims    = [];
-  const hatches = [];   // KAD used to export these and not read them back
-  const beziers = [];
-  const S = 1; // always 1 — raw values only
+  const sink = _dxfNewSink();
+  const { lines, circles, arcs, polys, texts, points, dims, hatches, beziers } = sink;
 
-  let i = entStart;
-  while (i < tokens.length) {
-    const [code, val] = tokens[i];
+  let _blocksExpanded = 0, _blocksCapped = 0;
+  const _missingBlocks = [];
 
-    if (code === 0 && val === 'ENDSEC') break;
-    if (code === 0 && val === 'EOF')    break;
+  // The entity walker is a function so a block definition can be walked again,
+  // on a sink of its own, when an INSERT references it. Re-destructuring the
+  // sink inside leaves every `lines.push(...)` in the body below untouched.
+  //
+  // A definition is walked in BLOCK-LOCAL coordinates and the INSERT case
+  // applies its own placement matrix to that sub-sink before merging it in, so
+  // nesting composes by itself: a grandparent's matrix lands on the merged
+  // result, which already carries the parent's.
+  function walkEntities(startIdx, stopIdx, sink, depth) {
+    const { lines, circles, arcs, polys, texts, points, dims, hatches, beziers } = sink;
+    const S = 1; // always 1 — raw values only
 
-    if (code === 0 && val === 'LINE') {
-      let layer='Layer_0', x1=0,y1=0,x2=0,y2=0;
-      let ex=0, ey=0, ez=1, elev=0, z1=0, z2=0, has31=false;
-      i++;
-      while (i < tokens.length && tokens[i][0] !== 0) {
-        const [c, v] = tokens[i];
-        if (c === 8)  layer = v;
-        if (c === 10) x1 = parseFloat(v) * S;
-        if (c === 20) y1 = parseFloat(v) * S;
-        if (c === 30) z1 = parseFloat(v) * S;
-        if (c === 11) x2 = parseFloat(v) * S;
-        if (c === 21) y2 = parseFloat(v) * S;
-        if (c === 31) { z2 = parseFloat(v) * S; has31 = true; }
-        if (c === 38) elev = parseFloat(v) * S;
-        if (c === 210) ex = parseFloat(v);
-        if (c === 220) ey = parseFloat(v);
-        if (c === 230) ez = parseFloat(v);
+    let i = startIdx;
+    while (i < stopIdx) {
+      const [code, val] = tokens[i];
+
+      if (code === 0 && val === 'ENDSEC') break;
+      if (code === 0 && val === 'EOF')    break;
+      if (code === 0 && val === 'ENDBLK') break;   // walking a block definition
+
+      if (code === 0 && val === 'LINE') {
+        let layer='Layer_0', x1=0,y1=0,x2=0,y2=0;
+        let ex=0, ey=0, ez=1, elev=0, z1=0, z2=0, has31=false;
         i++;
-      }
-      if (elev === 0 && z1 !== 0) elev = z1;
-      if (has31 && Math.abs(z2 - z1) > 1e-9) _nonPlanarLines++;
-      lines.push({ type:'LINE', layer, x1, y1, x2, y2, plane:_planeForOCS(ex,ey,ez,elev) });
-      continue;
-    }
-
-    if (code === 0 && val === 'CIRCLE') {
-      let layer='Layer_0', cx=0,cy=0,r=1;
-      let ex=0, ey=0, ez=1, elev=0;
-      i++;
-      while (i < tokens.length && tokens[i][0] !== 0) {
-        const [c, v] = tokens[i];
-        if (c === 8)  layer = v;
-        if (c === 10) cx = parseFloat(v) * S;
-        if (c === 20) cy = parseFloat(v) * S;
-        if (c === 30) elev = parseFloat(v) * S;   // circle Z IS its elevation
-        if (c === 38) elev = parseFloat(v) * S;
-        if (c === 40) r  = parseFloat(v) * S;
-        if (c === 210) ex = parseFloat(v);
-        if (c === 220) ey = parseFloat(v);
-        if (c === 230) ez = parseFloat(v);
-        i++;
-      }
-      circles.push({ type:'CIRCLE', layer, cx, cy, r, plane:_planeForOCS(ex,ey,ez,elev) });
-      continue;
-    }
-
-    if (code === 0 && val === 'ARC') {
-      let layer='Layer_0', cx=0,cy=0,r=1,startA=0,endA=360;
-      let ex=0, ey=0, ez=1, elev=0;
-      i++;
-      while (i < tokens.length && tokens[i][0] !== 0) {
-        const [c, v] = tokens[i];
-        if (c === 8)  layer  = v;
-        if (c === 10) cx     = parseFloat(v) * S;
-        if (c === 20) cy     = parseFloat(v) * S;
-        if (c === 30) elev   = parseFloat(v) * S;
-        if (c === 38) elev   = parseFloat(v) * S;
-        if (c === 40) r      = parseFloat(v) * S;
-        if (c === 50) startA = parseFloat(v);
-        if (c === 51) endA   = parseFloat(v);
-        if (c === 210) ex = parseFloat(v);
-        if (c === 220) ey = parseFloat(v);
-        if (c === 230) ez = parseFloat(v);
-        i++;
-      }
-      arcs.push({ type:'ARC', layer, cx, cy, r, startA, endA, plane:_planeForOCS(ex,ey,ez,elev) });
-      continue;
-    }
-
-    if (code === 0 && val === 'LWPOLYLINE') {
-      let layer='Layer_0', closed=false;
-      let ex=0, ey=0, ez=1, elev=0;
-      const verts = [];
-      i++;
-      while (i < tokens.length && tokens[i][0] !== 0) {
-        const [c, v] = tokens[i];
-        if (c === 8)   layer  = v;
-        if (c === 70)  closed = !!(parseInt(v,10) & 1); // bit 0 = closed
-        if (c === 10)  verts.push({ x: parseFloat(v)*S, y: 0 });
-        if (c === 20 && verts.length) verts[verts.length-1].y = parseFloat(v)*S;
-        // 42 attaches to the vertex most recently opened by a 10
-        if (c === 42 && verts.length) verts[verts.length-1].b = parseFloat(v);
-        if (c === 38)  elev = parseFloat(v) * S;
-        if (c === 210) ex = parseFloat(v);
-        if (c === 220) ey = parseFloat(v);
-        if (c === 230) ez = parseFloat(v);
-        i++;
-      }
-      const _pl = _planeForOCS(ex,ey,ez,elev);
-      if (verts.length >= 2)
-        polys.push({ type:'POLYLINE', layer, closed, pts:verts, plane:_pl });
-      continue;
-    }
-
-    if (code === 0 && val === 'POLYLINE') {
-      let layer='Layer_0', closed=false;
-      let ex=0, ey=0, ez=1, elev=0;
-      i++;
-      while (i < tokens.length && tokens[i][0] !== 0) {
-        const [c, v] = tokens[i];
-        if (c === 8)  layer  = v;
-        if (c === 70) closed = !!(parseInt(v,10) & 1);
-        if (c === 30) elev = parseFloat(v) * S;
-        if (c === 38) elev = parseFloat(v) * S;
-        if (c === 210) ex = parseFloat(v);
-        if (c === 220) ey = parseFloat(v);
-        if (c === 230) ez = parseFloat(v);
-        i++;
-      }
-      const _pl = _planeForOCS(ex,ey,ez,elev);
-      const verts = [];
-      while (i < tokens.length) {
-        if (tokens[i][0] === 0 && tokens[i][1] === 'SEQEND') { i++; break; }
-        if (tokens[i][0] === 0 && tokens[i][1] === 'VERTEX') {
-          let vx=0, vy=0, vb=0;
+        while (i < tokens.length && tokens[i][0] !== 0) {
+          const [c, v] = tokens[i];
+          if (c === 8)  layer = v;
+          if (c === 10) x1 = parseFloat(v) * S;
+          if (c === 20) y1 = parseFloat(v) * S;
+          if (c === 30) z1 = parseFloat(v) * S;
+          if (c === 11) x2 = parseFloat(v) * S;
+          if (c === 21) y2 = parseFloat(v) * S;
+          if (c === 31) { z2 = parseFloat(v) * S; has31 = true; }
+          if (c === 38) elev = parseFloat(v) * S;
+          if (c === 210) ex = parseFloat(v);
+          if (c === 220) ey = parseFloat(v);
+          if (c === 230) ez = parseFloat(v);
           i++;
-          while (i < tokens.length && tokens[i][0] !== 0) {
+        }
+        if (elev === 0 && z1 !== 0) elev = z1;
+        if (has31 && Math.abs(z2 - z1) > 1e-9) _nonPlanarLines++;
+        lines.push({ type:'LINE', layer, x1, y1, x2, y2, plane:_planeForOCS(ex,ey,ez,elev) });
+        continue;
+      }
+
+      if (code === 0 && val === 'CIRCLE') {
+        let layer='Layer_0', cx=0,cy=0,r=1;
+        let ex=0, ey=0, ez=1, elev=0;
+        i++;
+        while (i < tokens.length && tokens[i][0] !== 0) {
+          const [c, v] = tokens[i];
+          if (c === 8)  layer = v;
+          if (c === 10) cx = parseFloat(v) * S;
+          if (c === 20) cy = parseFloat(v) * S;
+          if (c === 30) elev = parseFloat(v) * S;   // circle Z IS its elevation
+          if (c === 38) elev = parseFloat(v) * S;
+          if (c === 40) r  = parseFloat(v) * S;
+          if (c === 210) ex = parseFloat(v);
+          if (c === 220) ey = parseFloat(v);
+          if (c === 230) ez = parseFloat(v);
+          i++;
+        }
+        circles.push({ type:'CIRCLE', layer, cx, cy, r, plane:_planeForOCS(ex,ey,ez,elev) });
+        continue;
+      }
+
+      if (code === 0 && val === 'ARC') {
+        let layer='Layer_0', cx=0,cy=0,r=1,startA=0,endA=360;
+        let ex=0, ey=0, ez=1, elev=0;
+        i++;
+        while (i < tokens.length && tokens[i][0] !== 0) {
+          const [c, v] = tokens[i];
+          if (c === 8)  layer  = v;
+          if (c === 10) cx     = parseFloat(v) * S;
+          if (c === 20) cy     = parseFloat(v) * S;
+          if (c === 30) elev   = parseFloat(v) * S;
+          if (c === 38) elev   = parseFloat(v) * S;
+          if (c === 40) r      = parseFloat(v) * S;
+          if (c === 50) startA = parseFloat(v);
+          if (c === 51) endA   = parseFloat(v);
+          if (c === 210) ex = parseFloat(v);
+          if (c === 220) ey = parseFloat(v);
+          if (c === 230) ez = parseFloat(v);
+          i++;
+        }
+        arcs.push({ type:'ARC', layer, cx, cy, r, startA, endA, plane:_planeForOCS(ex,ey,ez,elev) });
+        continue;
+      }
+
+      if (code === 0 && val === 'LWPOLYLINE') {
+        let layer='Layer_0', closed=false;
+        let ex=0, ey=0, ez=1, elev=0;
+        const verts = [];
+        i++;
+        while (i < tokens.length && tokens[i][0] !== 0) {
+          const [c, v] = tokens[i];
+          if (c === 8)   layer  = v;
+          if (c === 70)  closed = !!(parseInt(v,10) & 1); // bit 0 = closed
+          if (c === 10)  verts.push({ x: parseFloat(v)*S, y: 0 });
+          if (c === 20 && verts.length) verts[verts.length-1].y = parseFloat(v)*S;
+          // 42 attaches to the vertex most recently opened by a 10
+          if (c === 42 && verts.length) verts[verts.length-1].b = parseFloat(v);
+          if (c === 38)  elev = parseFloat(v) * S;
+          if (c === 210) ex = parseFloat(v);
+          if (c === 220) ey = parseFloat(v);
+          if (c === 230) ez = parseFloat(v);
+          i++;
+        }
+        const _pl = _planeForOCS(ex,ey,ez,elev);
+        if (verts.length >= 2)
+          polys.push({ type:'POLYLINE', layer, closed, pts:verts, plane:_pl });
+        continue;
+      }
+
+      if (code === 0 && val === 'POLYLINE') {
+        let layer='Layer_0', closed=false;
+        let ex=0, ey=0, ez=1, elev=0;
+        i++;
+        while (i < tokens.length && tokens[i][0] !== 0) {
+          const [c, v] = tokens[i];
+          if (c === 8)  layer  = v;
+          if (c === 70) closed = !!(parseInt(v,10) & 1);
+          if (c === 30) elev = parseFloat(v) * S;
+          if (c === 38) elev = parseFloat(v) * S;
+          if (c === 210) ex = parseFloat(v);
+          if (c === 220) ey = parseFloat(v);
+          if (c === 230) ez = parseFloat(v);
+          i++;
+        }
+        const _pl = _planeForOCS(ex,ey,ez,elev);
+        const verts = [];
+        while (i < tokens.length) {
+          if (tokens[i][0] === 0 && tokens[i][1] === 'SEQEND') { i++; break; }
+          if (tokens[i][0] === 0 && tokens[i][1] === 'VERTEX') {
+            let vx=0, vy=0, vb=0;
+            i++;
+            while (i < tokens.length && tokens[i][0] !== 0) {
+              const [c, v] = tokens[i];
+              if (c === 10) vx = parseFloat(v)*S;
+              if (c === 20) vy = parseFloat(v)*S;
+              if (c === 42) vb = parseFloat(v);
+              i++;
+            }
+            const vt = { x:vx, y:vy };
+            if (vb) vt.b = vb;
+            verts.push(vt);
+            continue;
+          }
+          i++;
+        }
+        if (verts.length >= 2)
+          polys.push({ type:'POLYLINE', layer, closed, pts:verts, plane:_pl });
+        continue;
+      }
+
+      if (code === 0 && val === 'HATCH') {
+        let layer='Layer_0', pattern='ANSI31', angle=0, scale=1, solid=false;
+        let ex=0, ey=0, ez=1, elev=0;
+        const loops=[]; let cur=null; let expect=0;   // expect: 10 pending a 20
+        i++;
+        while (i < tokens.length && tokens[i][0] !== 0) {
+          const [c, v] = tokens[i];
+          if (c === 8)   layer = v;
+          if (c === 2)   pattern = v;
+          if (c === 70)  solid = v === '1';
+          if (c === 52)  angle = parseFloat(v);
+          if (c === 41)  scale = parseFloat(v);
+          if (c === 92)  { cur = []; loops.push(cur); }      // new boundary path
+          if (c === 93)  expect = parseInt(v,10) || 0;        // vertex count
+          if (c === 10 && cur && expect) cur.push({ x: parseFloat(v)*S, y: 0 });
+          if (c === 20 && cur && cur.length) cur[cur.length-1].y = parseFloat(v)*S;
+          if (c === 210) ex = parseFloat(v);
+          if (c === 220) ey = parseFloat(v);
+          if (c === 230) ez = parseFloat(v);
+          i++;
+        }
+        const good = loops.filter(L => L.length >= 3);
+        if (good.length)
+          hatches.push({ type:'HATCH', layer, loops:good, pattern, angle, scale, solid,
+                         plane:_planeForOCS(ex,ey,ez,elev) });
+        continue;
+      }
+
+      if (code === 0 && val === 'SPLINE') {
+        // KAD's BEZIER is cubic. A degree-3 spline with 4 control points IS a
+        // cubic Bezier, which is exactly what buildDXF writes; anything richer
+        // is sampled down to its control polygon rather than dropped.
+        let layer='Layer_0', degree=3, closed=false;
+        let ex=0, ey=0, ez=1, elev=0;
+        const cps=[];
+        i++;
+        while (i < tokens.length && tokens[i][0] !== 0) {
+          const [c, v] = tokens[i];
+          if (c === 8)   layer = v;
+          if (c === 70)  closed = !!(parseInt(v,10) & 1);
+          if (c === 71)  degree = parseInt(v,10) || 3;
+          if (c === 10)  cps.push({ x: parseFloat(v)*S, y: 0 });
+          if (c === 20 && cps.length) cps[cps.length-1].y = parseFloat(v)*S;
+          if (c === 210) ex = parseFloat(v);
+          if (c === 220) ey = parseFloat(v);
+          if (c === 230) ez = parseFloat(v);
+          i++;
+        }
+        const _pl = _planeForOCS(ex,ey,ez,elev);
+        if (degree === 3 && cps.length >= 4) {
+          const segs=[];
+          for (let k = 0; k + 3 < cps.length; k += 3) {
+            segs.push({ x0:cps[k].x,   y0:cps[k].y,
+                        cx1:cps[k+1].x, cy1:cps[k+1].y,
+                        cx2:cps[k+2].x, cy2:cps[k+2].y,
+                        x3:cps[k+3].x,  y3:cps[k+3].y });
+          }
+          if (segs.length) beziers.push({ type:'BEZIER', layer, closed, beziers:segs, plane:_pl });
+        } else if (cps.length >= 2) {
+          // Not a cubic we can represent exactly — keep the shape as a polyline
+          // rather than losing the entity entirely.
+          polys.push({ type:'POLYLINE', layer, closed, pts:cps.map(p=>({x:p.x,y:p.y})), plane:_pl });
+        }
+        continue;
+      }
+
+      if (code === 0 && val === 'ELLIPSE') {
+        // A full ellipse with equal axes is a circle; otherwise approximate with
+        // a polyline so the geometry survives instead of vanishing.
+        let layer='Layer_0', cx=0, cy=0, mx=0, my=0, ratio=1, sa=0, ea=Math.PI*2;
+        let ex=0, ey=0, ez=1, elev=0;
+        i++;
+        while (i < tokens.length && tokens[i][0] !== 0) {
+          const [c, v] = tokens[i];
+          if (c === 8)   layer = v;
+          if (c === 10)  cx = parseFloat(v)*S;
+          if (c === 20)  cy = parseFloat(v)*S;
+          if (c === 11)  mx = parseFloat(v)*S;   // major axis endpoint, relative
+          if (c === 21)  my = parseFloat(v)*S;
+          if (c === 40)  ratio = parseFloat(v);
+          if (c === 41)  sa = parseFloat(v);
+          if (c === 42)  ea = parseFloat(v);
+          if (c === 30)  elev = parseFloat(v)*S;
+          if (c === 210) ex = parseFloat(v);
+          if (c === 220) ey = parseFloat(v);
+          if (c === 230) ez = parseFloat(v);
+          i++;
+        }
+        const _pl = _planeForOCS(ex,ey,ez,elev);
+        const a = Math.hypot(mx,my), b = a*ratio, rot = Math.atan2(my,mx);
+        const full = Math.abs((ea-sa) - Math.PI*2) < 1e-6;
+        if (Math.abs(ratio-1) < 1e-9 && full) {
+          circles.push({ type:'CIRCLE', layer, cx, cy, r:a, plane:_pl });
+        } else if (a > 0) {
+          const N = 72, pts=[];
+          for (let k=0;k<=N;k++){
+            const t = sa + (ea-sa)*(k/N);
+            const px = a*Math.cos(t), py = b*Math.sin(t);
+            pts.push({ x: cx + px*Math.cos(rot) - py*Math.sin(rot),
+                       y: cy + px*Math.sin(rot) + py*Math.cos(rot) });
+          }
+          if (full) pts.pop();
+          polys.push({ type:'POLYLINE', layer, closed:full, pts, plane:_pl });
+        }
+        continue;
+      }
+
+      if (code === 0 && (val === 'TEXT' || val === 'MTEXT')) {
+        const isM = (val === 'MTEXT');
+        let layer='Layer_0', x=0, y=0, h=5, txt='', rot=0, halign=0;
+        let ex=0, ey=0, ez=1, elev=0;
+        i++;
+        while (i < tokens.length && tokens[i][0] !== 0) {
+          const [c, v] = tokens[i];
+          if (c === 8)   layer = v;
+          if (c === 10)  x = parseFloat(v)*S;
+          if (c === 20)  y = parseFloat(v)*S;
+          if (c === 30)  elev = parseFloat(v)*S;
+          if (c === 40)  h = parseFloat(v)*S;
+          if (c === 1)   txt += v;
+          if (c === 3)   txt += v;          // MTEXT continuation chunks
+          if (c === 50)  rot = parseFloat(v);
+          if (c === 72 && !isM) halign = parseInt(v,10) || 0;
+          if (c === 210) ex = parseFloat(v);
+          if (c === 220) ey = parseFloat(v);
+          if (c === 230) ez = parseFloat(v);
+          i++;
+        }
+        if (isM) txt = dxfStripMTextCodes(txt);
+        if (txt !== '')
+          texts.push({ type:'TEXT', layer, x, y, height:h, text:txt,
+                       rotation:rot, halign, plane:_planeForOCS(ex,ey,ez,elev) });
+        continue;
+      }
+
+      if (code === 0 && val === 'POINT') {
+        let layer='Layer_0', x=0, y=0;
+        let ex=0, ey=0, ez=1, elev=0;
+        i++;
+        while (i < tokens.length && tokens[i][0] !== 0) {
+          const [c, v] = tokens[i];
+          if (c === 8)   layer = v;
+          if (c === 10)  x = parseFloat(v)*S;
+          if (c === 20)  y = parseFloat(v)*S;
+          if (c === 30)  elev = parseFloat(v)*S;
+          if (c === 210) ex = parseFloat(v);
+          if (c === 220) ey = parseFloat(v);
+          if (c === 230) ez = parseFloat(v);
+          i++;
+        }
+        points.push({ type:'POINT', layer, x, y, plane:_planeForOCS(ex,ey,ez,elev) });
+        continue;
+      }
+
+      if (code === 0 && val === 'INSERT') {
+        let layer='Layer_0', name='', ix=0, iy=0;
+        let sx=1, sy=1, rot=0, cols=1, rows=1, cspace=0, rspace=0;
+        let ex=0, ey=0, ez=1, attribsFollow=false;
+        i++;
+        while (i < stopIdx && tokens[i][0] !== 0) {
+          const [c, v] = tokens[i];
+          if (c === 8)   layer = v;
+          if (c === 2)   name  = v;
+          if (c === 10)  ix = parseFloat(v) * S;
+          if (c === 20)  iy = parseFloat(v) * S;
+          if (c === 41)  sx = parseFloat(v);
+          if (c === 42)  sy = parseFloat(v);
+          if (c === 50)  rot = parseFloat(v);
+          if (c === 66)  attribsFollow = parseInt(v, 10) === 1;
+          if (c === 70)  cols = parseInt(v, 10);
+          if (c === 71)  rows = parseInt(v, 10);
+          if (c === 44)  cspace = parseFloat(v) * S;
+          if (c === 45)  rspace = parseFloat(v) * S;
+          if (c === 210) ex = parseFloat(v);
+          if (c === 220) ey = parseFloat(v);
+          if (c === 230) ez = parseFloat(v);
+          i++;
+        }
+        // ATTRIBs ride along behind the INSERT and end at SEQEND. They carry
+        // display text KAD has no field for, so they are stepped over rather
+        // than landing as loose TEXT the user then has to hunt down and erase.
+        if (attribsFollow) {
+          while (i < stopIdx) {
             const [c, v] = tokens[i];
-            if (c === 10) vx = parseFloat(v)*S;
-            if (c === 20) vy = parseFloat(v)*S;
-            if (c === 42) vb = parseFloat(v);
+            if (c === 0 && v === 'SEQEND') {
+              i++;
+              while (i < stopIdx && tokens[i][0] !== 0) i++;
+              break;
+            }
+            if (c === 0 && (v === 'ENDSEC' || v === 'EOF' || v === 'ENDBLK')) break;
             i++;
           }
-          const vt = { x:vx, y:vy };
-          if (vb) vt.b = vb;
-          verts.push(vt);
+        }
+
+        const key = String(name || '').toUpperCase();
+        // *D blocks hold dimension graphics. KAD rebuilds those from the
+        // DIMENSION entity in its own style, so expanding one draws it twice.
+        if (!key || key.indexOf('*D') === 0) continue;
+        if (depth >= DXF_INSERT_MAX_DEPTH) { _blocksCapped++; continue; }
+        const def = blockDefs.get(key);
+        if (!def || def.end <= def.start) {
+          if (_missingBlocks.indexOf(name) < 0) _missingBlocks.push(name);
           continue;
         }
-        i++;
-      }
-      if (verts.length >= 2)
-        polys.push({ type:'POLYLINE', layer, closed, pts:verts, plane:_pl });
-      continue;
-    }
 
-    if (code === 0 && val === 'HATCH') {
-      let layer='Layer_0', pattern='ANSI31', angle=0, scale=1, solid=false;
-      let ex=0, ey=0, ez=1, elev=0;
-      const loops=[]; let cur=null; let expect=0;   // expect: 10 pending a 20
-      i++;
-      while (i < tokens.length && tokens[i][0] !== 0) {
-        const [c, v] = tokens[i];
-        if (c === 8)   layer = v;
-        if (c === 2)   pattern = v;
-        if (c === 70)  solid = v === '1';
-        if (c === 52)  angle = parseFloat(v);
-        if (c === 41)  scale = parseFloat(v);
-        if (c === 92)  { cur = []; loops.push(cur); }      // new boundary path
-        if (c === 93)  expect = parseInt(v,10) || 0;        // vertex count
-        if (c === 10 && cur && expect) cur.push({ x: parseFloat(v)*S, y: 0 });
-        if (c === 20 && cur && cur.length) cur[cur.length-1].y = parseFloat(v)*S;
-        if (c === 210) ex = parseFloat(v);
-        if (c === 220) ey = parseFloat(v);
-        if (c === 230) ez = parseFloat(v);
-        i++;
-      }
-      const good = loops.filter(L => L.length >= 3);
-      if (good.length)
-        hatches.push({ type:'HATCH', layer, loops:good, pattern, angle, scale, solid,
-                       plane:_planeForOCS(ex,ey,ez,elev) });
-      continue;
-    }
+        if (!isFinite(sx) || sx === 0) sx = 1;
+        if (!isFinite(sy) || sy === 0) sy = 1;
+        if (!isFinite(rot)) rot = 0;
+        if (!isFinite(cspace)) cspace = 0;
+        if (!isFinite(rspace)) rspace = 0;
+        // A (0,0,-1) extrusion negates the OCS X axis. For an ordinary entity
+        // _planeForOCS() carries that; for a placement it belongs in the
+        // matrix, or a mirrored block lands reflected and looks plausible.
+        if (Math.abs(ex) < 1e-12 && Math.abs(ey) < 1e-12 && ez < 0) { ix = -ix; sx = -sx; }
 
-    if (code === 0 && val === 'SPLINE') {
-      // KAD's BEZIER is cubic. A degree-3 spline with 4 control points IS a
-      // cubic Bezier, which is exactly what buildDXF writes; anything richer
-      // is sampled down to its control polygon rather than dropped.
-      let layer='Layer_0', degree=3, closed=false;
-      let ex=0, ey=0, ez=1, elev=0;
-      const cps=[];
-      i++;
-      while (i < tokens.length && tokens[i][0] !== 0) {
-        const [c, v] = tokens[i];
-        if (c === 8)   layer = v;
-        if (c === 70)  closed = !!(parseInt(v,10) & 1);
-        if (c === 71)  degree = parseInt(v,10) || 3;
-        if (c === 10)  cps.push({ x: parseFloat(v)*S, y: 0 });
-        if (c === 20 && cps.length) cps[cps.length-1].y = parseFloat(v)*S;
-        if (c === 210) ex = parseFloat(v);
-        if (c === 220) ey = parseFloat(v);
-        if (c === 230) ez = parseFloat(v);
-        i++;
-      }
-      const _pl = _planeForOCS(ex,ey,ez,elev);
-      if (degree === 3 && cps.length >= 4) {
-        const segs=[];
-        for (let k = 0; k + 3 < cps.length; k += 3) {
-          segs.push({ x0:cps[k].x,   y0:cps[k].y,
-                      cx1:cps[k+1].x, cy1:cps[k+1].y,
-                      cx2:cps[k+2].x, cy2:cps[k+2].y,
-                      x3:cps[k+3].x,  y3:cps[k+3].y });
+        const nc = Math.max(1, isFinite(cols) ? cols : 1);
+        const nr = Math.max(1, isFinite(rows) ? rows : 1);
+        // Walk the definition ONCE; every instance in a 70/71 array is a copy
+        // of that walk moved into place.
+        const tmpl = _dxfNewSink();
+        walkEntities(def.start, def.end, tmpl, depth + 1);
+        _dxfRelayer(tmpl, layer);
+
+        let made = 0;
+        const limit = Math.min(nc * nr, DXF_INSERT_MAX_ARRAY);
+        if (nc * nr > limit) _blocksCapped++;
+        for (let cc = 0; cc < nc && made < limit; cc++) {
+          for (let rr = 0; rr < nr && made < limit; rr++, made++) {
+            const inst = (made === (nc*nr) - 1 || limit === 1) ? tmpl : _dxfCloneSink(tmpl);
+            _dxfXfApply(_dxfXfFromInsert({ x: ix + cc*cspace, y: iy + rr*rspace },
+                                         sx, sy, rot, def.base), inst);
+            _dxfMergeSink(sink, inst);
+            _blocksExpanded++;
+          }
         }
-        if (segs.length) beziers.push({ type:'BEZIER', layer, closed, beziers:segs, plane:_pl });
-      } else if (cps.length >= 2) {
-        // Not a cubic we can represent exactly — keep the shape as a polyline
-        // rather than losing the entity entirely.
-        polys.push({ type:'POLYLINE', layer, closed, pts:cps.map(p=>({x:p.x,y:p.y})), plane:_pl });
+        continue;
       }
-      continue;
-    }
 
-    if (code === 0 && val === 'ELLIPSE') {
-      // A full ellipse with equal axes is a circle; otherwise approximate with
-      // a polyline so the geometry survives instead of vanishing.
-      let layer='Layer_0', cx=0, cy=0, mx=0, my=0, ratio=1, sa=0, ea=Math.PI*2;
-      let ex=0, ey=0, ez=1, elev=0;
-      i++;
-      while (i < tokens.length && tokens[i][0] !== 0) {
-        const [c, v] = tokens[i];
-        if (c === 8)   layer = v;
-        if (c === 10)  cx = parseFloat(v)*S;
-        if (c === 20)  cy = parseFloat(v)*S;
-        if (c === 11)  mx = parseFloat(v)*S;   // major axis endpoint, relative
-        if (c === 21)  my = parseFloat(v)*S;
-        if (c === 40)  ratio = parseFloat(v);
-        if (c === 41)  sa = parseFloat(v);
-        if (c === 42)  ea = parseFloat(v);
-        if (c === 30)  elev = parseFloat(v)*S;
-        if (c === 210) ex = parseFloat(v);
-        if (c === 220) ey = parseFloat(v);
-        if (c === 230) ez = parseFloat(v);
+      if (code === 0 && val === 'DIMENSION') {
+        // 13/23 and 14/24 are the two extension-line origins — the measurement
+        // intent. That is what KAD stores, so the graphics block is ignored and
+        // the dimension is rebuilt in KAD's own style.
+        let layer='DIM', x1=null,y1=null,x2=null,y2=null, label='', block='';
+        let ex=0, ey=0, ez=1, elev=0;
         i++;
-      }
-      const _pl = _planeForOCS(ex,ey,ez,elev);
-      const a = Math.hypot(mx,my), b = a*ratio, rot = Math.atan2(my,mx);
-      const full = Math.abs((ea-sa) - Math.PI*2) < 1e-6;
-      if (Math.abs(ratio-1) < 1e-9 && full) {
-        circles.push({ type:'CIRCLE', layer, cx, cy, r:a, plane:_pl });
-      } else if (a > 0) {
-        const N = 72, pts=[];
-        for (let k=0;k<=N;k++){
-          const t = sa + (ea-sa)*(k/N);
-          const px = a*Math.cos(t), py = b*Math.sin(t);
-          pts.push({ x: cx + px*Math.cos(rot) - py*Math.sin(rot),
-                     y: cy + px*Math.sin(rot) + py*Math.cos(rot) });
+        while (i < tokens.length && tokens[i][0] !== 0) {
+          const [c, v] = tokens[i];
+          if (c === 8)   layer = v;
+          if (c === 2)   block = v;
+          if (c === 1)   label = v;
+          if (c === 13)  x1 = parseFloat(v)*S;
+          if (c === 23)  y1 = parseFloat(v)*S;
+          if (c === 14)  x2 = parseFloat(v)*S;
+          if (c === 24)  y2 = parseFloat(v)*S;
+          if (c === 30)  elev = parseFloat(v)*S;
+          if (c === 210) ex = parseFloat(v);
+          if (c === 220) ey = parseFloat(v);
+          if (c === 230) ez = parseFloat(v);
+          i++;
         }
-        if (full) pts.pop();
-        polys.push({ type:'POLYLINE', layer, closed:full, pts, plane:_pl });
+        if (x1 != null && x2 != null && y1 != null && y2 != null) {
+          const d = { type:'DIM', layer, x1, y1, x2, y2,
+                      plane:_planeForOCS(ex,ey,ez,elev) };
+          // '<>' is the DXF convention for "use the measured value"
+          if (label && label !== '<>') d.label = label;
+          dims.push(d);
+        }
+        // the *D graphics block is skipped: KAD regenerates it on render
+        _dimBlocks.add(block);
+        continue;
       }
-      continue;
-    }
 
-    if (code === 0 && (val === 'TEXT' || val === 'MTEXT')) {
-      const isM = (val === 'MTEXT');
-      let layer='Layer_0', x=0, y=0, h=5, txt='', rot=0, halign=0;
-      let ex=0, ey=0, ez=1, elev=0;
       i++;
-      while (i < tokens.length && tokens[i][0] !== 0) {
-        const [c, v] = tokens[i];
-        if (c === 8)   layer = v;
-        if (c === 10)  x = parseFloat(v)*S;
-        if (c === 20)  y = parseFloat(v)*S;
-        if (c === 30)  elev = parseFloat(v)*S;
-        if (c === 40)  h = parseFloat(v)*S;
-        if (c === 1)   txt += v;
-        if (c === 3)   txt += v;          // MTEXT continuation chunks
-        if (c === 50)  rot = parseFloat(v);
-        if (c === 72 && !isM) halign = parseInt(v,10) || 0;
-        if (c === 210) ex = parseFloat(v);
-        if (c === 220) ey = parseFloat(v);
-        if (c === 230) ez = parseFloat(v);
-        i++;
-      }
-      if (isM) txt = dxfStripMTextCodes(txt);
-      if (txt !== '')
-        texts.push({ type:'TEXT', layer, x, y, height:h, text:txt,
-                     rotation:rot, halign, plane:_planeForOCS(ex,ey,ez,elev) });
-      continue;
     }
-
-    if (code === 0 && val === 'POINT') {
-      let layer='Layer_0', x=0, y=0;
-      let ex=0, ey=0, ez=1, elev=0;
-      i++;
-      while (i < tokens.length && tokens[i][0] !== 0) {
-        const [c, v] = tokens[i];
-        if (c === 8)   layer = v;
-        if (c === 10)  x = parseFloat(v)*S;
-        if (c === 20)  y = parseFloat(v)*S;
-        if (c === 30)  elev = parseFloat(v)*S;
-        if (c === 210) ex = parseFloat(v);
-        if (c === 220) ey = parseFloat(v);
-        if (c === 230) ez = parseFloat(v);
-        i++;
-      }
-      points.push({ type:'POINT', layer, x, y, plane:_planeForOCS(ex,ey,ez,elev) });
-      continue;
-    }
-
-    if (code === 0 && val === 'DIMENSION') {
-      // 13/23 and 14/24 are the two extension-line origins — the measurement
-      // intent. That is what KAD stores, so the graphics block is ignored and
-      // the dimension is rebuilt in KAD's own style.
-      let layer='DIM', x1=null,y1=null,x2=null,y2=null, label='', block='';
-      let ex=0, ey=0, ez=1, elev=0;
-      i++;
-      while (i < tokens.length && tokens[i][0] !== 0) {
-        const [c, v] = tokens[i];
-        if (c === 8)   layer = v;
-        if (c === 2)   block = v;
-        if (c === 1)   label = v;
-        if (c === 13)  x1 = parseFloat(v)*S;
-        if (c === 23)  y1 = parseFloat(v)*S;
-        if (c === 14)  x2 = parseFloat(v)*S;
-        if (c === 24)  y2 = parseFloat(v)*S;
-        if (c === 30)  elev = parseFloat(v)*S;
-        if (c === 210) ex = parseFloat(v);
-        if (c === 220) ey = parseFloat(v);
-        if (c === 230) ez = parseFloat(v);
-        i++;
-      }
-      if (x1 != null && x2 != null && y1 != null && y2 != null) {
-        const d = { type:'DIM', layer, x1, y1, x2, y2,
-                    plane:_planeForOCS(ex,ey,ez,elev) };
-        // '<>' is the DXF convention for "use the measured value"
-        if (label && label !== '<>') d.label = label;
-        dims.push(d);
-      }
-      // the *D graphics block is skipped: KAD regenerates it on render
-      _dimBlocks.add(block);
-      continue;
-    }
-
-    i++;
   }
+
+  walkEntities(entStart, tokens.length, sink, 0);
 
   const planes = [];
   for (const g of _ocsGroups.values()) {
@@ -11577,7 +11883,12 @@ function parseDXF(text) {
   }
   return { lines, circles, arcs, polys, texts, points, dims, hatches, beziers,
            scaleMM, rawInsUnits, planes,
-           nonPlanarLines:_nonPlanarLines, layerDefs };
+           nonPlanarLines:_nonPlanarLines, layerDefs,
+           blocksExpanded:_blocksExpanded, missingBlocks:_missingBlocks,
+           // What the import dialog shows as "unsupported": a block the file
+           // never defined, or nesting past the recursion ceiling. Both lose
+           // geometry, so both are counted rather than dropped in silence.
+           skipped:_missingBlocks.length + _blocksCapped };
 }
 
 
@@ -13057,6 +13368,26 @@ async function stepCommitImport() {
 // result under this file's AGPL-3.0-or-later license satisfies both.
 // See DWG-SUPPORT.md §5.
 //
+// ── WHERE THE BOUNDARY IS ──────────────────────────────────────────────────
+// DXF is the authoritative pipeline. LibreDWG is a DWG READER and nothing
+// more: it is handed DWG bytes and asked for DXF bytes, and everything past
+// that point is parseDXF() working to the DXF spec on KAD's own terms. No
+// DwgDatabase shape, no radian-or-degree ambiguity and no reader-specific
+// field-name list reaches KAD's model.
+//
+// That is why v1.3.0 routes import as DWG -> dwg_write_dxf() -> parseDXF()
+// instead of translating the reader's object graph by hand. The DXF parser
+// already resolves OCS extrusion via the Arbitrary Axis Algorithm, reads the
+// layer table for colour, linetype, lineweight and visibility, and handles
+// hatches, splines and dimensions — all of which the hand translation either
+// got wrong or skipped. Every future DXF fidelity fix now reaches DWG for
+// free, and there is exactly one place to fix it.
+//
+// kadDwgNormalize() below is kept as an automatic FALLBACK for the case where
+// the conversion yields no DXF, or yields DXF with nothing in it. It is not a
+// peer of parseDXF(); the import dialog says which route produced the
+// geometry, and KAD_DWG.last.route records it.
+//
 // SELF-HOSTING (recommended for offline / PWA use, and the fix if the CDN
 // layout ever moves): copy the ESM build and the .wasm out of the npm package,
 // drop them beside this page, and point .esm and .wasm at them. Nothing else
@@ -13068,7 +13399,12 @@ const KAD_DWG = {
   enabled: true,
 
   cdn: 'https://cdn.jsdelivr.net/npm/@mlightcad/libredwg-web@0.7.10',
-  api: 'https://data.jsdelivr.com/v1/packages/npm/@mlightcad/libredwg-web@0.7.10?structure=flat',
+
+  // The version above is pinned, so the wasm's path inside the package is
+  // known and fixed. Earlier builds asked jsDelivr's file-index API for it,
+  // which meant a second host and two extra round trips on first use to learn
+  // something already written here.
+  wasmPath: '/wasm/libredwg-web.wasm',
 
   // Both default to the CDN above. Set either — or window.KAD_DWG_ESM /
   // window.KAD_DWG_WASM — to a copy you host yourself. .wasm wants the folder
@@ -13077,62 +13413,44 @@ const KAD_DWG = {
   wasm: null,
 
   modP: null,          // in-flight/settled module load
-  diag: null,          // what discovery found, for the console
+  diag: null,          // what the loader resolved, for the console
 
-  // DXF carries angles in degrees, LibreDWG carries them in radians, and the
-  // wrapper sits between the two. 'auto' sniffs each file; set 'deg' or 'rad'
-  // to pin it if a drawing ever comes in with the wrong sweep.
+  // FALLBACK PATH ONLY. The primary route converts to DXF, where angles are
+  // degrees by definition and no guessing is possible. This still governs
+  // kadDwgNormalize(), which reads the reader's own objects: 'auto' sniffs
+  // each file; 'deg' or 'rad' pin it.
   angleUnits: 'auto',
 
-  // Set by each import for console inspection. .db is the raw DwgDatabase
-  // straight from the reader, .report says what was converted and what was
-  // not. First stop when something is missing from an import.
+  // Set by each import for console inspection:
+  //   .route  'dxf' (primary) or 'normalize' (fallback)
+  //   .dxf    the converted DXF text, when the primary route ran
+  //   .db     the raw DwgDatabase, when the fallback ran
+  //   .report what the fallback converted and what it did not
+  // First stop when something is missing from an import.
   last: null,
 };
 
-// Emscripten reports nothing more useful than "fetching of the wasm failed"
-// when its URL 404s, and guessing package layouts is how this went wrong the
-// first time. So the wasm gets located by asking jsDelivr's file index what
-// the published package actually contains. Safe to call from the console.
+// The wasm sits at a known path inside a pinned package, so the loader builds
+// its URL rather than discovering it. Emscripten reports nothing more useful
+// than "fetching of the wasm failed" when a URL 404s, so the one HEAD below
+// turns that into a sentence someone can act on. Safe to call from the console.
 async function kadDwgFindWasmDir() {
   const fixed = window.KAD_DWG_WASM || KAD_DWG.wasm;
   if (fixed) return fixed;
   if (KAD_DWG.diag && KAD_DWG.diag.dir) return KAD_DWG.diag.dir;
 
-  let listing;
-  try {
-    const res = await fetch(KAD_DWG.api);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    listing = await res.json();
-  } catch (err) {
-    throw new Error('could not reach the CDN file index (' + err.message + ')');
-  }
-
-  // Flat structure gives every file as a path like "/wasm/libredwg-web.wasm".
-  const names = (listing.files || []).map(f => f && f.name).filter(Boolean);
-  const wasms = names.filter(n => /\.wasm$/i.test(n));
-  KAD_DWG.diag = { files: names.length, wasms };
-  if (!wasms.length) {
-    console.error('[KAD] no .wasm in the published package. Files:', names);
-    throw new Error('this build of the reader ships no .wasm — self-hosting needed');
-  }
-
-  // Prefer libredwg's own binary if the package carries more than one.
-  const pick = wasms.find(n => /libredwg/i.test(n)) || wasms[0];
-  const url  = KAD_DWG.cdn + pick;
-  const dir  = url.slice(0, url.lastIndexOf('/') + 1);
-
+  const url = KAD_DWG.cdn + KAD_DWG.wasmPath;
+  const dir = url.slice(0, url.lastIndexOf('/') + 1);
   try {
     const head = await fetch(url, { method: 'HEAD' });
     if (!head.ok) throw new Error('HTTP ' + head.status);
   } catch (err) {
-    console.error('[KAD] file index listed ' + url + ' but it is not fetchable:', err);
-    throw new Error('reader binary listed but not reachable');
+    console.error('[KAD] LibreDWG wasm not reachable at ' + url, err);
+    throw new Error('reader binary not reachable — set KAD_DWG.wasm to a copy ' +
+                    'you host yourself if the CDN layout moved');
   }
-
-  KAD_DWG.diag.dir = dir;
-  KAD_DWG.diag.url = url;
-  console.info('[KAD] LibreDWG wasm found at ' + url);
+  KAD_DWG.diag = { dir, url };
+  console.info('[KAD] LibreDWG wasm at ' + url);
   return dir;
 }
 
@@ -13602,6 +13920,15 @@ function kadDwgNormalize(raw) {
   return out;
 }
 
+// Does a parseDXF()-shaped result actually carry drawable geometry? The
+// primary import route is only considered successful if it does.
+function kadParsedIsEmpty(p) {
+  if (!p || p.error) return true;
+  const n = (a) => (a && a.length) ? a.length : 0;
+  return (n(p.lines) + n(p.circles) + n(p.arcs) + n(p.polys) + n(p.texts) +
+          n(p.points) + n(p.dims) + n(p.hatches) + n(p.beziers)) === 0;
+}
+
 async function importDWG(event) {
   const input = event.target;
   const file  = input.files && input.files[0];
@@ -13610,31 +13937,82 @@ async function importDWG(event) {
 
   let lib, fileType;
   try {
-    showToast('Loading DWG reader…');
+    showToast('Loading DWG reader\u2026');
     ({ lib, fileType } = await kadDwgModule());
   } catch (err) {
-    showToast('DWG reader unavailable — ' + err.message);
+    showToast('DWG reader unavailable \u2014 ' + err.message);
     reset(); return;
   }
 
-  let db = null, dwg = null;
+  let buf;
   try {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    dwg = lib.dwg_read_data(bytes, fileType.DWG);
-    if (!dwg) throw new Error('reader returned nothing');
-    if (dwg.error) throw new Error('reader error code ' + dwg.error);
-    db = lib.convert(dwg);
-    if (!db) throw new Error('reader produced no drawing database');
+    buf = await file.arrayBuffer();
   } catch (err) {
-    showToast('DWG read error: ' + err.message);
+    showToast('Could not read the file: ' + err.message);
     reset(); return;
-  } finally {
-    if (dwg) { try { lib.dwg_free(dwg); } catch (e) {} }
   }
 
-  const parsed = kadDwgNormalize(db);
-  if (parsed.error) { showToast('DWG error: ' + parsed.error); reset(); return; }
-  if (!openImportDialog(parsed, file.name, 'dwg')) reset();
+  let parsed = null, route = null, primaryFail = '';
+
+  // ── PRIMARY ROUTE: DWG -> DXF -> parseDXF() ──────────────────────────────
+  // LibreDWG converts inside its own wasm and hands back DXF bytes. From that
+  // point on this is an ordinary DXF import: the same parser, the same OCS
+  // handling, the same layer table, the same dialog. KAD's model never sees
+  // the reader's own object shapes.
+  try {
+    if (typeof lib.dwg_write_dxf !== 'function')
+      throw new Error('this build of the reader cannot write DXF');
+    showToast('Converting DWG \u2192 DXF\u2026');
+    const dxfBytes = lib.dwg_write_dxf(buf);
+    if (!dxfBytes || !dxfBytes.length) throw new Error('conversion produced no DXF');
+    const text = new TextDecoder('utf-8', { fatal: false }).decode(dxfBytes);
+    const p = parseDXF(text);
+    if (p.error) throw new Error(p.error);
+    if (kadParsedIsEmpty(p)) throw new Error('converted DXF held no supported geometry');
+    parsed = p; route = 'dxf';
+    KAD_DWG.last = { route, dxf: text };
+  } catch (err) {
+    primaryFail = err.message;
+    console.warn('[KAD] DWG\u2192DXF route failed, falling back to the direct ' +
+                 'reader \u2014', err);
+  }
+
+  // ── FALLBACK ROUTE: the reader's own object graph ────────────────────────
+  // Narrower on purpose — no hatches, no dimensions, no layer table, and it
+  // has to infer whether angles are degrees or radians. It runs only when the
+  // conversion above produced nothing usable, so a file that defeats the DXF
+  // writer still opens rather than failing outright.
+  if (!parsed) {
+    let db = null, dwg = null;
+    try {
+      dwg = lib.dwg_read_data(new Uint8Array(buf), fileType.DWG);
+      if (!dwg) throw new Error('reader returned nothing');
+      if (dwg.error) throw new Error('reader error code ' + dwg.error);
+      db = lib.convert(dwg);
+      if (!db) throw new Error('reader produced no drawing database');
+    } catch (err) {
+      showToast('DWG read error: ' +
+                (primaryFail ? primaryFail + ' \u00b7 ' : '') + err.message);
+      reset(); return;
+    } finally {
+      if (dwg) { try { lib.dwg_free(dwg); } catch (e) {} }
+    }
+    const p = kadDwgNormalize(db);   // sets KAD_DWG.last = { db, report }
+    if (p.error) { showToast('DWG error: ' + p.error); reset(); return; }
+    parsed = p; route = 'normalize';
+    if (KAD_DWG.last) KAD_DWG.last.route = route;
+  }
+
+  parsed.dwgRoute = route;
+  if (!openImportDialog(parsed, file.name, 'dwg')) { reset(); return; }
+
+  if (route === 'normalize') {
+    showToast('Opened with the direct reader \u2014 hatches, dimensions and layer ' +
+              'colours are not carried on this route');
+  } else if (parsed.blocksExpanded) {
+    showToast('Converted via DXF \u00b7 ' + parsed.blocksExpanded + ' block reference' +
+              (parsed.blocksExpanded === 1 ? '' : 's') + ' expanded');
+  }
 }
 
 // KAD stores lineweight as a screen-ish float; DXF group 370 wants hundredths
