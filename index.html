@@ -42,11 +42,13 @@
   independent, clean-room implementation written for one purpose: to
   read drawings saved in the .cam file format, so users can open their
   own files in KAD (interoperability). It was written from the evidence
-  of .cam files themselves, compared against the same drawings exported
-  as DXF, and from FastCAM's publicly available documentation. No
-  FastCAM source code, program files or binaries, including the FastCAM
-  drawing editor, were accessed, decompiled, disassembled or copied in
-  writing it, and it contains no FastCAM code. Copyright protects a
+  of .cam files themselves, compared against the same drawings as DXF,
+  and from FastCAM's publicly available documentation. The FastCAM code
+  base was never accessed: no FastCAM source code was seen, and no
+  FastCAM program file or binary, including the FastCAM Drawing Editor,
+  was decompiled, disassembled or copied. FastCAM was only ever used the
+  way any user uses it, to open drawings and save them as .cam files.
+  The reader contains no FastCAM code. Copyright protects a
   program's code, not the file formats it uses to store data (see
   17 U.S.C. § 102(b); CJEU C-406/10, SAS Institute v World Programming).
 
@@ -2133,6 +2135,25 @@ body.kanvas-mode #app {
   color:var(--t1); font-family:var(--fm); font-size:13px;
 }
 .pd-frow input:focus { border-color:var(--accent); }
+.pd-frow textarea {
+  min-height:64px; padding:8px 10px; border-radius:5px; outline:none; width:100%; resize:vertical;
+  background:var(--void); border:1px solid var(--border);
+  color:var(--t1); font-family:var(--fm); font-size:13px; line-height:1.45;
+}
+.pd-frow textarea:focus { border-color:var(--accent); }
+.pd-note {
+  font-family:var(--fu); font-size:12px; line-height:1.45; color:var(--t2);
+  padding:8px 10px; margin-bottom:12px; border-radius:5px;
+  background:var(--panel2); border:1px solid var(--border);
+}
+.pd-note.ok   { color:var(--green); border-color:var(--green-dim); }
+.pd-note.warn { color:var(--amber); border-color:var(--amber); }
+.savepd-intro { font-family:var(--fu); font-size:13px; line-height:1.5; color:var(--t2); margin-bottom:10px; }
+#savepd-list { max-height:none; margin-bottom:10px; }
+#savepd-list .pd-row { min-height:42px; padding:4px 6px; }
+.pd-btn.pd-edit { width:auto; padding:0 10px; font-family:var(--fu); font-size:11px; }
+.savepd-add .pd-create { height:36px; }
+.savepd-hint { font-family:var(--fu); font-size:11px; line-height:1.45; color:var(--t3); margin-top:4px; }
 .pd-unit-wrap { position:relative; }
 .pd-unit {
   position:absolute; right:10px; top:50%; transform:translateY(-50%);
@@ -2175,7 +2196,9 @@ body.kanvas-mode #app {
   .pd-row     { min-height:44px; }
   .pd-btn     { width:34px; height:34px; font-size:13px; }
   .pd-create  { height:40px; font-size:13px; }
-  .pd-frow input { height:44px; font-size:15px; }  
+  .pd-frow input { height:44px; font-size:15px; }
+  .pd-frow textarea { font-size:15px; }
+  .pd-btn.pd-edit { height:36px; }  
   .pd-tile    { padding:11px 12px; }
   .pd-cancel, .pd-ok { height:44px; }
   .pd-x       { width:38px; height:38px; }
@@ -3137,15 +3160,30 @@ body.kanvas-mode #app {
 <div id="part-data-modal" class="pd-ov">
   <div class="pd-box">
     <div class="pd-head">
-      <span>Part Data</span>
+      <span id="pd-title">Part Data</span>
       <button class="pd-x" onclick="closePartDataModal()" aria-label="Close">&#10005;</button>
     </div>
     <div class="pd-body">
+      <div id="pd-note" class="pd-note" style="display:none;"></div>
       <div class="pd-frow">
-        <label for="pd-f-name">Name</label>
+        <label for="pd-f-name">Part Name</label>
         <input id="pd-f-name" type="text" maxlength="64" autocomplete="off">
       </div>
       <div class="pd-frow2">
+        <div class="pd-frow">
+          <label for="pd-f-job">Job</label>
+          <input id="pd-f-job" type="text" maxlength="64" autocomplete="off">
+        </div>
+        <div class="pd-frow">
+          <label for="pd-f-drawing">Drawing</label>
+          <input id="pd-f-drawing" type="text" maxlength="64" autocomplete="off">
+        </div>
+      </div>
+      <div class="pd-frow2">
+        <div class="pd-frow">
+          <label for="pd-f-revision">Revision</label>
+          <input id="pd-f-revision" type="text" maxlength="64" autocomplete="off">
+        </div>
         <div class="pd-frow">
           <label for="pd-f-thick">Thickness</label>
           <div class="pd-unit-wrap">
@@ -3153,17 +3191,53 @@ body.kanvas-mode #app {
             <span class="pd-unit" id="pd-thick-unit">mm</span>
           </div>
         </div>
+      </div>
+      <div class="pd-frow2">
+        <div class="pd-frow">
+          <label for="pd-f-programmer">Programmer</label>
+          <input id="pd-f-programmer" type="text" maxlength="64" autocomplete="off">
+        </div>
+        <div class="pd-frow">
+          <label for="pd-f-customer">Customer</label>
+          <input id="pd-f-customer" type="text" maxlength="64" autocomplete="off">
+        </div>
+      </div>
+      <div class="pd-frow2">
         <div class="pd-frow">
           <label for="pd-f-qty">Quantity</label>
           <input id="pd-f-qty" type="number" min="1" step="1" inputmode="numeric">
         </div>
+        <div class="pd-frow"></div>
+      </div>
+      <div class="pd-frow">
+        <label for="pd-f-notes">Notes</label>
+        <textarea id="pd-f-notes" rows="3" maxlength="2000" spellcheck="false"></textarea>
       </div>
       <div class="pd-sec-label">Material Grade</div>
       <div id="pd-grades" class="pd-grades"></div>
     </div>
     <div class="pd-foot">
-      <button class="pd-cancel" onclick="closePartDataModal()">Cancel</button>
+      <button class="pd-cancel" id="pd-cancel-btn" onclick="closePartDataModal()">Cancel</button>
       <button class="pd-ok" onclick="commitPartData()">Apply</button>
+    </div>
+  </div>
+</div>
+
+<div id="savepd-modal" class="pd-ov">
+  <div class="pd-box">
+    <div class="pd-head">
+      <span>Parts Data &mdash; before saving</span>
+      <button class="pd-x" onclick="savePdCancel()" aria-label="Cancel save">&#10005;</button>
+    </div>
+    <div class="pd-body">
+      <div id="savepd-intro" class="savepd-intro"></div>
+      <div id="savepd-list" class="pd-list"></div>
+      <div id="savepd-add" class="savepd-add"></div>
+      <div class="savepd-hint">To split a drawing into several parts, cancel, select each part&rsquo;s geometry and use Create Part in the Parts panel.</div>
+    </div>
+    <div class="pd-foot">
+      <button class="pd-cancel" onclick="savePdCancel()">Cancel</button>
+      <button class="pd-ok" id="savepd-go" onclick="savePdContinue()">Continue</button>
     </div>
   </div>
 </div>
@@ -3539,30 +3613,14 @@ body.kanvas-mode #app {
       </div>
 
       <div id="dlg-cam-section" style="display:none;">
-        <div class="dlg-section-label">Part data (from FastCAM header) —</div>
+        <div class="dlg-section-label">From the FastCAM file —</div>
         <div class="dlg-file-info">
+          <div class="fi-row">Part data<span id="dlg-cam-partdata">—</span></div>
           <div class="fi-row">Material (as written)<span id="dlg-cam-material-raw">—</span></div>
           <div class="fi-row">Part outline<span id="dlg-cam-profile">—</span></div>
           <div class="fi-row">Part size<span id="dlg-cam-size">—</span></div>
           <div id="dlg-cam-notes" style="display:none;margin-top:6px;font-size:12px;color:var(--amber);line-height:1.45;"></div>
         </div>
-        <div class="pd-frow">
-          <label for="dlg-cam-name">Part name</label>
-          <input id="dlg-cam-name" type="text" maxlength="64" autocomplete="off">
-        </div>
-        <div class="pd-frow2">
-          <div class="pd-frow">
-            <label for="dlg-cam-qty">Qty</label>
-            <input id="dlg-cam-qty" type="number" min="1" step="1" inputmode="numeric">
-          </div>
-          <div class="pd-frow">
-            <label for="dlg-cam-thick">Thickness (mm)</label>
-            <input id="dlg-cam-thick" type="number" min="0.01" step="0.01" inputmode="decimal">
-          </div>
-        </div>
-        <div class="pd-sec-label">Material grade — confirm before import</div>
-        <div class="dlg-file-info" style="padding:6px 10px;margin-bottom:6px;"><div class="fi-row"><span id="dlg-cam-grade-note">—</span></div></div>
-        <div id="cam-grades" class="pd-grades" style="max-height:220px;overflow-y:auto;margin-bottom:4px;"></div>
         <div id="dlg-cam-legal" style="margin:10px 0 16px;font-size:10.5px;line-height:1.45;color:var(--t3);">
           FastCAM&reg; is a registered trademark of Fagan Microprocessor Systems Pty Ltd and/or FastCAM Inc.
           KAD reads .cam files for interoperability with its own independent, clean-room reader, and is not
@@ -3788,12 +3846,34 @@ body.kanvas-mode #app {
 'use strict';
 
 
-const KAD_APP_VERSION = '1.4.0';
+const KAD_APP_VERSION = '1.4.1';
 
 // Public changelog. Only list features once they're fully live (no display:none
 // gates, no feature flags left off). Newest entry first. Keep entries short —
 // this is the "what shipped", not the dev log; that stays in KAD-DEV-NOTES.md.
 const KAD_CHANGELOG = [
+  {
+    version: '1.4.1',
+    date: '2026-09-28',
+    groups: [
+      {
+        label: 'Parts data',
+        items: [
+          'Parts data now carries Job, Drawing, Revision, Programmer, Customer and Notes alongside the part name, material grade, thickness and quantity, and saves them in the .kad file',
+          'Saving a .kad asks about parts data first: check or edit each part, add a part from the selection or from the drawing\u2019s geometry, or save without parts data. Then it asks for the file name',
+          'Keys pressed while a Parts Data window is open stay in that window. Backspace or Delete could reach the drawing behind it and delete the selection',
+        ],
+      },
+      {
+        label: 'File names',
+        items: [
+          'KAD never makes up a file name. Every save and export asks for a name, and the only name it offers is the drawing\u2019s own: the file it was opened or imported from, or the name it was last saved under. A new, unnamed drawing gets an empty name box',
+          'Opening a .kad, or importing with Replace, gives the drawing that file\u2019s name; a Merge keeps the drawing\u2019s name. The BOM no longer adds \u201c-bom\u201d, and a KANVAS sheet exports under its own name rather than a lower-cased copy',
+          'Exporting no longer renames the drawing, so the next .kad save still offers the drawing\u2019s own name',
+        ],
+      },
+    ],
+  },
   {
     version: '1.4.0',
     date: '2026-09-25',
@@ -3804,11 +3884,11 @@ const KAD_CHANGELOG = [
           'FastCAM drawings open directly \u2014 File \u203a Import .cam (FastCAM), or the Import CAM button. The file is read inside KAD itself: no conversion step, no download, and it works offline',
           'Lines, arcs, full circles and text come across on their own FastCAM layers, through the same import dialog as DXF \u2014 merge into the drawing or replace it',
           'FastCAM files are read in millimetres, so there is no unit picker to get wrong. The dialog shows the part size in both mm and inches, so a file in an unexpected unit shows up before you commit',
-          'The part fills itself in: name, thickness and material come from the FastCAM header, and a grade is suggested from the material text (A36, A572, A588, A514, A1011, 304, 316, 5052, 6061 and more) for you to confirm. When the text names no grade, the dialog says so \u2014 nothing is assigned silently',
+          'The part fills itself in from FastCAM\u2019s Part Data \u2014 Part Name, Job, Drawing, Revision, Material, Thickness, Programmer, Customer, Quantity and Notes \u2014 and opens in the Parts Data window as soon as the import lands, to check or edit. A grade is suggested from the material text (A36, A572, A588, A514, A1011, 304, 316, 5052, 6061 and more) for you to confirm; when the text names no grade, it says so \u2014 nothing is assigned silently',
           'The cut outline and its holes are found automatically and become one part, so the BOM can weigh it straight away. Side views, dimension flats and notes stay in the drawing but out of the part',
           'Degree signs and inch marks come through intact. FastCAM writes the Windows code page, which an ordinary text read turns into \ufffd',
-          'FastCAM\u2019s cutting data \u2014 paths, kerf and operation, tools, blocks, notes and the saved view \u2014 is kept with the part, untouched, and survives Save and reopen. It does not change the imported geometry',
-          'Anything the reader does not recognise \u2014 an unfamiliar record, a newer file version, a character lost before the file reached KAD \u2014 is counted and reported in the dialog rather than dropped',
+          'Only what KAD uses comes across: geometry, layers, text and the Part Data. FastCAM\u2019s own cutting setup \u2014 paths, kerf, tools and its saved view \u2014 is left behind',
+          'Anything the reader does not recognise \u2014 an unfamiliar record, a newer file version, a character lost before the file reached KAD \u2014 is counted and reported in the dialog, never dropped silently',
         ],
       },
       {
@@ -9197,7 +9277,9 @@ function commitDynBoxOrFinishDraw() {
 }
 
 function onKeyDown(e) {
-  if(document.activeElement.tagName==='INPUT') return;
+  const _ae = document.activeElement;
+  if(_ae && (_ae.tagName==='INPUT' || _ae.tagName==='TEXTAREA' || _ae.tagName==='SELECT')) return;
+  if(document.querySelector('.pd-ov.open')) return;   // a Parts Data window owns the keyboard
   if(document.activeElement===kInput) return; // KOMMAND has focus
 
   const k=e.key;
@@ -12162,13 +12244,13 @@ function importDXF(event) {
 function commitDxfImport() {
   const { parsed, unitSel, mergeSel, source } = dxfDialog;
   if (!parsed) return;
+  const importName = dxfDialog.filename;
 
   const nc1FirstName  = document.getElementById('dlg-nc1-name')  ? document.getElementById('dlg-nc1-name').value  : '';
   const nc1FirstQty   = document.getElementById('dlg-nc1-qty')   ? document.getElementById('dlg-nc1-qty').value   : '';
   const nc1FirstThick = document.getElementById('dlg-nc1-thick') ? document.getElementById('dlg-nc1-thick').value : '';
   const nc1GradeTile  = document.querySelector('#nc1-grades .pd-tile.sel');
   const nc1FirstGrade = nc1GradeTile ? nc1GradeTile.dataset.gid : null;
-  const camFields     = (source === 'cam') ? camReadDialog() : null;
 
   let S;
   if (source === 'nc1' || source === 'cam') {
@@ -12183,6 +12265,7 @@ function commitDxfImport() {
 
   closeDxfDialog();
   if (mergeSel === 'replace') GeoMemory.clear();
+  kadAdoptImportName(importName, mergeSel);
 
   const seen = new Set();
   for (const e of [...parsed.lines, ...parsed.circles, ...parsed.arcs,
@@ -12312,9 +12395,10 @@ function commitDxfImport() {
               ' had differing end elevations \u00b7 flattened to the start plane');
   }
 
-  let ncPartsCreated = 0, ncArcsFlattened = 0, camPartsCreated = 0;
+  let ncPartsCreated = 0, ncArcsFlattened = 0, camPartsCreated = 0, camNewPart = null;
   if (partEntityIds && source === 'cam') {
-    camPartsCreated = camCommitPart(parsed, partEntityIds[0] || [], camFields);
+    camNewPart = camCommitPart(parsed, partEntityIds[0] || []);
+    camPartsCreated = camNewPart ? 1 : 0;
   }
   if (partEntityIds && source === 'nc1') {
     parsed.ncParts.forEach((p, pi) => {
@@ -12378,6 +12462,7 @@ function commitDxfImport() {
     msg = `Imported ${lines.length+circles.length+arcs.length} entities \u00b7 ${unitLabel} \u00b7 ${mergeSel}`;
   }
   showToast(msg);
+  if (camNewPart) camOpenPartData(camNewPart, parsed);
 }
 
 
@@ -12646,18 +12731,27 @@ function importNC1(event) {
 // ── FASTCAM .CAM IMPORT ─────────────────────────────────────────────────────
 // Independent clean-room reader, written from .cam files and public
 // documentation only, for interoperability; see the notice at the top of this
-// file. No FastCAM code was accessed or copied.
+// file. The FastCAM code base was never accessed, and none of it is copied.
 //
 // A FastCAM save file ("VERSION 4.0 FASTCAM SAVE FILE.") is line-oriented
 // text, so like NC1 this is pure JS inside KAD.html: no side module, no WASM,
-// no network. Mapping verified against a real production part whose AutoCAD
-// DXF export was available: every coordinate equals the DXF value x 25.4 to
-// within 4e-12 mm, in the same entity order.
+// no network. Verified against FastCAM saves whose DXF sources were available:
+// every coordinate equals the DXF value x 25.4 (to 4e-12 mm), in the same order.
+//
+// Like a DWG arriving through DXF, only what KAD uses comes across: geometry,
+// layers, text, and the part's Part Data mapped into KAD's own Parts Data.
+// FastCAM's cutting setup (TOOLS, PATHS, KERF AND OPERATION, BLOCKS) and its
+// saved view are read past and left behind.
+//
+// Line 2 is the Part Data, in FastCAM's own labels:
+//   0 Part Name  1 Job  2 Material  3 Thickness (mm, even on an install that
+//   displays inches)  6 Programmer  7 Drawing  8 Revision  9 Customer
+//   18 Quantity.  The Notes field is the NOTES section, as free text.
 //
 // ENTITIES holds one record per line, 35 comma-separated fields, with the SAME
 // slots for every entity type:
 //    0 type   1-2 P1   3-4 P2   5-6 P3   7 "text"   8-12 flags   13 "layer"
-//   14-23 zeros   24-32 per-file constant   33-34 zeros
+//   14-23 zeros   24-32 a per-file stamp (not used)   33-34 zeros
 //   type 1  LINE   P1 start, P2 end
 //   type 2  ARC    P1 start, P2 end, P3 centre; sweeps counter-clockwise
 //                  P1 -> P2. P1 == P2 is a full CIRCLE (P1 = pierce point).
@@ -12744,6 +12838,7 @@ function parseCAM(text) {
   // sign, a quote or a space (the TOOLS row), so they never look like one. An
   // unknown upper-case keyword is accepted as a new section (a later FastCAM
   // may add one) — except inside NOTES, whose free text could be all capitals.
+  // NOTES keeps its blank lines: it is the part's Notes field, verbatim.
   const sections = new Map([['_HEADER', []]]);
   const order = [];
   let cur = '_HEADER';
@@ -12755,14 +12850,15 @@ function parseCAM(text) {
       if (!sections.has(cur)) { sections.set(cur, []); order.push(cur); }
       continue;
     }
-    if (ln.trim() !== '') sections.get(cur).push(ln);
+    if (ln.trim() !== '' || cur === 'NOTES') sections.get(cur).push(ln);
   }
   if (!sections.has('ENTITIES')) return { error: 'FastCAM file has no ENTITIES section.' };
 
-  // Header row: "name","","material",thickness_mm,...  Only the verified slots
-  // get a meaning; the whole row rides along as passthrough.
-  const meta = camSplitRow(sections.get('_HEADER')[0] || '');
+  // Header row = Part Data (slot map above). Only verified slots are read.
+  const meta  = camSplitRow(sections.get('_HEADER')[0] || '');
   const thick = _camNum(meta[3]);
+  const qty   = parseInt(meta[18], 10);
+  const field = k => (meta[k] || '').trim();
 
   const sc = (sections.get('SCALE & CENTRE') || [])[0];
   const scv = sc ? sc.split(',').map(_camNum) : [];
@@ -12826,23 +12922,18 @@ function parseCAM(text) {
     viewCheck = viewDelta < 0.01 ? 'match' : 'differs';
   }
 
-  const known = new Set(['TOOLS', 'SCALE & CENTRE', 'ENTITIES', 'PATHS',
-                         'KERF AND OPERATION', 'BLOCKS', 'NOTES', 'EOF']);
+  // Part Data, as KAD's Parts Data fields. Nothing else is kept.
   const camPart = {
-    name:        (meta[0] || '').trim(),
-    materialRaw: (meta[2] || '').trim(),
+    name:        field(0),
+    job:         field(1),
+    materialRaw: field(2),
     thicknessMM: (thick > 0 && thick < 1000) ? thick : null,
-    version,
-    headerRaw:   meta,
-    toolsRaw:    (sections.get('TOOLS') || []).slice(),
-    view,
-    pathsRaw:    (sections.get('PATHS') || []).slice(),
-    kerfRaw:     (sections.get('KERF AND OPERATION') || []).slice(),
-    blocksRaw:   (sections.get('BLOCKS') || []).slice(),
-    notesRaw:    (sections.get('NOTES') || []).slice(),
-    unknownRaw:  unknownRaw.slice(),
-    otherSectionsRaw: order.filter(s => !known.has(s))
-                           .map(s => ({ section: s, rows: sections.get(s).slice() })),
+    programmer:  field(6),
+    drawing:     field(7),
+    revision:    field(8),
+    customer:    field(9),
+    qty:         (qty >= 1 && qty < 1e6) ? qty : null,
+    notes:       (sections.get('NOTES') || []).join('\n').replace(/\s+$/, ''),
   };
 
   return {
@@ -13108,9 +13199,6 @@ function camFillDialog(parsed) {
   insEl.textContent = 'Millimetres (FastCAM stores mm)';
   insEl.className = 'ok';
 
-  document.getElementById('dlg-cam-name').value  = p.name;
-  document.getElementById('dlg-cam-qty').value   = 1;
-  document.getElementById('dlg-cam-thick').value = p.thicknessMM != null ? p.thicknessMM : '';
   document.getElementById('dlg-cam-material-raw').textContent = p.materialRaw || '(none in file)';
 
   const prEl = document.getElementById('dlg-cam-profile');
@@ -13155,59 +13243,58 @@ function camFillDialog(parsed) {
   notesEl.style.display = notes.length ? 'block' : 'none';
   notesEl.innerHTML = notes.map(n => '<div>\u25b8 ' + pdEsc(n) + '</div>').join('');
 
-  const sug = camSuggestGrade(p.materialRaw);
-  const note = document.getElementById('dlg-cam-grade-note');
-  if (sug && sug.id) {
-    note.textContent = 'Matched "' + sug.token + '" in the material name: ' + kadGradeLabel(sug.id) + ' \u2014 confirm';
-    note.className = 'ok';
+  // Just name and quantity here: the full Part Data opens in KAD's Parts Data
+  // window as soon as the import lands (camOpenPartData).
+  const pdEl = document.getElementById('dlg-cam-partdata');
+  if (parsed.camParts.length) {
+    pdEl.textContent = (p.name || '(no name)') + ' \u00b7 qty ' + (p.qty || 1);
+    pdEl.className = 'ok';
   } else {
-    note.textContent = (sug && sug.family)
-      ? 'Material reads as ' + sug.family.toLowerCase() + ' but names no grade KAD knows \u2014 pick one below.'
-      : 'No grade found in the material name \u2014 defaulted to mild steel, please confirm.';
-    note.className = 'warn';
+    pdEl.textContent = 'No part to attach it to (no closed outline)';
+    pdEl.className = 'warn';
   }
-  renderGradePicker((sug && sug.id) || 'a36', 'cam-grades');
 }
 
-// Read the CAM dialog fields — called before closeDxfDialog(), like NC1's.
-function camReadDialog() {
-  const val = id => { const el = document.getElementById(id); return el ? el.value : ''; };
-  const tile = document.querySelector('#cam-grades .pd-tile.sel');
-  return { name: val('dlg-cam-name'), qty: val('dlg-cam-qty'), thick: val('dlg-cam-thick'),
-           gradeId: tile ? tile.dataset.gid : null };
-}
-
-// Creates the Part record after the entities are committed. entityIds holds
-// the new GeoMemory ids of everything parseCAM() tagged _camPart.
-function camCommitPart(parsed, entityIds, fields) {
-  if (!parsed.camParts.length || !entityIds.length) return 0;
+// Creates the Part record after the entities are committed, straight from the
+// file's Part Data. entityIds holds the new GeoMemory ids of everything
+// parseCAM() tagged _camPart. Returns the part, or null.
+function camCommitPart(parsed, entityIds) {
+  if (!parsed.camParts.length || !entityIds.length) return null;
   const p = parsed.camPart;
-  fields = fields || {};
   const sug = camSuggestGrade(p.materialRaw);
-  const gradeId = fields.gradeId || (sug && sug.id) || 'a36';
-  const thick = parseFloat(fields.thick);
-  const { part } = PartLibrary.addPart(fields.name || p.name, entityIds, {
-    gradeId,
-    thicknessMM: thick > 0 ? thick : (p.thicknessMM != null ? p.thicknessMM : 6.35),
-    qty: parseInt(fields.qty, 10) || 1,
+  const { part } = PartLibrary.addPart(p.name, entityIds, {
+    gradeId: (sug && sug.id) || 'a36',
+    thicknessMM: p.thicknessMM != null ? p.thicknessMM : 6.35,
+    qty: p.qty || 1,
   });
-  if (!part) return 0;
+  if (!part) return null;
   Object.assign(part, {
-    camMaterialRaw: p.materialRaw,
-    camVersion:     p.version,
-    camHeaderRaw:   p.headerRaw,
-    camToolsRaw:    p.toolsRaw,
-    camView:        p.view,
-    camPathsRaw:    p.pathsRaw,
-    camKerfRaw:     p.kerfRaw,
-    camBlocksRaw:   p.blocksRaw,
-    camNotesRaw:    p.notesRaw,
-    camUnknownRaw:  p.unknownRaw,
-    camOtherSectionsRaw: p.otherSectionsRaw,
-    camSourceFile:  p.sourceFile || '',
+    job: p.job, drawing: p.drawing, revision: p.revision,
+    programmer: p.programmer, customer: p.customer, notes: p.notes,
   });
   updatePartsPanel();
-  return 1;
+  return part;
+}
+
+// After Import the part opens in KAD's own Parts Data window, filled from the
+// file, to check or edit. The grade is suggested, never silently final: the
+// note says what the file's material text matched. Closing keeps the import.
+function camOpenPartData(part, parsed) {
+  const p = parsed.camPart, sug = camSuggestGrade(p.materialRaw);
+  const mat = p.materialRaw ? 'Material in the file: ' + p.materialRaw + ' \u2014 ' : 'No material in the file \u2014 ';
+  let note, cls;
+  if (sug && sug.id) {
+    note = mat + 'matched "' + sug.token + '" to ' + kadGradeLabel(sug.id) + '. Confirm the grade below.';
+    cls = 'ok';
+  } else if (sug && sug.family) {
+    note = mat + 'reads as ' + sug.family.toLowerCase() + ' but names no grade KAD knows. Pick one below.';
+    cls = 'warn';
+  } else {
+    note = mat + 'mild steel (A36) is selected until you pick the right grade below.';
+    cls = 'warn';
+  }
+  openPartDataModal(part.partId, { title: 'Part Data \u2014 ' + (p.sourceFile || 'FastCAM'),
+                                   note, noteCls: cls, cancelLabel: 'Keep as imported' });
 }
 
 const PDFJS_VERSION = '3.11.174';
@@ -13736,6 +13823,7 @@ async function pdfCommitImport() {
   const btn = document.getElementById('pdfi-go');
   if (btn) btn.disabled = true;
   if (mergeSel === 'replace') GeoMemory.clear();
+  kadAdoptImportName(PDFIMP.name, mergeSel);
   const report = { objects:0, glyphs:0, textRuns:0, imagesSkipped:0, failed:0, fontFallbacks:new Set() };
   const baseName = (PDFIMP.name.replace(/\.pdf$/i, '') || 'PDF').slice(0, 24);
 
@@ -14018,6 +14106,7 @@ async function stepCommitImport() {
   }
 
   if (mergeSel === 'replace') GeoMemory.clear();
+  kadAdoptImportName(STEPIMP.name, mergeSel);
   const baseName = (STEPIMP.name.replace(/\.(step|stp)$/i, '') || 'STEP').slice(0, 20);
 
   let entitiesCreated = 0, solidsChained = 0, solidsUnchained = 0, solidsEmpty = 0;
@@ -15295,6 +15384,11 @@ function kadPruneParts() {
   if (typeof updatePartsPanel === 'function') updatePartsPanel();
 }
 
+// Parts Data text fields, named and ordered as FastCAM's Part Data dialog names
+// them, so a .cam file's part data lands in the same boxes. Optional on every
+// part (older .kad files simply lack them). Notes is free text, kept apart.
+const PART_TEXT_FIELDS = ['job', 'drawing', 'revision', 'programmer', 'customer'];
+
 const PART_COLORS = [
   '#00d4ff','#00ff9d','#ffaa00','#cc88ff','#ff6688',
   '#44ddbb','#ffcc44','#88aaff','#ff8844','#44ffcc',
@@ -15359,6 +15453,9 @@ const PartLibrary = {
     else if (field === 'thicknessMM') part.thicknessMM = Math.max(0.01, parseFloat(value) || 0.01);
     else if (field === 'name')        part.name = String(value || '').slice(0, 64) || part.name;
     else if (field === 'gradeId')     part.gradeId = String(value || 'a36');
+    else if (PART_TEXT_FIELDS.indexOf(field) >= 0)
+                                      part[field] = String(value == null ? '' : value).trim().slice(0, 64);
+    else if (field === 'notes')       part.notes = String(value == null ? '' : value).replace(/\s+$/, '').slice(0, 2000);
   },
 
   selectPart(partId) {
@@ -15458,7 +15555,7 @@ function updatePartsPanel() {
         '<div class="pd-swatch" style="background:' + p.color + '"></div>' +
         '<div class="pd-main" onclick="openPartDataModal(\'' + p.partId + '\')">' +
           '<div class="pd-name">' + pdEsc(p.name) + '</div>' +
-          '<div class="pd-meta">' + pdEsc(kadGradeLabel(p.gradeId)) + ' · ' + pdThickLabel(p.thicknessMM) + ' · ×' + p.qty + '</div>' +
+          '<div class="pd-meta">' + pdEsc(kadGradeLabel(p.gradeId)) + ' · ' + pdThickLabel(p.thicknessMM) + ' · ×' + p.qty + (p.job ? ' · ' + pdEsc(p.job) : '') + '</div>' +
         '</div>' +
         '<button class="pd-btn" title="Select this part\u2019s geometry" onclick="PartLibrary.selectPart(\'' + p.partId + '\')">\u25ce</button>' +
         '<button class="pd-btn pd-del" title="Remove part (geometry is kept)" onclick="deletePartData(\'' + p.partId + '\')">\u2715</button>' +
@@ -15500,14 +15597,29 @@ function deletePartData(partId) {
 
 
 let _pdEditing = null;
+let _pdOnClose = null;   // run once when the window closes, however it closes
 
-function openPartDataModal(partId) {
+// opts (all optional): title, note + noteCls ('ok' | 'warn') shown above the
+// fields, cancelLabel, onClose. An import opens it with a note on the grade and
+// "Keep as imported"; the pre-save check opens it with an onClose to return.
+function openPartDataModal(partId, opts) {
   const part = PartLibrary.getPart(partId);
   if (!part) return;
+  opts = opts || {};
   _pdEditing = partId;
+  _pdOnClose = opts.onClose || null;
 
   const ov = document.getElementById('part-data-modal');
   if (!ov) return;
+
+  document.getElementById('pd-title').textContent = opts.title || 'Part Data';
+  const note = document.getElementById('pd-note');
+  note.textContent = opts.note || '';
+  note.className = 'pd-note' + (opts.noteCls ? ' ' + opts.noteCls : '');
+  note.style.display = opts.note ? 'block' : 'none';
+  document.getElementById('pd-cancel-btn').textContent = opts.cancelLabel || 'Cancel';
+  for (const f of PART_TEXT_FIELDS) document.getElementById('pd-f-' + f).value = part[f] || '';
+  document.getElementById('pd-f-notes').value = part.notes || '';
 
   document.getElementById('pd-f-name').value = part.name;
   document.getElementById('pd-f-qty').value  = part.qty;
@@ -15559,6 +15671,8 @@ function commitPartData() {
   PartLibrary.setField(_pdEditing, 'qty',     document.getElementById('pd-f-qty').value);
   PartLibrary.setField(_pdEditing, 'thicknessMM', fromDisplay(parseFloat(document.getElementById('pd-f-thick').value) || 0));
   if (sel) PartLibrary.setField(_pdEditing, 'gradeId', sel.dataset.gid);
+  for (const f of PART_TEXT_FIELDS.concat(['notes']))
+    PartLibrary.setField(_pdEditing, f, document.getElementById('pd-f-' + f).value);
   markModelDirty();
   closePartDataModal();
   updatePartsPanel(); render();
@@ -15568,6 +15682,8 @@ function closePartDataModal() {
   const ov = document.getElementById('part-data-modal');
   if (ov) ov.classList.remove('open');
   _pdEditing = null;
+  const cb = _pdOnClose; _pdOnClose = null;
+  if (cb) cb();
 }
 
 
@@ -15687,10 +15803,99 @@ function deserializeDocument(text) {
   return true;
 }
 
-function saveKAD() {
-  downloadText(serializeDocument(), docBaseName() + '.kad', KAD_MIME)
-    .then(n => { if (n) showToast('Saved ' + n + ' \u00b7 model + KANVAS'); });
+// Every .kad save asks about parts data first (check, edit, add, or go on
+// without), then for the file name. The name typed becomes the drawing's name.
+async function saveKAD() {
+  if (!(await kadPartsBeforeSave())) return;
+  const n = await downloadText(serializeDocument(), kadDefaultName('.kad'), KAD_MIME);
+  if (n) { kadSetDocName(n); showToast('Saved ' + n + ' \u00b7 model + KANVAS'); }
 }
+
+// ── PARTS DATA BEFORE SAVING ──────────────────────────────────────────────────
+const PART_GEOMETRY_TYPES = ['LINE', 'ARC', 'CIRCLE', 'POLYLINE', 'BEZIER'];   // what bomPartAreaMM2() weighs
+let _savePdResolve = null;
+
+function kadPartsBeforeSave() {
+  const ov = document.getElementById('savepd-modal');
+  if (!ov) return Promise.resolve(true);
+  return new Promise(resolve => {
+    _savePdResolve = resolve;
+    savePdRender();
+    ov.classList.add('open');
+  });
+}
+
+// Geometry a new part could take: the selection if there is one, otherwise
+// every drawable entity not already in a part. Text, dimensions and hatches
+// never join a part, so the BOM can still weigh it.
+function savePdCandidates() {
+  const free = o => PART_GEOMETRY_TYPES.indexOf(o.type) >= 0 && !PartLibrary.getPartForEntity(o.id);
+  return {
+    sel: GeoMemory.objects.filter(o => selectedIds.has(o.id) && free(o)).map(o => o.id),
+    all: GeoMemory.objects.filter(free).map(o => o.id),
+  };
+}
+
+function savePdRender() {
+  const parts = PartLibrary.parts;
+  document.getElementById('savepd-intro').textContent = parts.length
+    ? 'This file will carry the parts data below. Edit a part, add another, or continue.'
+    : 'This drawing has no parts data. Add a part so the BOM can count and weigh it, or save without parts data.';
+  document.getElementById('savepd-list').innerHTML = parts.map(p =>
+    '<div class="pd-row">' +
+      '<div class="pd-swatch" style="background:' + p.color + '"></div>' +
+      '<div class="pd-main" onclick="savePdEdit(\'' + p.partId + '\')">' +
+        '<div class="pd-name">' + pdEsc(p.name) + '</div>' +
+        '<div class="pd-meta">' + pdEsc([kadGradeLabel(p.gradeId), pdThickLabel(p.thicknessMM),
+          '\u00d7' + p.qty, p.job, p.customer].filter(Boolean).join(' \u00b7 ')) + '</div>' +
+      '</div>' +
+      '<button class="pd-btn pd-edit" onclick="savePdEdit(\'' + p.partId + '\')">Edit</button>' +
+    '</div>').join('');
+  const c = savePdCandidates();
+  const count = n => n + ' object' + (n === 1 ? '' : 's');
+  // Once a drawing has parts, what is left over is usually a side view or
+  // notes, so only a selection is offered then; the whole drawing only when
+  // there are no parts at all.
+  document.getElementById('savepd-add').innerHTML =
+    c.sel.length ? '<button class="pd-create" onclick="savePdAdd(\'sel\')">+ Add a part from the selection (' + count(c.sel.length) + ')</button>'
+  : (!parts.length && c.all.length) ? '<button class="pd-create" onclick="savePdAdd(\'all\')">+ Add a part from the drawing (' + count(c.all.length) + ')</button>'
+  : '';
+  document.getElementById('savepd-go').textContent = parts.length ? 'Continue' : 'Save without parts data';
+}
+
+function savePdEdit(partId) {
+  const ov = document.getElementById('savepd-modal');
+  ov.classList.remove('open');
+  openPartDataModal(partId, { onClose: () => { savePdRender(); ov.classList.add('open'); } });
+}
+
+function savePdAdd(mode) {
+  const c = savePdCandidates();
+  const ids = mode === 'sel' ? c.sel : c.all;
+  if (!ids.length) return;
+  const res = PartLibrary.addPart(kadDocName, ids, {});   // named after the drawing, else "Part n"
+  if (!res.part) return;
+  markModelDirty(); updatePartsPanel(); render();
+  savePdEdit(res.part.partId);
+}
+
+function savePdContinue() { savePdClose(true); }
+function savePdCancel()   { savePdClose(false); }
+function savePdClose(go) {
+  const ov = document.getElementById('savepd-modal');
+  if (ov) ov.classList.remove('open');
+  const r = _savePdResolve; _savePdResolve = null;
+  if (r) r(go);
+}
+
+// Escape closes the top Parts Data window, and goes no further.
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  const pm = document.getElementById('part-data-modal');
+  if (pm && pm.classList.contains('open')) { e.preventDefault(); e.stopPropagation(); closePartDataModal(); return; }
+  const sm = document.getElementById('savepd-modal');
+  if (sm && sm.classList.contains('open')) { e.preventDefault(); e.stopPropagation(); savePdCancel(); }
+});
 function loadKAD(event) {
   const file=event.target.files[0]; if(!file) return;
   const reader=new FileReader();
@@ -15700,6 +15905,7 @@ function loadKAD(event) {
       event.target.value=''; return;
     }
     const ok=deserializeDocument(e.target.result);
+    if (ok) kadSetDocName(file.name);
     showToast(ok?`Loaded ${file.name}`:'Invalid .kad');
     event.target.value='';
   };
@@ -15709,9 +15915,10 @@ function exportDXF() {
   const objs=GeoMemory.objects;
   if(!objs.length){ showToast('No geometry to export'); return; }
   const skipped = dxfSkippedCount(objs);
-  downloadText(buildDXF(objs, unitMode), docBaseName() + '.dxf', 'text/plain')
+  downloadText(buildDXF(objs, unitMode), kadDefaultName('.dxf'), 'text/plain')
     .then(n => {
       if (!n) return;
+      kadNoteExportName(n);
       showToast(`Exported ${n} \u00b7 ${objs.length} entities (${unitMode})`);
     });
 }
@@ -15882,9 +16089,10 @@ function buildBOMCSV() {
 function exportBOM() {
   if (!PartLibrary.parts.length) { showToast('No parts to export \u2014 create parts first'); return; }
   const { csv, unknownWeight, count } = buildBOMCSV();
-  downloadText('\uFEFF' + csv, docBaseName() + '-bom.csv', 'text/csv')
+  downloadText('\uFEFF' + csv, kadDefaultName('.csv'), 'text/csv')
     .then(n => {
       if (!n) return;
+      kadNoteExportName(n);
       showToast(unknownWeight
         ? `Exported ${n} \u00b7 ${count} part${count===1?'':'s'} \u00b7 ${unknownWeight} without a computed weight`
         : `Exported ${n} \u00b7 ${count} part${count===1?'':'s'}`);
@@ -16072,8 +16280,8 @@ function commitSCADExport() {
   scadDialog.extrudeH = h;
   closeSCADDialog();
   const scad = buildSCAD(GeoMemory.objects, h, scadDialog.mode);
-  downloadText(scad, docBaseName() + '.scad', 'text/plain')
-    .then(n => { if (n) showToast(`Exported ${n} \u00b7 ${GeoMemory.objects.length} entities \u00b7 ${scadDialog.mode} mode`); });
+  downloadText(scad, kadDefaultName('.scad'), 'text/plain')
+    .then(n => { kadNoteExportName(n); if (n) showToast(`Exported ${n} \u00b7 ${GeoMemory.objects.length} entities \u00b7 ${scadDialog.mode} mode`); });
 }
 function exportSCAD() { openSCADDialog(); }
 
@@ -17771,7 +17979,7 @@ function skadOpenFile() {
       rd.onload = () => {
         if (activeTool !== 'scad') skadEnter();
         skadReset();
-        skadRun(String(rd.result || ''), false);
+        if (skadRun(String(rd.result || ''), false)) kadAdoptImportName(f.name, 'merge');
       };
       rd.onerror = () => kecho('Could not read ' + f.name, 'err');
       rd.readAsText(f);
@@ -17790,7 +17998,7 @@ const SAVE_MIME_EXT = {
 
 function saveSplitName(name) {
   const i = name.lastIndexOf('.');
-  return (i > 0) ? { base: name.slice(0, i), ext: name.slice(i) } : { base: name, ext: '' };
+  return (i >= 0) ? { base: name.slice(0, i), ext: name.slice(i) } : { base: name, ext: '' };
 }
 
 function saveSanitize(base) {
@@ -17853,7 +18061,15 @@ function saveAnchorDownload(blob, name) {
 }
 
 async function saveAsBlob(blob, defaultName, mime) {
-  const { ext } = saveSplitName(defaultName);
+  let { base, ext } = saveSplitName(defaultName);
+  // Never a made-up name. With no real name to offer, the user names the file
+  // first, in KAD's own prompt; the system picker then opens on that name.
+  if (!base) {
+    const typed = await saveAskName(defaultName);
+    if (!typed) return null;
+    defaultName = typed;
+    if (!saveHasNativePicker()) { saveAnchorDownload(blob, typed); return typed; }
+  }
   if (saveHasNativePicker()) {
     try {
       const handle = await window.showSaveFilePicker({
@@ -17864,9 +18080,7 @@ async function saveAsBlob(blob, defaultName, mime) {
       const w = await handle.createWritable();
       await w.write(blob);
       await w.close();
-      const written = handle.name || defaultName;
-      lastSaveBase = saveSplitName(written).base;
-      return written;
+      return handle.name || defaultName;
     } catch (err) {
       if (err && err.name === 'AbortError') return null;
     }
@@ -17874,12 +18088,29 @@ async function saveAsBlob(blob, defaultName, mime) {
   const name = await saveAskName(defaultName);
   if (!name) return null;
   saveAnchorDownload(blob, name);
-  lastSaveBase = saveSplitName(name).base;
   return name;
 }
 
-let lastSaveBase = '';
-function docBaseName() { return lastSaveBase || 'drawing'; }
+// The drawing's name: the base name of the file it was opened or imported
+// from, or the name it was last saved under. Never invented: it stays '' until
+// a file supplies one or the user types one, and every save and export prompt
+// offers it and nothing else (an unnamed drawing gets an empty name box).
+let kadDocName = '';
+function kadSetDocName(fileName) {
+  kadDocName = saveSanitize(saveSplitName(String(fileName || '')).base);
+}
+// Replace takes the imported file's name; Merge keeps the drawing's, unless it
+// has none yet.
+function kadAdoptImportName(fileName, mode) {
+  if (fileName && (mode === 'replace' || !kadDocName)) kadSetDocName(fileName);
+}
+// An export names its own file only. It never renames the drawing, except to
+// give an unnamed drawing the name the user just typed.
+function kadNoteExportName(written) {
+  if (written && !kadDocName) kadSetDocName(written);
+}
+function kadDefaultName(ext) { return kadDocName + ext; }
+function docBaseName() { return kadDocName; }
 
 async function saveAsText(content, defaultName, mime) {
   return saveAsBlob(new Blob([content], { type: mime || 'text/plain' }), defaultName, mime);
@@ -17890,7 +18121,7 @@ function downloadText(content, filename, mime) {
 }
 function newDocument() {
   if(GeoMemory.objects.length&&!confirm('New document? Unsaved changes will be lost.')) return;
-  GeoMemory.clear(); cancelTool(); selectedIds.clear(); updateSelectionProps(); render(); showToast('New document');
+  GeoMemory.clear(); kadDocName = ''; cancelTool(); selectedIds.clear(); updateSelectionProps(); render(); showToast('New document');
 }
 
 function commitDocumentChange() {
@@ -21466,10 +21697,12 @@ function onVectorFileChosen(event) {
 }
 
 function kvSaveKVS() {
-  const nm = ((KV_SHEETS[kvSheetIdx] && KV_SHEETS[kvSheetIdx].name) || 'sheet')
-               .replace(/[^\w -]/g,'').trim().replace(/\s+/g,'-').toLowerCase() || 'sheet';
+  // The sheet's own name as the user sees it; a sheet KAD numbered itself
+  // ("Sheet 2") offers the drawing's name instead, which may be empty.
+  const shName = ((KV_SHEETS[kvSheetIdx] && KV_SHEETS[kvSheetIdx].name) || '').trim();
+  const nm = (shName && !/^Sheet \d+$/i.test(shName)) ? saveSanitize(shName) : kadDocName;
   downloadText(kvSerialize(), nm + '.kvs', KVS_MIME)
-    .then(n => { if (n) showToast('Saved ' + n + ' \u00b7 this sheet only'); });
+    .then(n => { kadNoteExportName(n); if (n) showToast('Saved ' + n + ' \u00b7 this sheet only'); });
 }
 
 function kvAdoptKVS(text, fileName) {
@@ -21702,8 +21935,8 @@ function kvExportSVG() {
   out.push(`</g>`);
   out.push(`</svg>`);
 
-  downloadText(out.join('\n'), docBaseName() + '.svg', 'image/svg+xml')
-    .then(n => { if (n) showToast('Exported ' + n); });
+  downloadText(out.join('\n'), kadDefaultName('.svg'), 'image/svg+xml')
+    .then(n => { kadNoteExportName(n); if (n) showToast('Exported ' + n); });
 }
 
 function kvDimToSVG(d, lay, X, Y) {
@@ -22827,6 +23060,7 @@ const DRAW_TOOLS = new Set(['line','rect','polygon','offset','rotate','circle','
                              'scale','stretch','text','dim','hatch']);
 document.addEventListener('keydown', function(ev) {
   if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)) return;
+  if(document.querySelector('.pd-ov.open')) return;
   if(document.activeElement === kInput) return;
   if(ev.ctrlKey || ev.metaKey || ev.altKey) return;
 
