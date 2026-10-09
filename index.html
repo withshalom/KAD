@@ -65,6 +65,7 @@
 <meta charset="UTF-8">
 <meta name="copyright" content="Copyright (C) 2026 KADsuite / withshalom. Licensed under AGPL-3.0-or-later. Optional DWG import incorporates LibreDWG (GPL-3.0-or-later); combined work is AGPL-3.0-or-later. KADsuite™, KAD™, KAM™, KUBIC™, KARVE™, KONSTRUCT™, KULTIVATE™, KODE™, KANVAS™, KONNECTOR™, KAMPUS™, KLOUD™, KID™, and KODEX™ are trademarks of withshalom / KADsuite. Forks must remain open source under AGPL. Trademarks not licensed by AGPL. FastCAM® is a registered trademark of Fagan Microprocessor Systems Pty Ltd and/or FastCAM Inc.; KAD's .cam reader is an independent clean-room implementation for interoperability, not affiliated with or endorsed by them.">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'self'; form-action 'none'">
 <title>KAD — Kernel-Aided Design</title>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0c1824">
@@ -3566,6 +3567,7 @@ body.kanvas-mode #app {
         <div class="fi-row">Circles<span id="dlg-circle-count">—</span></div>
         <div class="fi-row">Arcs<span id="dlg-arc-count">—</span></div>
         <div class="fi-row" id="dlg-skipped-row" style="display:none;">Unsupported entities<span id="dlg-skipped-count" class="warn">—</span></div>
+        <div id="dlg-skipped-detail" style="display:none;font-size:11.5px;line-height:1.45;color:var(--amber);margin:2px 0 4px;"></div>
         <div class="fi-row" style="margin-top:4px;">$INSUNITS in file<span id="dlg-insunits">—</span></div>
       </div>
 
@@ -3846,12 +3848,58 @@ body.kanvas-mode #app {
 'use strict';
 
 
-const KAD_APP_VERSION = '1.4.1';
+const KAD_APP_VERSION = '1.4.2';
 
 // Public changelog. Only list features once they're fully live (no display:none
 // gates, no feature flags left off). Newest entry first. Keep entries short —
 // this is the "what shipped", not the dev log; that stays in KAD-DEV-NOTES.md.
 const KAD_CHANGELOG = [
+  {
+    version: '1.4.2',
+    date: '2026-10-08',
+    groups: [
+      {
+        label: 'Files from other people',
+        items: [
+          'Names inside a file are shown as text, never run as page code. A layer, sheet or part name in a DXF, DWG, FastCAM, NC1, .kad or .kvs file \u2014 or one arriving from a KLOUD guest \u2014 could run script in KAD as soon as the layer list or sheet tabs were drawn',
+          'Layer, block and sheet names drop < > " ` and control characters on the way in. AutoCAD allows none of them in a layer name, so no real drawing loses anything. Colours read from a file are only ever used as colours',
+          'SVG exports escape the colours and ids they take from the drawing',
+        ],
+      },
+      {
+        label: 'Speed',
+        items: [
+          'Importing a large drawing no longer slows down with every entity it adds. In testing, 20,000 entities that took 14 seconds to land now take a quarter of a second, and 100,000 take about one',
+          'Large drawings redraw two to three times faster. Lines, arcs, circles and polylines that share a layer style are drawn together, and vertex dots are left off entities under 10 px on screen, where they covered the shape instead of marking it. Zoom in and they are back',
+          'Selecting thousands of entities no longer stalls the view: a big selection gets a lighter glow',
+          'Undo and redo do about half the work they did on a large drawing',
+        ],
+      },
+      {
+        label: 'DXF',
+        items: [
+          'Exported DXF files open in programs that place entities by their owner, as AutoCAD, LibreDWG and ODA-based programs do. Those programs read the old files and drew nothing; every record now names its owner',
+          'Drawings with more than about 65,000 records export with a valid handle seed',
+          'Dimensions import by type. Horizontal and vertical dimensions measure along their own direction rather than point to point, and radius and diameter dimensions, which were dropped without a word, come in as linear dimensions across the diameter or from the centre to the curve',
+          'Angular and ordinate dimensions, and any entity type KAD does not read \u2014 leaders, rays, solids and the like \u2014 are counted and named in the import dialog instead of disappearing',
+        ],
+      },
+      {
+        label: 'DWG',
+        items: [
+          'The DWG reader loads on the first attempt. KAD was asking the CDN for a malformed address and only recovering on a retry',
+          'DWG import can use a copy of the reader hosted beside KAD, so it works offline. With no copy and no connection, it says the reader needs a connection once',
+        ],
+      },
+      {
+        label: 'For scripts and add-ons',
+        items: [
+          'KAD.session and KAD.document.revision report live values. activeTool, selectedIds and the model revision read undefined before',
+          'PeerJS and pdf.js load with integrity checks, and STEP import no longer requests a placeholder package',
+        ],
+      },
+    ],
+  },
   {
     version: '1.4.1',
     date: '2026-09-28',
@@ -4084,6 +4132,125 @@ const KAD = {
 
   snap: {},
 };
+
+// ── TEXT FROM FILES AND PEERS ──────────────────────────────────────────────
+// Anything that arrives in a file (DXF, DWG, CAM, NC1, .kad, .kvs, SVG) or from
+// a KLOUD peer is data. It reaches the page as text — textContent, element
+// properties, listeners — never as markup, and the one template that still
+// needs a string goes through escHtml(). Names are also cleaned where they
+// enter KAD: layer, block and sheet names lose < > " ` and control
+// characters, none of which AutoCAD allows in a layer name either, so no real
+// drawing loses anything. & and ' are legal in AutoCAD names and are kept;
+// with every sink writing text they are harmless.
+function escHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+function kadCleanName(s, max) {
+  return String(s == null ? '' : s)
+    .replace(/[<>"`\u0000-\u001f\u007f]/g, '').trim().slice(0, max || 255);
+}
+
+// A colour that came from a file is only ever used as a colour.
+function kadSafeColor(c, fallback) {
+  const s = String(c == null ? '' : c).trim();
+  if (/^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(s)) return s;
+  if (/^(?:rgb|hsl)a?\(\s*[0-9.,%\s/+-]+\)$/i.test(s)) return s;
+  if (/^[a-z]{3,24}$/i.test(s)) return s;            // named colours
+  return fallback;
+}
+
+// Ids that end up inside selectors or handlers: letters, digits and _ . : - only.
+function kadSafeId(s) {
+  return String(s == null ? '' : s).replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 64);
+}
+
+// Clean every `.layer` reference in a list of entities. `map` (raw -> clean)
+// keeps references in step with a layer table cleaned by kadCleanLayerTable().
+function kadCleanLayerRefs(list, map, fallback) {
+  if (!Array.isArray(list)) return list;
+  for (const o of list) {
+    if (!o || typeof o !== 'object' || typeof o.layer !== 'string') continue;
+    const m = map && map.get(o.layer);
+    o.layer = (m !== undefined) ? m : (kadCleanName(o.layer) || fallback || 'Layer_0');
+  }
+  return list;
+}
+
+// A model-space layer table from a file: clean keys and names, colours that
+// are colours, a linetype KAD knows, a positive weight. Two names that clean
+// to the same string are kept apart with a suffix.
+function kadCleanLayerTable(raw) {
+  const table = {}, map = new Map();
+  for (const rawKey of Object.keys(raw || {})) {
+    const v = raw[rawKey];
+    if (!v || typeof v !== 'object') continue;
+    let key = kadCleanName(rawKey) || 'Layer_0';
+    for (let n = 2; Object.prototype.hasOwnProperty.call(table, key); n++)
+      key = (kadCleanName(rawKey) || 'Layer_0') + '_' + n;
+    map.set(rawKey, key);
+    const w = parseFloat(v.weight);
+    table[key] = Object.assign({}, v, {
+      name:    key,
+      color:   kadSafeColor(v.color, '#00d4ff'),
+      ltype:   (typeof LINETYPES !== 'undefined' && LINETYPES[v.ltype]) ? v.ltype : 'continuous',
+      weight:  (isFinite(w) && w > 0) ? w : 1.3,
+      visible: v.visible !== false,
+      locked:  !!v.locked,
+    });
+  }
+  return { table, map };
+}
+
+// The parseDXF()-shaped result every importer hands commitDxfImport() — DXF,
+// DWG (both routes), FastCAM and NC1 — cleaned in one place.
+function kadCleanParsedNames(parsed) {
+  if (!parsed || parsed._namesClean) return parsed;
+  const map = new Map();
+  const clean = (n) => {
+    if (typeof n !== 'string') return n;
+    let c = map.get(n);
+    if (c === undefined) { c = kadCleanName(n) || 'Layer_0'; map.set(n, c); }
+    return c;
+  };
+  for (const k of ['lines','circles','arcs','polys','texts','points','dims','hatches','beziers'])
+    for (const e of (parsed[k] || [])) if (e && typeof e.layer === 'string') e.layer = clean(e.layer);
+  if (parsed.layerDefs) {
+    const out = Object.create(null);
+    for (const name of Object.keys(parsed.layerDefs)) {
+      const d = parsed.layerDefs[name] || {};
+      const c = clean(name);
+      if (!(c in out)) out[c] = Object.assign({}, d, { name: c, color: d.color ? kadSafeColor(d.color, null) : null });
+    }
+    parsed.layerDefs = out;
+  }
+  if (Array.isArray(parsed.missingBlocks))
+    parsed.missingBlocks = parsed.missingBlocks.map(n => kadCleanName(n) || '(unnamed)');
+  Object.defineProperty(parsed, '_namesClean', { value: true, enumerable: false });
+  return parsed;
+}
+
+// KANVAS layers from a .kvs, a .kad's KANVAS payload or a KLOUD peer.
+function kvCleanLayers(list) {
+  if (!Array.isArray(list)) return list;
+  const seen = new Set(), out = [];
+  for (const l of list) {
+    if (!l || typeof l !== 'object') continue;
+    let name = kadCleanName(l.name, 64) || 'Annotations';
+    for (let n = 2; seen.has(name.toLowerCase()); n++) name = (kadCleanName(l.name, 60) || 'Annotations') + ' ' + n;
+    seen.add(name.toLowerCase());
+    out.push(Object.assign({}, l, { name, color: kadSafeColor(l.color, '#ff3cac'), visible: l.visible !== false }));
+  }
+  return out.length ? out : kvBlankMemory().layers;
+}
+
+function kvCleanSpaceRefs(mem) {
+  if (!mem || typeof mem !== 'object') return mem;
+  for (const k of ['strokes','dims','welds','paths','foreign']) kadCleanLayerRefs(mem[k], null, 'Annotations');
+  if (typeof mem.activeLayer === 'string') mem.activeLayer = kadCleanName(mem.activeLayer, 64) || 'Annotations';
+  return mem;
+}
 
 function applyAppVersion() {
   const badge = document.getElementById('app-version-badge');
@@ -4990,13 +5157,58 @@ function commitFillet(l1,l2){
 const GeoMemory = {
   objects:[], nextId:1,
 
+  // ── Index and counts ─────────────────────────────────────────────────────
+  // An id -> object map and per-type counts kept beside the array. Every write
+  // goes through the methods below, which keep them current; anything that
+  // replaces or reorders the array is caught by the identity/length check and
+  // the index is rebuilt once, on the next read. Reads are O(1) either way
+  // after that, which is what turns an import back into linear time.
+  _ix: null,
+  _index() {
+    const ix = this._ix;
+    if (ix && ix.arr === this.objects && ix.len === this.objects.length) return ix;
+    const byId = new Map(), counts = Object.create(null);
+    for (const o of this.objects) {
+      if (!o) continue;
+      if (!byId.has(o.id)) byId.set(o.id, o);
+      counts[o.type] = (counts[o.type] || 0) + 1;
+    }
+    return (this._ix = { arr: this.objects, len: this.objects.length, byId, counts });
+  },
+  _push(o) {
+    const ix = this._ix;
+    this.objects.push(o);
+    if (ix && ix.arr === this.objects && ix.len === this.objects.length - 1) {
+      if (!ix.byId.has(o.id)) ix.byId.set(o.id, o);
+      ix.counts[o.type] = (ix.counts[o.type] || 0) + 1;
+      ix.len++;
+    }
+    return o;
+  },
+  counts() { return this._index().counts; },
+
+  // Every commitDocumentChange() inside fn is folded into one at the end, so a
+  // bulk operation pays for one properties refresh and one dirty mark, not one
+  // per entity. fn must be synchronous; nested batches commit once, outermost.
+  _batch: 0, _batchDirty: false,
+  batch(fn) {
+    this._batch++;
+    try { return fn(); }
+    finally {
+      if (--this._batch === 0 && this._batchDirty) {
+        this._batchDirty = false;
+        commitDocumentChange();
+      }
+    }
+  },
+
   addLine(x1,y1,x2,y2,layer='Layer_0') {
     const o={id:this.nextId++,type:'LINE',layer,x1,y1,x2,y2};
-    this.objects.push(_stampPlane(o)); commitDocumentChange(); return o;
+    this._push(_stampPlane(o)); commitDocumentChange(); return o;
   },
   addPoint(x,y,layer='Layer_0') {
     const o={id:this.nextId++,type:'POINT',layer,x,y};
-    this.objects.push(_stampPlane(o)); commitDocumentChange(); return o;
+    this._push(_stampPlane(o)); commitDocumentChange(); return o;
   },
   addPolyline(pts, closed=false, layer='Layer_0') {
     if (pts.length < 2) return null;
@@ -5007,7 +5219,7 @@ const GeoMemory = {
                if (p.b) q.b = parseFloat((+p.b).toFixed(8));
                return q;
              })};
-    this.objects.push(_stampPlane(o)); commitDocumentChange(); return o;
+    this._push(_stampPlane(o)); commitDocumentChange(); return o;
   },
   addBezierPath(beziers, closed=false, layer='Layer_0') {
     if (!beziers || beziers.length < 1) return null;
@@ -5017,10 +5229,10 @@ const GeoMemory = {
                x0:r6(b.x0), y0:r6(b.y0), cx1:r6(b.cx1), cy1:r6(b.cy1),
                cx2:r6(b.cx2), cy2:r6(b.cy2), x3:r6(b.x3), y3:r6(b.y3),
              }))};
-    this.objects.push(_stampPlane(o)); commitDocumentChange(); return o;
+    this._push(_stampPlane(o)); commitDocumentChange(); return o;
   },
-  addCircle(cx,cy,r,layer='Layer_0'){const o={id:this.nextId++,type:'CIRCLE',layer,cx:parseFloat(cx.toFixed(6)),cy:parseFloat(cy.toFixed(6)),r:parseFloat(r.toFixed(6))};this.objects.push(_stampPlane(o));commitDocumentChange();return o;},
-  addArc(cx,cy,r,startA,endA,ccw=true,layer='Layer_0'){const o={id:this.nextId++,type:'ARC',layer,cx:parseFloat(cx.toFixed(6)),cy:parseFloat(cy.toFixed(6)),r:parseFloat(r.toFixed(6)),startA:parseFloat(startA.toFixed(8)),endA:parseFloat(endA.toFixed(8)),ccw};this.objects.push(_stampPlane(o));commitDocumentChange();return o;},
+  addCircle(cx,cy,r,layer='Layer_0'){const o={id:this.nextId++,type:'CIRCLE',layer,cx:parseFloat(cx.toFixed(6)),cy:parseFloat(cy.toFixed(6)),r:parseFloat(r.toFixed(6))};this._push(_stampPlane(o));commitDocumentChange();return o;},
+  addArc(cx,cy,r,startA,endA,ccw=true,layer='Layer_0'){const o={id:this.nextId++,type:'ARC',layer,cx:parseFloat(cx.toFixed(6)),cy:parseFloat(cy.toFixed(6)),r:parseFloat(r.toFixed(6)),startA:parseFloat(startA.toFixed(8)),endA:parseFloat(endA.toFixed(8)),ccw};this._push(_stampPlane(o));commitDocumentChange();return o;},
   addHatch(loops, opts={}, layer='Layer_0') {
     if (!loops || !loops.length) return null;
     const r6 = v => parseFloat(v.toFixed(6));
@@ -5037,19 +5249,17 @@ const GeoMemory = {
       origin:  opts.origin  || {x:0, y:0},
       assoc:   opts.assoc   || null,
     };
-    this.objects.push(_stampPlane(o)); commitDocumentChange(); return o;
+    this._push(_stampPlane(o)); commitDocumentChange(); return o;
   },
   addDim(x1,y1,x2,y2,layer='DIM',label=null){
     const r6=v=>parseFloat(v.toFixed(6));
     const o={id:this.nextId++,type:'DIM',layer,x1:r6(x1),y1:r6(y1),x2:r6(x2),y2:r6(y2)};
     if(label) o.label=label;
-    this.objects.push(_stampPlane(o)); commitDocumentChange(); return o;
+    this._push(_stampPlane(o)); commitDocumentChange(); return o;
   },
-  addText(x,y,text,height=5,layer='Layer_0'){const o={id:this.nextId++,type:'TEXT',layer,x,y,text,height};this.objects.push(_stampPlane(o));commitDocumentChange();return o;},
+  addText(x,y,text,height=5,layer='Layer_0'){const o={id:this.nextId++,type:'TEXT',layer,x,y,text,height};this._push(_stampPlane(o));commitDocumentChange();return o;},
   drawOrder() {
-    let n = 0;
-    for (const o of this.objects) if (o.type === 'HATCH') n++;
-    if (n === 0) return this.objects;
+    if (!this.counts().HATCH) return this.objects;
     const h = [], r = [];
     for (const o of this.objects) (o.type === 'HATCH' ? h : r).push(o);
     return h.concat(r);
@@ -5057,10 +5267,7 @@ const GeoMemory = {
 
 
 
-  get(id) {
-    for (const o of this.objects) if (o.id === id) return o;
-    return null;
-  },
+  get(id) { return this._index().byId.get(id) || null; },
 
   query(fn) { return this.objects.filter(fn); },
 
@@ -5068,7 +5275,7 @@ const GeoMemory = {
     if (!o) return null;
     o.id = this.nextId++;
     if (o.plane === undefined) _stampPlane(o);
-    this.objects.push(o);
+    this._push(o);
     commitDocumentChange();
     return o;
   },
@@ -5132,7 +5339,7 @@ const GeoMemory = {
   deserialize(s){
     try{
       const d=JSON.parse(s);
-      this.objects=d.objects||[];
+      this.objects=kadCleanLayerRefs(Array.isArray(d.objects)?d.objects:[]);
       this.nextId=d.nextId||1;
       if(d.displayUnits && d.displayUnits!==unitMode) toggleUnits();
       commitDocumentChange();
@@ -5437,7 +5644,7 @@ function hatchRebuildSelected() {
     if (!h.assoc || !h.assoc.length) { missing++; continue; }
     const loops = [];
     for (const id of h.assoc) {
-      const src = GeoMemory.objects.find(o => o.id === id);
+      const src = GeoMemory.get(id);
       const L = hatchLoopFromEntity(src);
       if (L) loops.push(L);
     }
@@ -5946,6 +6153,19 @@ let mouseScreen  = {x:0,y:0};
 let selectedIds  = new Set(); // selection set
 let showGrid     = true;
 
+// These six are lexical bindings, which shadow the global accessors _kadOwn()
+// set up for them, so the facade has to point at the bindings themselves.
+// Reads through KAD.session (or window.activeTool) now see the live value and
+// writes land in it.
+Object.defineProperties(KAD.session, {
+  activeToolRequested: { enumerable: true, configurable: true, get: () => activeToolRequested, set: v => { activeToolRequested = v; } },
+  activeTool:          { enumerable: true, configurable: true, get: () => activeTool,          set: v => { activeTool = v; } },
+  mouseWorld:          { enumerable: true, configurable: true, get: () => mouseWorld,          set: v => { mouseWorld = v; } },
+  mouseScreen:         { enumerable: true, configurable: true, get: () => mouseScreen,         set: v => { mouseScreen = v; } },
+  selectedIds:         { enumerable: true, configurable: true, get: () => selectedIds,         set: v => { selectedIds = v; } },
+  showGrid:            { enumerable: true, configurable: true, get: () => showGrid,            set: v => { showGrid = v; } },
+});
+
 let lineState = { active:false, x1:0, y1:0 };
 let lineMode = 'chain';
 let shiftLockActive = false;
@@ -6017,6 +6237,11 @@ let rectState = { active:false, x1:0, y1:0 };
 let polyState = { active:false, cx:0, cy:0 };
 
 let modelRev = 0; let kanvasRev = 0;
+// Same story as the session values above: the `let` shadows the modelRev
+// accessor, so KAD.document.revision points at the binding.
+Object.defineProperty(KAD.document, 'revision', {
+  enumerable: true, configurable: true, get: () => modelRev, set: v => { modelRev = v; },
+});
 function markModelDirty()  { modelRev++;  scheduleCapture('model');  }
 function markKanvasDirty() { kanvasRev++; scheduleCapture('kanvas'); }
 
@@ -6096,7 +6321,9 @@ function captureHistory(space) {
   const sig  = JSON.stringify(snap);
   if (H.last === null) { H.last = {snap, sig}; return; }   // first capture is the baseline
   if (sig === H.last.sig) return;                          // dirty mark with no real change
-  H.past.push(H.last.snap);
+  // Entries keep their signature: undo and redo hand them back as H.last
+  // without serialising the whole drawing again.
+  H.past.push(H.last);
   if (H.past.length > UNDO_LIMIT) H.past.shift();
   H.future.length = 0;                                     // a new edit forks the timeline
   H.last = {snap, sig};
@@ -6109,11 +6336,14 @@ function undoSpace(space) {
   clearTimeout(H.timer);
   captureHistory(space);          // fold in anything still inside the debounce window
   if (!H.past.length) return false;
-  const current = snapshotOf(space);
+  // After the capture above, H.last is the current state — no second snapshot.
+  // (While a transaction holds history suspended the capture does nothing, so
+  // take one then.)
+  const current = (_histSuspend || !H.last) ? {snap: snapshotOf(space), sig: null} : H.last;
   H.future.push(current);
   const prev = H.past.pop();
-  restoreSnapshot(space, prev);
-  H.last = {snap: prev, sig: JSON.stringify(prev)};
+  restoreSnapshot(space, prev.snap);
+  H.last = prev.sig != null ? prev : {snap: prev.snap, sig: JSON.stringify(prev.snap)};
   return true;
 }
 
@@ -6122,12 +6352,13 @@ function redoSpace(space) {
       && kloudConns.some(x => x.open)) return kloudRequestHistory('redo', space);
   const H = History[space];
   clearTimeout(H.timer);
+  captureHistory(space);          // an edit still inside the debounce window forks the timeline
   if (!H.future.length) return false;
-  const current = snapshotOf(space);
+  const current = (_histSuspend || !H.last) ? {snap: snapshotOf(space), sig: null} : H.last;
   H.past.push(current);
   const next = H.future.pop();
-  restoreSnapshot(space, next);
-  H.last = {snap: next, sig: JSON.stringify(next)};
+  restoreSnapshot(space, next.snap);
+  H.last = next.sig != null ? next : {snap: next.snap, sig: JSON.stringify(next.snap)};
   return true;
 }
 
@@ -9536,6 +9767,16 @@ function zoomExtents() {
   updateGridLabel(); render(); showToast('Zoom Extents');
 }
 
+// Selections larger than this get the cheap glow (a soft second stroke)
+// instead of shadowBlur, which blurs every selected entity separately.
+const SEL_GLOW_MAX = 250;
+// A run is stroked every RUN_MAX entities: one huge path scan-converts more
+// slowly than a few hundred small ones, and one call per entity is slower still.
+const RUN_MAX = 256;
+// Vertex dots (and a circle's centre cross) are skipped on entities smaller
+// than this on screen, where they would hide the entity instead of marking it.
+const DOT_MIN_SPAN_PX = 10;
+
 const GRID_TARGET_PX = 38;   // aim for roughly this many screen px per cell
 const MAX_FONT_PX = 4000;
 
@@ -9994,13 +10235,15 @@ function openArrayDialog(){
       else unsupported.add(o.type || 'unknown');
     }
 
-    for(let r=0;r<rows;r++)for(let col=0;col<cols;col++){
-      if(r===0&&col===0)continue;
-      const dx=col*colSp, dy=-(r*rowSp);
-      for(const o of copyable){
-        _inheritPlane(GeoMemory.add(kadTranslatedCopy(o, dx, dy)), o);
+    GeoMemory.batch(() => {
+      for(let r=0;r<rows;r++)for(let col=0;col<cols;col++){
+        if(r===0&&col===0)continue;
+        const dx=col*colSp, dy=-(r*rowSp);
+        for(const o of copyable){
+          _inheritPlane(GeoMemory.add(kadTranslatedCopy(o, dx, dy)), o);
+        }
       }
-    }
+    });
     selectedIds.clear();updateProps();render();el.remove();
     showToast('Array '+rows+'x'+cols+': '+((rows*cols)-1)+' copies'
       + (unsupported.size ? ' \u00b7 skipped '+[...unsupported].join(', ') : ''));
@@ -10106,7 +10349,8 @@ function addLayerHere() {
   if (typeof kvActive !== 'undefined' && kvActive) {
     const name = prompt('Annotation layer name:');
     if (!name || !name.trim()) return;
-    const key = name.trim();
+    const key = kadCleanName(name, 64);
+    if (!key) return;
     if (KVM.layers.some(l => l.name === key)) { showToast('Layer already exists'); return; }
     KVM.layers.push({name:key, color:B.color || '#ff3cac', visible:true});
     kvSetActiveLayer(key);
@@ -10117,8 +10361,8 @@ function addLayerHere() {
 
 function addCustomLayer() {
   const name = prompt('Layer name:');
-  if (!name || !name.trim()) return;
-  const key = name.trim().toUpperCase();
+  if (!name || !kadCleanName(name)) return;
+  const key = kadCleanName(name).toUpperCase();
   if (LAYERS[key]) { showToast('Layer already exists'); return; }
   const PALETTE = ['#00d4ff','#ff4444','#ffdd00','#39ff14','#ff44ff','#ffffff','#ff9900'];
   const color = PALETTE[Object.keys(LAYERS).length % PALETTE.length];
@@ -10135,28 +10379,53 @@ function toggleLayerVisibility(name) {
 }
 
 
-function buildLayerRow(key, lay) {
-  const row = document.createElement('div');
-  row.className = 'layer-row' + (key === activeLayer ? ' active' : '');
-  row.dataset.layer = key;
+// Built from elements, not a string: a layer name or colour from a file is
+// text and a value, never markup, and handlers close over the key instead of
+// splicing it into an onclick attribute.
+function _el(tag, cls, props) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (props) Object.assign(n, props);
+  return n;
+}
 
-  const ltOpts = Object.keys(LINETYPES).map(k =>
-    `<option value="${k}"${k===lay.ltype?' selected':''}>${LINETYPES[k].label}</option>`).join('');
-  row.innerHTML =
-    '<span class="layer-vis" onclick="toggleLayerVisibility(\''+key+'\');event.stopPropagation()" title="Toggle visibility">'
-      + (lay.visible ? '👁' : '○') + '</span>'
-    + '<input type="color" class="layer-color" value="'+lay.color+'" title="Layer colour" '
-      + 'onclick="event.stopPropagation()" oninput="setLayerColor(\''+key+'\', this.value)">'
-    + '<span class="layer-name">' + lay.name + '</span>'
-    + '<span class="layer-edit" title="Layer settings" '
-      + 'onclick="event.stopPropagation();this.parentNode.classList.toggle(\'expanded\')">⚙</span>'
-    + '<div class="layer-opts" onclick="event.stopPropagation()">'
-      + '<select class="layer-lt" title="Linetype" onchange="setLayerLtype(\''+key+'\', this.value)">'+ltOpts+'</select>'
-      + '<input type="number" class="layer-wt" title="Lineweight" min="0.1" max="10" step="0.1" '
-        + 'value="'+lay.weight+'" oninput="setLayerWeight(\''+key+'\', this.value)">'
-      + '<button class="layer-btn" title="Rename" onclick="renameLayer(\''+key+'\')">✎</button>'
-      + '<button class="layer-btn del" title="Delete layer" onclick="deleteLayer(\''+key+'\')">✕</button>'
-    + '</div>';
+function buildLayerRow(key, lay) {
+  const row = _el('div', 'layer-row' + (key === activeLayer ? ' active' : ''));
+  row.dataset.layer = key;
+  const stop = (ev) => ev.stopPropagation();
+
+  const vis = _el('span', 'layer-vis', { title: 'Toggle visibility', textContent: lay.visible ? '👁' : '○' });
+  vis.onclick = (ev) => { toggleLayerVisibility(key); stop(ev); };
+
+  const col = _el('input', 'layer-color', { type: 'color', title: 'Layer colour' });
+  col.value = String(lay.color || '');
+  col.onclick = stop;
+  col.oninput = () => setLayerColor(key, col.value);
+
+  const name = _el('span', 'layer-name', { textContent: lay.name });
+
+  const edit = _el('span', 'layer-edit', { title: 'Layer settings', textContent: '⚙' });
+  edit.onclick = (ev) => { stop(ev); row.classList.toggle('expanded'); };
+
+  const opts = _el('div', 'layer-opts');
+  opts.onclick = stop;
+  const lt = _el('select', 'layer-lt', { title: 'Linetype' });
+  for (const k of Object.keys(LINETYPES)) {
+    const o = _el('option', '', { value: k, textContent: LINETYPES[k].label });
+    if (k === lay.ltype) o.selected = true;
+    lt.appendChild(o);
+  }
+  lt.onchange = () => setLayerLtype(key, lt.value);
+  const wt = _el('input', 'layer-wt', { type: 'number', title: 'Lineweight', min: '0.1', max: '10', step: '0.1' });
+  wt.value = String(lay.weight);
+  wt.oninput = () => setLayerWeight(key, wt.value);
+  const ren = _el('button', 'layer-btn', { title: 'Rename', textContent: '✎' });
+  ren.onclick = () => renameLayer(key);
+  const del = _el('button', 'layer-btn del', { title: 'Delete layer', textContent: '✕' });
+  del.onclick = () => deleteLayer(key);
+  opts.append(lt, wt, ren, del);
+
+  row.append(vis, col, name, edit, opts);
   row.onclick = () => setActiveLayer(key);
   return row;
 }
@@ -10179,11 +10448,11 @@ function buildKvLayerDropdown() {
     const row = document.createElement('div');
     row.className = 'layer-row' + (lay.name === KVM.activeLayer ? ' active' : '');
     row.dataset.layer = lay.name;
-    row.innerHTML =
-      '<span class="layer-vis" title="Toggle visibility">' + (lay.visible ? '👁' : '○') + '</span>'
-      + '<span class="layer-color" style="display:inline-block;width:14px;height:14px;border-radius:3px;background:'
-      + lay.color + ';"></span>'
-      + '<span class="layer-name">' + lay.name + '</span>';
+    const sw = _el('span', 'layer-color');
+    sw.style.cssText = 'display:inline-block;width:14px;height:14px;border-radius:3px;';
+    sw.style.background = lay.color;
+    row.append(_el('span', 'layer-vis', { title: 'Toggle visibility', textContent: lay.visible ? '👁' : '○' }),
+               sw, _el('span', 'layer-name', { textContent: lay.name }));
     row.querySelector('.layer-vis').onclick = (ev) => { ev.stopPropagation(); kvToggleLayerVis(lay.name); };
     row.onclick = () => { kvSetActiveLayer(lay.name); closeLayerDropdown(); };
     panel.appendChild(row);
@@ -10251,8 +10520,8 @@ function setLayerWeight(key, w) {
 function renameLayer(key) {
   if (!LAYERS[key]) return;
   const next = prompt('Rename layer:', LAYERS[key].name);
-  if (!next || !next.trim()) return;
-  const nk = next.trim().toUpperCase();
+  if (!next || !kadCleanName(next)) return;
+  const nk = kadCleanName(next).toUpperCase();
   if (nk === key) return;
   if (LAYERS[nk]) { showToast('Layer already exists'); return; }
   const entries = Object.entries(LAYERS).map(([k,v]) =>
@@ -11008,21 +11277,171 @@ function drawEntities() {
   const _view = viewWorldRect();
   const _multiPlane = _anyExtraPlanes;
   ctx.globalAlpha = 1;   // known baseline — other draw paths touch this and are not all guaranteed to restore it before drawEntities runs
+
+  // ── batched runs ───────────────────────────────────────────────────────────
+  // Consecutive lines, circles, arcs, polylines and splines with the same
+  // colour, weight, linetype and plane alpha are traced into one Path2D and
+  // stroked once; their vertex dots go into a second path, filled once. Draw
+  // order is unchanged: anything that is not batched flushes the run first.
+  if (_mxStale()) _rebuildPlaneMatrices();
+  const SX = (x, y) => x*_wA + y*_wC + _wE;     // == worldToScreen() for the
+  const SY = (x, y) => x*_wB + y*_wD + _wF;     //    current draw plane
+  const _committed = draftCommittedColor();
+  const _crossCol  = hexA(_committed, 0.3);
+  const _dashFor = new Map();    // linetype -> dash at this zoom, once per frame
+  const dashOf = (lt) => {
+    let d = _dashFor.get(lt);
+    if (!d) { d = lt.dash.map(v => v * cam.zoom * 0.3); _dashFor.set(lt, d); }
+    return d;
+  };
+  const _ltKey = new Map();
+  const ltKey = (lt) => { let k = _ltKey.get(lt); if (k === undefined) { k = _ltKey.size; _ltKey.set(lt, k); } return k; };
+  const _contLT = (typeof LINETYPES !== 'undefined' && LINETYPES.continuous) || { dash: [] };
+  // Above this many selected entities, a soft second stroke replaces the
+  // shadowBlur glow, which costs a blur per entity.
+  const _bigSel = selectedIds.size > SEL_GLOW_MAX;
+  // The run's outline is built straight into ctx's current path; dots and
+  // circle centre crosses are buffered as numbers and drawn at the flush. No
+  // Path2D or point object is allocated per entity, so a drawing whose layers
+  // alternate entity by entity costs no more than drawing them one at a time.
+  const run = { key: null, open: false, col: null, lw: 1, dash: null, alpha: 1, sel: false, n: 0 };
+  const _dots = [], _cross = [];
+  // Vertex dots are 5 px across. On an entity smaller than DOT_MIN_SPAN_PX on
+  // screen they cover it rather than mark it, so they are left off there —
+  // unless it is selected. Zooming in brings them back.
+  let _dotsOn = true;
+  const dot = (D, x, y, r) => { if (_dotsOn) _dots.push(x, y, r); };
+  const flush = () => {
+    if (!run.open) return;
+    ctx.globalAlpha = run.alpha;
+    if (run.sel) {
+      ctx.setLineDash([]);
+      ctx.strokeStyle = 'rgba(255,170,0,0.22)';
+      ctx.lineWidth = run.lw + 6;
+      ctx.stroke();
+    }
+    ctx.setLineDash(run.dash);
+    ctx.strokeStyle = run.col; ctx.lineWidth = run.lw;
+    ctx.stroke();
+    if (_cross.length) {
+      ctx.beginPath();
+      for (let i = 0; i < _cross.length; i += 2) {
+        const x = _cross[i], y = _cross[i+1];
+        ctx.moveTo(x-6, y); ctx.lineTo(x+6, y); ctx.moveTo(x, y-6); ctx.lineTo(x, y+6);
+      }
+      ctx.lineWidth = 0.5; ctx.strokeStyle = run.sel ? C.entitySel : _crossCol; ctx.stroke();
+      _cross.length = 0;
+    }
+    if (_dots.length) {
+      ctx.beginPath();
+      for (let i = 0; i < _dots.length; i += 3) {
+        const x = _dots[i], y = _dots[i+1], r = _dots[i+2];
+        ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, Math.PI*2);
+      }
+      ctx.fillStyle = run.col; ctx.fill();
+      _dots.length = 0;
+    }
+    run.key = null; run.open = false; run.n = 0;
+  };
+
+  // Trace one entity into the run. Returns false for nothing drawable.
+  const trace = (o) => {
+    const P = ctx, D = null;
+    if (o.type === 'LINE') {
+      const ax = SX(o.x1,o.y1), ay = SY(o.x1,o.y1), bx = SX(o.x2,o.y2), by = SY(o.x2,o.y2);
+      _dotsOn = run.sel || Math.abs(bx-ax) + Math.abs(by-ay) >= DOT_MIN_SPAN_PX;
+      P.moveTo(ax, ay); P.lineTo(bx, by);
+      dot(D, ax, ay, 2.5); dot(D, bx, by, 2.5);
+    } else if (o.type === 'POLYLINE') {
+      const pts = o.pts;
+      if (!run.sel) {
+        let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+        for (const q of pts) { if (q.x<x0) x0=q.x; if (q.x>x1) x1=q.x; if (q.y<y0) y0=q.y; if (q.y>y1) y1=q.y; }
+        _dotsOn = ((x1-x0) + (y1-y0)) * cam.zoom >= DOT_MIN_SPAN_PX;
+      } else _dotsOn = true;
+      P.moveTo(SX(pts[0].x,pts[0].y), SY(pts[0].x,pts[0].y));
+      for (const seg of polySegments(o)) {
+        if (!seg.arc) { P.lineTo(SX(seg.b.x,seg.b.y), SY(seg.b.x,seg.b.y)); continue; }
+        // Walk the arc in world space and project — the camera can rotate, so
+        // canvas arc() on screen coords would be wrong off the World plane.
+        const A = seg.arc;
+        const steps = Math.max(6, Math.ceil(Math.abs(A.theta)/0.12));
+        for (let k = 1; k <= steps; k++) {
+          const t = A.a1 + A.theta*(k/steps);
+          const wx = A.cx + A.r*Math.cos(t), wy = A.cy + A.r*Math.sin(t);
+          P.lineTo(SX(wx,wy), SY(wx,wy));
+        }
+      }
+      if (o.closed) P.closePath();
+      for (let i = 0; i < pts.length; i++) {
+        const isEndpoint = !o.closed && (i === 0 || i === pts.length-1);
+        dot(D, SX(pts[i].x,pts[i].y), SY(pts[i].x,pts[i].y), isEndpoint ? 2.5 : 1.5);
+      }
+    } else if (o.type === 'BEZIER') {
+      const bz = o.beziers;
+      _dotsOn = run.sel || (Math.abs(bz[bz.length-1].x3 - bz[0].x0) + Math.abs(bz[bz.length-1].y3 - bz[0].y0) +
+                            Math.abs(bz[0].cx1 - bz[0].x0) + Math.abs(bz[0].cy1 - bz[0].y0)) * cam.zoom >= DOT_MIN_SPAN_PX;
+      P.moveTo(SX(bz[0].x0,bz[0].y0), SY(bz[0].x0,bz[0].y0));
+      for (const b of bz)
+        P.bezierCurveTo(SX(b.cx1,b.cy1), SY(b.cx1,b.cy1), SX(b.cx2,b.cy2), SY(b.cx2,b.cy2), SX(b.x3,b.y3), SY(b.x3,b.y3));
+      if (o.closed) P.closePath();
+      for (let i = 0; i < bz.length; i++)
+        dot(D, SX(bz[i].x0,bz[i].y0), SY(bz[i].x0,bz[i].y0), (!o.closed && i === 0) ? 2.5 : 1.5);
+      const last = bz[bz.length-1];
+      if (!o.closed) dot(D, SX(last.x3,last.y3), SY(last.x3,last.y3), 2.5);
+    } else if (o.type === 'CIRCLE') {
+      const cx = SX(o.cx,o.cy), cy = SY(o.cx,o.cy), sr = o.r*cam.zoom;
+      _dotsOn = run.sel || 2*sr >= DOT_MIN_SPAN_PX;
+      P.moveTo(cx + sr, cy); P.arc(cx, cy, sr, 0, Math.PI*2);
+      if (_dotsOn) _cross.push(cx, cy);   // the centre cross is 12 px: same rule as the dots
+      dot(D, cx, cy, 1.5);
+    } else if (o.type === 'ARC') {
+      const cx = SX(o.cx,o.cy), cy = SY(o.cx,o.cy), sr = o.r*cam.zoom;
+      _dotsOn = run.sel || 2*sr >= DOT_MIN_SPAN_PX;
+      P.moveTo(cx + sr*Math.cos(-o.endA), cy + sr*Math.sin(-o.endA));
+      P.arc(cx, cy, sr, -o.endA, -o.startA, !o.ccw);
+      const e1x = o.cx+o.r*Math.cos(o.startA), e1y = o.cy+o.r*Math.sin(o.startA);
+      const e2x = o.cx+o.r*Math.cos(o.endA),   e2y = o.cy+o.r*Math.sin(o.endA);
+      dot(D, SX(e1x,e1y), SY(e1x,e1y), 2.5); dot(D, SX(e2x,e2y), SY(e2x,e2y), 2.5);
+    }
+  };
+
   for(const o of GeoMemory.drawOrder()){
     const sel = selectedIds.has(o.id);
     const _lay = (typeof LAYERS !== 'undefined') && LAYERS[o.layer];
     if(_lay && !_lay.visible && !sel) continue;
     const _pid = _multiPlane ? planeOf(o) : 'World';
     if(!sel && !objInView(o, _multiPlane ? viewWorldRect(_pid) : _view)) continue;
-    if (_multiPlane) ctx.globalAlpha = (_pid !== activePlane) ? 0.32 : 1;
+    const _alpha = (_multiPlane && _pid !== activePlane) ? 0.32 : 1;
     if (_multiPlane) setDrawPlane(_pid);
-    const _layColor = _lay ? (_lay.color === '#00d4ff' ? draftCommittedColor() : _lay.color) : null;
-    const _col = sel ? C.entitySel : (_layColor !== null ? _layColor : draftCommittedColor());
+    const _layColor = _lay ? (_lay.color === '#00d4ff' ? _committed : _lay.color) : null;
+    const _col = sel ? C.entitySel : (_layColor !== null ? _layColor : _committed);
     const _lw  = sel ? 2.5 : (_lay ? _lay.weight : 0.9);
     const _lt  = (!sel && _lay && typeof LINETYPES !== 'undefined')
                    ? LINETYPES[_lay.ltype] || LINETYPES.continuous
-                   : LINETYPES && LINETYPES.continuous || {dash:[]};
-    ctx.setLineDash(_lt.dash.map(d => d * cam.zoom * 0.3));
+                   : _contLT;
+
+    const t = o.type;
+    const batchable = (t === 'LINE' || t === 'CIRCLE' || t === 'ARC' ||
+                       (t === 'POLYLINE' && o.pts.length >= 2) ||
+                       (t === 'BEZIER' && o.beziers.length >= 1)) && (!sel || _bigSel);
+    if (batchable) {
+      const key = _col + '|' + _lw + '|' + ltKey(_lt) + '|' + _alpha + (sel ? '|s' : '');
+      if (key !== run.key || run.n >= RUN_MAX) {
+        flush();
+        run.key = key; run.col = _col; run.lw = _lw; run.dash = dashOf(_lt); run.alpha = _alpha; run.sel = sel;
+        run.open = true; ctx.beginPath();
+      }
+      trace(o);
+      run.n++;
+      continue;
+    }
+    if (t === 'POLYLINE' || t === 'BEZIER') {
+      if ((t === 'POLYLINE' && o.pts.length < 2) || (t === 'BEZIER' && o.beziers.length < 1)) continue;
+    }
+    flush();
+    ctx.globalAlpha = _alpha;
+    ctx.setLineDash(dashOf(_lt));
     if(o.type==='HATCH'){
       const pat = HATCH_PATTERNS[o.pattern] || HATCH_PATTERNS.ANSI31;
       ctx.save();
@@ -11152,7 +11571,7 @@ function drawEntities() {
       if(sel){ctx.shadowColor='rgba(255,170,0,0.5)';ctx.shadowBlur=10;}
       ctx.strokeStyle=_col;ctx.lineWidth=_lw;
       ctx.beginPath();ctx.arc(sc.x,sc.y,sr,0,Math.PI*2);ctx.stroke();ctx.shadowBlur=0;
-      ctx.lineWidth=0.5;ctx.strokeStyle=sel?C.entitySel:hexA(draftCommittedColor(),0.3);
+      ctx.lineWidth=0.5;ctx.strokeStyle=sel?C.entitySel:_crossCol;
       ctx.beginPath();ctx.moveTo(sc.x-6,sc.y);ctx.lineTo(sc.x+6,sc.y);ctx.moveTo(sc.x,sc.y-6);ctx.lineTo(sc.x,sc.y+6);ctx.stroke();
       drawDot(sc.x,sc.y,_col,1.5);
     } else if(o.type==='ARC'){
@@ -11165,6 +11584,7 @@ function drawEntities() {
       drawDot(sp1.x,sp1.y,_col);drawDot(sp2.x,sp2.y,_col);
     }
   }
+  flush();
   clearDrawPlane();
   ctx.restore();
 }
@@ -11489,6 +11909,10 @@ function _dxfRelayer(sink, layer) {
   return sink;
 }
 
+// Record types the entity walker steps over without reporting: layout
+// viewports, attribute templates and the tails of entities read elsewhere.
+const DXF_QUIET_TYPES = new Set(['VIEWPORT', 'ATTDEF', 'ATTRIB', 'SEQEND', 'VERTEX', 'ENDBLK', 'ENDSEC', 'EOF', 'SECTION']);
+
 function parseDXF(text) {
   const rawLines = text.split(/\r?\n/);
   const tokens = [];
@@ -11631,6 +12055,11 @@ function parseDXF(text) {
 
   let _blocksExpanded = 0, _blocksCapped = 0;
   const _missingBlocks = [];
+  // What the file holds that KAD does not import, by name, with a count — the
+  // import dialog lists it. Nothing is dropped without being named here.
+  const _skippedTypes = Object.create(null);
+  const _skip = (what) => { _skippedTypes[what] = (_skippedTypes[what] || 0) + 1; };
+  let _radialAsLinear = 0;
 
   // The entity walker is a function so a block definition can be walked again,
   // on a sink of its own, when an INSERT references it. Re-destructuring the
@@ -12026,38 +12455,70 @@ function parseDXF(text) {
       }
 
       if (code === 0 && val === 'DIMENSION') {
-        // 13/23 and 14/24 are the two extension-line origins — the measurement
-        // intent. That is what KAD stores, so the graphics block is ignored and
-        // the dimension is rebuilt in KAD's own style.
-        let layer='DIM', x1=null,y1=null,x2=null,y2=null, label='', block='';
+        // KAD stores a dimension as its measurement intent — two points — and
+        // draws it in its own style, so the *D graphics block is not read.
+        // Which two points depends on the subtype in group 70 (low 3 bits):
+        //   0 rotated / horizontal / vertical, 1 aligned  -> 13 and 14
+        //   3 diameter -> 15 and 10, the two ends of the diameter
+        //   4 radius   -> 10 (centre) and 15 (on the curve)
+        //   2, 5 angular and 6 ordinate -> no KAD equivalent: reported, not guessed
+        let layer='DIM', label='', block='', flags=0, rot=0;
+        const pv = Object.create(null);
         let ex=0, ey=0, ez=1, elev=0;
         i++;
         while (i < tokens.length && tokens[i][0] !== 0) {
           const [c, v] = tokens[i];
-          if (c === 8)   layer = v;
-          if (c === 2)   block = v;
-          if (c === 1)   label = v;
-          if (c === 13)  x1 = parseFloat(v)*S;
-          if (c === 23)  y1 = parseFloat(v)*S;
-          if (c === 14)  x2 = parseFloat(v)*S;
-          if (c === 24)  y2 = parseFloat(v)*S;
-          if (c === 30)  elev = parseFloat(v)*S;
-          if (c === 210) ex = parseFloat(v);
-          if (c === 220) ey = parseFloat(v);
-          if (c === 230) ez = parseFloat(v);
+          if (c === 8)        layer = v;
+          else if (c === 2)   block = v;
+          else if (c === 1)   label = v;
+          else if (c === 70)  flags = parseInt(v, 10) || 0;
+          else if (c === 50)  rot = parseFloat(v) || 0;
+          else if ((c >= 10 && c <= 16) || (c >= 20 && c <= 26)) pv[c] = parseFloat(v)*S;
+          else if (c === 30)  elev = parseFloat(v)*S;
+          else if (c === 210) ex = parseFloat(v);
+          else if (c === 220) ey = parseFloat(v);
+          else if (c === 230) ez = parseFloat(v);
           i++;
         }
-        if (x1 != null && x2 != null && y1 != null && y2 != null) {
-          const d = { type:'DIM', layer, x1, y1, x2, y2,
+        const pt = (k) => (Number.isFinite(pv[k]) && Number.isFinite(pv[k + 10])) ? { x: pv[k], y: pv[k + 10] } : null;
+        const kind = flags & 7;
+        let a = null, b = null;
+        if (kind === 0 || kind === 1) {
+          a = pt(13); b = pt(14);
+          if (a && b && kind === 0) {
+            // A rotated dimension measures along its own angle (group 50), not
+            // point to point: a horizontal one across a diagonal reads the
+            // horizontal run. KAD's dimension measures point to point, so the
+            // second point moves onto the measuring direction through the first
+            // and the value matches what the file shows.
+            const r = rot * Math.PI / 180, ux = Math.cos(r), uy = Math.sin(r);
+            const dx = b.x - a.x, dy = b.y - a.y;
+            if (Math.abs(dx*uy - dy*ux) > 1e-9) { const t = dx*ux + dy*uy; b = { x: a.x + t*ux, y: a.y + t*uy }; }
+          }
+        } else if (kind === 3) { a = pt(15); b = pt(10); }
+        else if (kind === 4)   { a = pt(10); b = pt(15); }
+
+        if (a && b && Math.hypot(b.x - a.x, b.y - a.y) > 1e-12) {
+          const d = { type:'DIM', layer, x1:a.x, y1:a.y, x2:b.x, y2:b.y,
                       plane:_planeForOCS(ex,ey,ez,elev) };
           // '<>' is the DXF convention for "use the measured value"
           if (label && label !== '<>') d.label = label;
+          if (kind === 3 || kind === 4) _radialAsLinear++;
           dims.push(d);
+        } else {
+          _skip(kind === 2 || kind === 5 ? 'angular dimension'
+              : kind === 6 ? 'ordinate dimension'
+              : 'dimension without usable points');
         }
         // the *D graphics block is skipped: KAD regenerates it on render
         _dimBlocks.add(block);
         continue;
       }
+
+      // Anything else starting here is an entity type this reader has no model
+      // for. Counted by name so the import dialog can say what was left out.
+      if (code === 0 && !DXF_QUIET_TYPES.has(val))
+        _skip(/^[A-Z][A-Z0-9_]{1,40}$/.test(val) ? val : 'unreadable record');
 
       i++;
     }
@@ -12070,14 +12531,20 @@ function parseDXF(text) {
     planes.push({ id:g.planeId, label:'DXF elev ' + g.elev.toFixed(3),
                   origin:g.origin, xAxis:g.xAxis, yAxis:g.yAxis });
   }
-  return { lines, circles, arcs, polys, texts, points, dims, hatches, beziers,
+  return kadCleanParsedNames({ lines, circles, arcs, polys, texts, points, dims, hatches, beziers,
            scaleMM, rawInsUnits, planes,
            nonPlanarLines:_nonPlanarLines, layerDefs,
            blocksExpanded:_blocksExpanded, missingBlocks:_missingBlocks,
+           skippedTypes:_skippedTypes,
+           importNotes: _radialAsLinear
+             ? [_radialAsLinear + ' radius/diameter dimension' + (_radialAsLinear > 1 ? 's' : '') +
+                ' came in as linear: across the diameter, or centre to curve']
+             : [],
            // What the import dialog shows as "unsupported": a block the file
            // never defined, or nesting past the recursion ceiling. Both lose
            // geometry, so both are counted rather than dropped in silence.
-           skipped:_missingBlocks.length + _blocksCapped };
+           skipped:_missingBlocks.length + _blocksCapped +
+                   Object.values(_skippedTypes).reduce((n, k) => n + k, 0) });
 }
 
 
@@ -12153,6 +12620,20 @@ function openImportDialog(parsed, filename, kind) {
   if (skipRow) {
     skipRow.style.display = skipN ? 'flex' : 'none';
     if (skipN) document.getElementById('dlg-skipped-count').textContent = skipN;
+  }
+  // Name what is being left out, and anything converted rather than read as-is.
+  const skipDetail = document.getElementById('dlg-skipped-detail');
+  if (skipDetail) {
+    const bits = [];
+    const st = parsed.skippedTypes || {};
+    const kinds = Object.keys(st).sort((a, b) => st[b] - st[a]);
+    if (kinds.length) bits.push('Not imported: ' + kinds.map(k => st[k] + ' \u00d7 ' + k).join(' \u00b7 '));
+    const mb = Array.isArray(parsed.missingBlocks) ? parsed.missingBlocks : [];
+    if (mb.length) bits.push('Blocks not defined in the file: ' + mb.slice(0, 5).join(', ') + (mb.length > 5 ? '\u2026' : ''));
+    for (const n of (parsed.importNotes || [])) bits.push(n);
+    skipDetail.textContent = '';
+    for (const t of bits) { const d = document.createElement('div'); d.textContent = '\u25b8 ' + t; skipDetail.appendChild(d); }
+    skipDetail.style.display = bits.length ? 'block' : 'none';
   }
 
   const unitSection = document.getElementById('dlg-unit-section');
@@ -12244,6 +12725,7 @@ function importDXF(event) {
 function commitDxfImport() {
   const { parsed, unitSel, mergeSel, source } = dxfDialog;
   if (!parsed) return;
+  kadCleanParsedNames(parsed);
   const importName = dxfDialog.filename;
 
   const nc1FirstName  = document.getElementById('dlg-nc1-name')  ? document.getElementById('dlg-nc1-name').value  : '';
@@ -12321,6 +12803,7 @@ function commitDxfImport() {
   const _pl = (e) => (e.plane && _planeRemap[e.plane]) || e.plane || 'World';
   const _setPlane = (o, id) => { if (o) { if (id === 'World') delete o.plane; else o.plane = id; } return o; };
 
+  GeoMemory.batch(() => {
   for (const ln of lines) {
     const o = GeoMemory.addLine(
       parseFloat((ln.x1*S).toFixed(6)), parseFloat((ln.y1*S).toFixed(6)),
@@ -12386,6 +12869,7 @@ function commitDxfImport() {
     const o = GeoMemory.addDim(d.x1*S, d.y1*S, d.x2*S, d.y2*S, d.layer, d.label);
     _setPlane(o, _pl(d));
   }
+  });
   if (Array.isArray(parsed.planes) && parsed.planes.length) {
     showToast('Imported on ' + (parsed.planes.length + 1) + ' planes \u00b7 ' +
               parsed.planes.length + ' from DXF elevation/extrusion');
@@ -12444,22 +12928,24 @@ function commitDxfImport() {
     updatePartsPanel();
   }
 
-  zoomExtents();
-  render();
+  zoomExtents();   // renders
 
+  const _nAll = lines.length + circles.length + arcs.length + polys.length + texts.length +
+                points.length + dims.length + hatches.length + bezs.length;
   let msg;
   if (source === 'cam') {
-    msg = `Imported ${lines.length+circles.length+arcs.length} entities \u00b7 ${camPartsCreated} part${camPartsCreated===1?'':'s'}`
+    msg = `Imported ${_nAll} entities \u00b7 ${camPartsCreated} part${camPartsCreated===1?'':'s'}`
         + ` \u00b7 mm (FastCAM) \u00b7 ${mergeSel}`;
   } else if (source === 'nc1') {
-    msg = `Imported ${lines.length+circles.length} entities \u00b7 ${ncPartsCreated} part${ncPartsCreated===1?'':'s'}`
+    msg = `Imported ${_nAll} entities \u00b7 ${ncPartsCreated} part${ncPartsCreated===1?'':'s'}`
         + (ncArcsFlattened ? ` \u00b7 ${ncArcsFlattened} arc${ncArcsFlattened===1?'':'s'} flattened` : '')
         + ` \u00b7 ${mergeSel}`;
   } else {
     const unitLabel = unitSel==='auto'
       ? (S===25.4 ? 'inches (file header)' : S===1 ? 'mm (file header)' : `\u00d7${S} (file header)`)
       : unitSel;
-    msg = `Imported ${lines.length+circles.length+arcs.length} entities \u00b7 ${unitLabel} \u00b7 ${mergeSel}`;
+    msg = `Imported ${_nAll} entit${_nAll === 1 ? 'y' : 'ies'} \u00b7 ${unitLabel} \u00b7 ${mergeSel}`
+        + (parsed.skipped ? ` \u00b7 ${parsed.skipped} not imported` : '');
   }
   showToast(msg);
   if (camNewPart) camOpenPartData(camNewPart, parsed);
@@ -13298,6 +13784,10 @@ function camOpenPartData(part, parsed) {
 }
 
 const PDFJS_VERSION = '3.11.174';
+// pdf.min.js 3.11.174 is byte-identical on all three mirrors below, so one hash
+// covers whichever answers. Bump both together. (The worker is started by
+// pdf.js itself, which offers no integrity option for it.)
+const PDFJS_SRI = 'sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e';
 const PDFJS_SOURCES = [
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/' + PDFJS_VERSION,
   'https://unpkg.com/pdfjs-dist@' + PDFJS_VERSION + '/build',
@@ -13313,6 +13803,8 @@ function loadPdfJs() {
       if (i >= PDFJS_SOURCES.length) { _pdfjsPromise = null; reject(new Error('offline')); return; }
       const base = PDFJS_SOURCES[i++];
       const s = document.createElement('script');
+      s.integrity = PDFJS_SRI;
+      s.crossOrigin = 'anonymous';
       s.src = base + '/pdf.min.js';
       s.onload = () => {
         if (!window.pdfjsLib) { tryNext(); return; }
@@ -13850,17 +14342,19 @@ async function pdfCommitImport() {
       continue;
     }
 
-    const layerName = (baseName + (range.length > 1 ? ' p' + pno : '')).slice(0, 28);
+    const layerName = kadCleanName(baseName + (range.length > 1 ? ' p' + pno : ''), 28) || 'PDF';
     if (!LAYERS[layerName]) {
       LAYERS[layerName] = { name:layerName, color:'#a68ae8', ltype:'continuous', weight:1.3, visible:true, locked:false };
     }
     const prevLayer = activeLayer;
     activeLayer = layerName;
-    for (const o of objs) {
-      if (o.type === 'LINE')          GeoMemory.addLine(o.x1, o.y1, o.x2, o.y2, layerName);
-      else if (o.type === 'POLYLINE') GeoMemory.addPolyline(o.pts, o.closed, layerName);
-      else if (o.type === 'TEXT')     GeoMemory.addText(o.x, o.y, o.text, o.height, layerName);
-    }
+    GeoMemory.batch(() => {
+      for (const o of objs) {
+        if (o.type === 'LINE')          GeoMemory.addLine(o.x1, o.y1, o.x2, o.y2, layerName);
+        else if (o.type === 'POLYLINE') GeoMemory.addPolyline(o.pts, o.closed, layerName);
+        else if (o.type === 'TEXT')     GeoMemory.addText(o.x, o.y, o.text, o.height, layerName);
+      }
+    });
     activeLayer = prevLayer;
     report.objects += objs.length;
     xOffset += dwMM + GAP;
@@ -13897,8 +14391,13 @@ const STEP_KERNEL_SOURCES = [
   'https://unpkg.com/PICK-A-STEP-KERNEL@' + STEP_KERNEL_VERSION,
 ];
 let _stepKernelPromise = null;
+// No STEP kernel has been chosen (STEP-IMPORT-PLAN.md), so the sources above
+// name a package that does not exist. Until one is picked and verified, the
+// loader refuses outright rather than requesting it from two CDNs.
+const STEP_KERNEL_CHOSEN = false;
 function loadStepKernel() {
   if (window.StepKernel) return Promise.resolve(window.StepKernel);
+  if (!STEP_KERNEL_CHOSEN) return Promise.reject(new Error('no STEP kernel has been selected yet'));
   if (_stepKernelPromise) return _stepKernelPromise;
   _stepKernelPromise = new Promise((resolve, reject) => {
     let i = 0;
@@ -14110,9 +14609,9 @@ async function stepCommitImport() {
   const baseName = (STEPIMP.name.replace(/\.(step|stp)$/i, '') || 'STEP').slice(0, 20);
 
   let entitiesCreated = 0, solidsChained = 0, solidsUnchained = 0, solidsEmpty = 0;
-  norm.solids.forEach((solid, i) => {
+  GeoMemory.batch(() => norm.solids.forEach((solid, i) => {
     if (!solid.edges.length) { solidsEmpty++; return; }
-    const layerName = (baseName + ' ' + (solid.name || ('Solid ' + (i+1)))).slice(0, 28);
+    const layerName = kadCleanName(baseName + ' ' + (solid.name || ('Solid ' + (i+1))), 28) || 'STEP';
     if (!LAYERS[layerName]) LAYERS[layerName] = { name:layerName, color:'#a68ae8', ltype:'continuous', weight:1.3, visible:true, locked:false };
 
     const chain = stepChainEdges(solid.edges);
@@ -14123,7 +14622,7 @@ async function stepCommitImport() {
       solidsUnchained++;
       entitiesCreated += stepCommitChain(solid.edges, layerName).length;
     }
-  });
+  }));
 
   closeStepImport();
   if (btn) btn.disabled = false;
@@ -14191,9 +14690,17 @@ const KAD_DWG = {
 
   // Both default to the CDN above. Set either — or window.KAD_DWG_ESM /
   // window.KAD_DWG_WASM — to a copy you host yourself. .wasm wants the folder
-  // the .wasm file sits in, with a trailing slash.
+  // the .wasm file sits in (a trailing slash is fine; it is trimmed).
   esm:  null,
   wasm: null,
+
+  // A same-origin copy, tried before the CDN. Deploy the two files below at
+  // this path beside KAD.html and DWG import needs no third-party request and
+  // works offline once cached:
+  //   libredwg-web.mjs   <- https://cdn.jsdelivr.net/npm/@mlightcad/libredwg-web@0.7.10/+esm
+  //   libredwg-web.wasm  <- https://cdn.jsdelivr.net/npm/@mlightcad/libredwg-web@0.7.10/wasm/libredwg-web.wasm
+  // Set to null to skip the check.
+  local: 'vendor/libredwg-web-0.7.10/',
 
   modP: null,          // in-flight/settled module load
   diag: null,          // what the loader resolved, for the console
@@ -14217,13 +14724,35 @@ const KAD_DWG = {
 // its URL rather than discovering it. Emscripten reports nothing more useful
 // than "fetching of the wasm failed" when a URL 404s, so the one HEAD below
 // turns that into a sentence someone can act on. Safe to call from the console.
+// LibreDwg.create(dir) fetches `${dir}/libredwg-web.wasm`, so the folder must
+// not end in a slash: 'wasm/' turns into 'wasm//…', which jsDelivr refuses.
+const _dwgDir = (d) => String(d).replace(/\/+$/, '');
+
+// The same-origin copy, if one is deployed: { esm, dir } or null.
+async function kadDwgLocal() {
+  if (!KAD_DWG.local) return null;
+  if (KAD_DWG._localP) return KAD_DWG._localP;
+  KAD_DWG._localP = (async () => {
+    try {
+      const base = new URL(KAD_DWG.local, document.baseURI).href;
+      const head = await fetch(base + 'libredwg-web.wasm', { method: 'HEAD' });
+      if (!head.ok) return null;
+      console.info('[KAD] LibreDWG served from this site: ' + base);
+      return { esm: base + 'libredwg-web.mjs', dir: _dwgDir(base) };
+    } catch (err) { return null; }
+  })();
+  return KAD_DWG._localP;
+}
+
 async function kadDwgFindWasmDir() {
   const fixed = window.KAD_DWG_WASM || KAD_DWG.wasm;
-  if (fixed) return fixed;
+  if (fixed) return _dwgDir(fixed);
   if (KAD_DWG.diag && KAD_DWG.diag.dir) return KAD_DWG.diag.dir;
+  const local = await kadDwgLocal();
+  if (local) { KAD_DWG.diag = { dir: local.dir, url: local.dir + '/libredwg-web.wasm' }; return local.dir; }
 
   const url = KAD_DWG.cdn + KAD_DWG.wasmPath;
-  const dir = url.slice(0, url.lastIndexOf('/') + 1);
+  const dir = _dwgDir(url.slice(0, url.lastIndexOf('/') + 1));
   try {
     const head = await fetch(url, { method: 'HEAD' });
     if (!head.ok) throw new Error('HTTP ' + head.status);
@@ -14240,7 +14769,8 @@ async function kadDwgFindWasmDir() {
 function kadDwgModule() {
   if (KAD_DWG.modP) return KAD_DWG.modP;
   KAD_DWG.modP = (async () => {
-    const esm = window.KAD_DWG_ESM || KAD_DWG.esm || (KAD_DWG.cdn + '/+esm');
+    const local = (window.KAD_DWG_ESM || KAD_DWG.esm) ? null : await kadDwgLocal();
+    const esm = window.KAD_DWG_ESM || KAD_DWG.esm || (local && local.esm) || (KAD_DWG.cdn + '/+esm');
     const mod = await import(esm);
     const ns  = (mod && mod.LibreDwg) ? mod : ((mod && mod.default) || mod);
     if (!ns || !ns.LibreDwg || typeof ns.LibreDwg.create !== 'function')
@@ -14723,7 +15253,14 @@ async function importDWG(event) {
     showToast('Loading DWG reader\u2026');
     ({ lib, fileType } = await kadDwgModule());
   } catch (err) {
-    showToast('DWG reader unavailable \u2014 ' + err.message);
+    // The reader is downloaded on first use (about 10 MB) unless a copy is
+    // deployed beside KAD. With no connection that first download cannot
+    // happen, and the message should say that rather than a fetch error.
+    const offline = (typeof navigator !== 'undefined' && navigator.onLine === false) ||
+                    /fetch|network|import|reachable|load/i.test(String(err && err.message));
+    showToast(offline
+      ? 'DWG import needs a connection the first time \u2014 the DWG reader (about 10 MB) downloads once, then works offline'
+      : 'DWG reader unavailable \u2014 ' + err.message);
     reset(); return;
   }
 
@@ -14873,19 +15410,35 @@ function buildDXF(objects, units) {
   let _h = 0x100;
   const H = () => (++_h).toString(16).toUpperCase();
 
-  // Entity preamble: type, handle, class chain, layer.
+  /* ── OWNERS ─────────────────────────────────────────────────────────────
+     A reader that builds a drawing database — AutoCAD, LibreDWG, ODA —
+     places each record by its owner pointer (group 330), not by the section
+     it happens to sit in. Without one, a model-space LINE belongs to nothing
+     and is not drawn. The chain written here: TABLE -> 0; a table's records
+     -> that TABLE; BLOCK, ENDBLK and every entity inside a block -> that
+     block's BLOCK_RECORD; ENTITIES -> *Model_Space's BLOCK_RECORD; the root
+     dictionary -> 0. _owner is whatever the next record belongs to.      */
+  let _owner = '0';
+  let _table = '0';
+  const blockRecH = Object.create(null);   // block name -> BLOCK_RECORD handle
+  const styleH    = Object.create(null);   // text style name -> STYLE handle
+
+  // Entity preamble: type, handle, owner, class chain, layer.
   const ent = (type, layer, ...subclasses) => {
-    lines.push('0', type, '5', H(), '100', 'AcDbEntity', '8', layer);
+    lines.push('0', type, '5', H(), '330', _owner, '100', 'AcDbEntity', '8', layer);
     for (const sc of subclasses) lines.push('100', sc);
   };
   // Table record preamble. DIMSTYLE uses 105 instead of 5 — a genuine quirk
-  // of the spec, not a typo.
+  // of the spec, not a typo. Returns the record's handle.
   const rec = (type, ...subclasses) => {
-    lines.push('0', type, (type === 'DIMSTYLE' ? '105' : '5'), H());
+    const h = H();
+    lines.push('0', type, (type === 'DIMSTYLE' ? '105' : '5'), h, '330', _table);
     for (const sc of subclasses) lines.push('100', sc);
+    return h;
   };
   const tableStart = (name, count) => {
-    lines.push('0','TABLE','2',name,'5',H(),'100','AcDbSymbolTable','70',String(count));
+    _table = H();
+    lines.push('0','TABLE','2',name,'5',_table,'330','0','100','AcDbSymbolTable','70',String(count));
   };
 
   const DXF_LT = {
@@ -14917,7 +15470,11 @@ function buildDXF(objects, units) {
   const hasExt = _eMinX !== Infinity;
   lines.push('0','SECTION','2','HEADER',
     '9','$ACADVER','1','AC1014',
-    '9','$HANDSEED','5','FFFF',
+    '9','$HANDSEED','5','FFFF');
+  // Filled in once the last handle is known: it must exceed every handle in
+  // the file, and a fixed FFFF is overrun by a drawing of ~65k records.
+  const _seedAt = lines.length - 1;
+  lines.push(
     '9','$INSUNITS','70',insunits,
     '9','$MEASUREMENT','70', (units === 'in') ? '0' : '1',
     '9','$LTSCALE','40', f(1),
@@ -14991,7 +15548,7 @@ function buildDXF(objects, units) {
 
   tableStart('STYLE', 2);
   for (const nm of ['STANDARD','KAD']) {
-    rec('STYLE','AcDbSymbolTableRecord','AcDbTextStyleTableRecord');
+    styleH[nm] = rec('STYLE','AcDbSymbolTableRecord','AcDbTextStyleTableRecord');
     lines.push('2',nm,'70','0','40','0.0','41','1.0','50','0.0',
                '71','0','42', f(DIM_TXT), '3','txt','4','');
   }
@@ -15017,7 +15574,7 @@ function buildDXF(objects, units) {
              '147', f(1),             // DIMGAP
              '172','1',               // DIMTOFL
              '271', String(units === 'in' ? 3 : 2),  // DIMDEC
-             '340','KAD');
+             '340', styleH.KAD);      // DIMTXSTY: a handle, not a name
   lines.push('0','ENDTAB');
 
   // BLOCK_RECORD: one per block in the BLOCKS section. Required from R13 on;
@@ -15028,7 +15585,7 @@ function buildDXF(objects, units) {
   const blockNames = ['*Model_Space','*Paper_Space', ..._dims.map(o=>_dimBlockName.get(o.id))];
   tableStart('BLOCK_RECORD', blockNames.length);
   for (const bn of blockNames) {
-    rec('BLOCK_RECORD','AcDbSymbolTableRecord','AcDbBlockTableRecord');
+    blockRecH[bn] = rec('BLOCK_RECORD','AcDbSymbolTableRecord','AcDbBlockTableRecord');
     lines.push('2',bn,'70','0');
   }
   lines.push('0','ENDTAB','0','ENDSEC');
@@ -15059,6 +15616,7 @@ function buildDXF(objects, units) {
   // still show correct geometry from the block.
   lines.push('0','SECTION','2','BLOCKS');
   for (const bn of ['*Model_Space','*Paper_Space']) {
+    _owner = blockRecH[bn];
     ent('BLOCK','0','AcDbBlockBegin');
     lines.push('2',bn,'70','0','10','0.0','20','0.0','30','0.0','3',bn,'1','');
     ent('ENDBLK','0','AcDbBlockEnd');
@@ -15066,6 +15624,7 @@ function buildDXF(objects, units) {
   _dims.forEach((o) => {
     const name = _dimBlockName.get(o.id);
     const g = dimGeometry({x:o.x1,y:o.y1},{x:o.x2,y:o.y2});
+    _owner = blockRecH[name];
     ent('BLOCK',o.layer,'AcDbBlockBegin');
     lines.push('2',name,'70','1','10','0.0','20','0.0','30','0.0','3',name,'1','');
     const seg = (a,b) => {
@@ -15098,6 +15657,7 @@ function buildDXF(objects, units) {
 
   // ── ENTITIES ────────────────────────────────────────────────────────────
   lines.push('0','SECTION','2','ENTITIES');
+  _owner = blockRecH['*Model_Space'];
   for(const o of objects){
     if(o.type==='LINE'){
       ent('LINE',o.layer,'AcDbLine');
@@ -15224,7 +15784,18 @@ function buildDXF(objects, units) {
       lines.push('100','AcDbText');   // TEXT genuinely declares its class twice
     }
   }
-  lines.push('0','ENDSEC','0','EOF');
+  lines.push('0','ENDSEC');
+
+  // ── OBJECTS ─────────────────────────────────────────────────────────────
+  // The root (named object) dictionary every R13+ file carries, owned by
+  // nothing, with the ACAD_GROUP dictionary under it.
+  const rootH = H(), groupH = H();
+  lines.push('0','SECTION','2','OBJECTS',
+             '0','DICTIONARY','5',rootH,'330','0','100','AcDbDictionary',
+             '3','ACAD_GROUP','350',groupH,
+             '0','DICTIONARY','5',groupH,'330',rootH,'100','AcDbDictionary',
+             '0','ENDSEC','0','EOF');
+  lines[_seedAt] = (_h + 1).toString(16).toUpperCase();
   return lines.join('\n');
 }
 
@@ -15429,7 +16000,7 @@ const PartLibrary = {
     };
     this.parts.push(part);
     for (const id of free) {
-      const o = GeoMemory.objects.find(x => x.id === id);
+      const o = GeoMemory.get(id);
       if (o) o.partId = part.partId;
     }
     return { part, taken };
@@ -15439,7 +16010,7 @@ const PartLibrary = {
     const part = this.getPart(partId);
     if (!part) return false;
     for (const id of part.entityIds) {
-      const o = GeoMemory.objects.find(x => x.id === id);
+      const o = GeoMemory.get(id);
       if (o) delete o.partId;
     }
     this.parts = this.parts.filter(p => p.partId !== partId);
@@ -15470,7 +16041,7 @@ const PartLibrary = {
     let changed = 0;
     for (const p of this.parts) {
       const before = p.entityIds.length;
-      p.entityIds = p.entityIds.filter(id => GeoMemory.objects.some(o => o.id === id));
+      p.entityIds = p.entityIds.filter(id => GeoMemory.get(id) !== null);
       changed += before - p.entityIds.length;
     }
     const emptied = this.parts.filter(p => !p.entityIds.length).length;
@@ -15507,23 +16078,33 @@ const PartLibrary = {
   deserialize(arr) {
     if (!Array.isArray(arr)) { this.parts = []; return { loaded: 0, unknownGrades: [] }; }
     const unknown = new Set();
-    this.parts = arr.map((p, i) => {
-      const gradeId = p.gradeId || 'a36';
+    const ids = new Set();
+    const txt = (v, n) => (v == null ? v : String(v).slice(0, n));
+    this.parts = arr.filter(p => p && typeof p === 'object').map((p, i) => {
+      const gradeId = kadCleanName(p.gradeId, 64) || 'a36';
       if (!kadMaterialById(gradeId)) unknown.add(gradeId);
-      return Object.assign({}, p, {
-        partId:      p.partId || ('part_r' + i + '_' + Math.random().toString(36).slice(2, 7)),
-        name:        p.name || ('Part ' + (i + 1)),
+      // A part id ends up in data attributes and click handlers, so it keeps
+      // to a safe alphabet; one that is empty or taken after that is replaced.
+      let partId = kadSafeId(p.partId);
+      if (!partId || ids.has(partId)) partId = 'part_r' + i + '_' + Math.random().toString(36).slice(2, 7);
+      ids.add(partId);
+      const out = Object.assign({}, p, {
+        partId,
+        name:        txt(p.name, 64) || ('Part ' + (i + 1)),
         entityIds:   Array.isArray(p.entityIds) ? p.entityIds.slice() : [],
         gradeId:     gradeId,
-        thicknessMM: typeof p.thicknessMM === 'number' ? p.thicknessMM : 6.35,
+        thicknessMM: (typeof p.thicknessMM === 'number' && isFinite(p.thicknessMM)) ? p.thicknessMM : 6.35,
         qty:         Math.max(1, parseInt(p.qty, 10) || 1),
-        color:       p.color || PART_COLORS[i % PART_COLORS.length],
+        color:       kadSafeColor(p.color, PART_COLORS[i % PART_COLORS.length]),
       });
+      for (const f of PART_TEXT_FIELDS) if (out[f] != null) out[f] = txt(out[f], 64);
+      if (out.notes != null) out.notes = txt(out.notes, 2000);
+      return out;
     });
     this._nextColor = this.parts.length % PART_COLORS.length;
     for (const part of this.parts) {
       for (const id of part.entityIds) {
-        const o = GeoMemory.objects.find(x => x.id === id);
+        const o = GeoMemory.get(id);
         if (o) o.partId = part.partId;
       }
     }
@@ -15534,9 +16115,7 @@ const PartLibrary = {
 };
 
 
-function pdEsc(s) {
-  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-}
+function pdEsc(s) { return escHtml(s); }
 
 function pdThickLabel(mm) {
   const v = toDisplay(mm);
@@ -15550,17 +16129,25 @@ function updatePartsPanel() {
   if (!PartLibrary.parts.length) {
     list.innerHTML = '<div class="pd-empty">No parts defined.<br>Select geometry, then Create Part.</div>';
   } else {
-    list.innerHTML = PartLibrary.parts.map(p =>
-      '<div class="pd-row" data-part-id="' + p.partId + '">' +
-        '<div class="pd-swatch" style="background:' + p.color + '"></div>' +
-        '<div class="pd-main" onclick="openPartDataModal(\'' + p.partId + '\')">' +
-          '<div class="pd-name">' + pdEsc(p.name) + '</div>' +
-          '<div class="pd-meta">' + pdEsc(kadGradeLabel(p.gradeId)) + ' · ' + pdThickLabel(p.thicknessMM) + ' · ×' + p.qty + (p.job ? ' · ' + pdEsc(p.job) : '') + '</div>' +
-        '</div>' +
-        '<button class="pd-btn" title="Select this part\u2019s geometry" onclick="PartLibrary.selectPart(\'' + p.partId + '\')">\u25ce</button>' +
-        '<button class="pd-btn pd-del" title="Remove part (geometry is kept)" onclick="deletePartData(\'' + p.partId + '\')">\u2715</button>' +
-      '</div>'
-    ).join('');
+    list.textContent = '';
+    for (const p of PartLibrary.parts) {
+      const id = p.partId;
+      const row = _el('div', 'pd-row');
+      row.dataset.partId = id;
+      const sw = _el('div', 'pd-swatch');
+      sw.style.background = p.color;
+      const main = _el('div', 'pd-main');
+      main.onclick = () => openPartDataModal(id);
+      main.append(_el('div', 'pd-name', { textContent: p.name }),
+                  _el('div', 'pd-meta', { textContent: kadGradeLabel(p.gradeId) + ' · ' + pdThickLabel(p.thicknessMM) +
+                                                       ' · ×' + p.qty + (p.job ? ' · ' + p.job : '') }));
+      const pick = _el('button', 'pd-btn', { title: 'Select this part\u2019s geometry', textContent: '\u25ce' });
+      pick.onclick = () => PartLibrary.selectPart(id);
+      const del = _el('button', 'pd-btn pd-del', { title: 'Remove part (geometry is kept)', textContent: '\u2715' });
+      del.onclick = () => deletePartData(id);
+      row.append(sw, main, pick, del);
+      list.appendChild(row);
+    }
   }
 
   const sum = document.getElementById('parts-summary');
@@ -15739,13 +16326,19 @@ function deserializeDocument(text) {
   if (d.format !== 'KAD') return false;
 
   const m = d.model || {};
-  GeoMemory.replaceAll(Array.isArray(m.objects) ? m.objects : [], m.nextId);
+  const _objs = Array.isArray(m.objects) ? m.objects : [];
+  let _layerMap = null;
   if (m.layers && typeof m.layers === 'object' && Object.keys(m.layers).length) {
+    const t = kadCleanLayerTable(m.layers);
+    _layerMap = t.map;
     for (const k of Object.keys(LAYERS)) delete LAYERS[k];
-    Object.assign(LAYERS, m.layers);
+    Object.assign(LAYERS, t.table);
   }
-  activeLayer = (m.activeLayer && LAYERS[m.activeLayer]) ? m.activeLayer
-              : (Object.keys(LAYERS)[0] || 'Layer_0');
+  kadCleanLayerRefs(_objs, _layerMap);
+  for (const o of _objs) if (o && o.partId != null) o.partId = kadSafeId(o.partId);
+  GeoMemory.replaceAll(_objs, m.nextId);
+  const _al = (_layerMap && _layerMap.get(m.activeLayer)) || kadCleanName(m.activeLayer);
+  activeLayer = (_al && LAYERS[_al]) ? _al : (Object.keys(LAYERS)[0] || 'Layer_0');
 
   const _planesDropped = [];
   for (const k of Object.keys(PLANES)) delete PLANES[k];
@@ -15760,7 +16353,7 @@ function deserializeDocument(text) {
       const b = orthonormalize({ x:+X.x, y:+X.y, z:+X.z },
                                { x:+Y.x, y:+Y.y, z:+Y.z });
       if (!b) { _planesDropped.push(k); continue; }
-      PLANES[k] = { id: P.id || k, label: P.label || k, locked: !!P.locked,
+      PLANES[k] = { id: P.id || k, label: kadCleanName(P.label || k, 64) || k, locked: !!P.locked,
                     origin: { x:+o.x, y:+o.y, z:+o.z },
                     xAxis: b.xAxis, yAxis: b.yAxis };
     }
@@ -15841,16 +16434,23 @@ function savePdRender() {
   document.getElementById('savepd-intro').textContent = parts.length
     ? 'This file will carry the parts data below. Edit a part, add another, or continue.'
     : 'This drawing has no parts data. Add a part so the BOM can count and weigh it, or save without parts data.';
-  document.getElementById('savepd-list').innerHTML = parts.map(p =>
-    '<div class="pd-row">' +
-      '<div class="pd-swatch" style="background:' + p.color + '"></div>' +
-      '<div class="pd-main" onclick="savePdEdit(\'' + p.partId + '\')">' +
-        '<div class="pd-name">' + pdEsc(p.name) + '</div>' +
-        '<div class="pd-meta">' + pdEsc([kadGradeLabel(p.gradeId), pdThickLabel(p.thicknessMM),
-          '\u00d7' + p.qty, p.job, p.customer].filter(Boolean).join(' \u00b7 ')) + '</div>' +
-      '</div>' +
-      '<button class="pd-btn pd-edit" onclick="savePdEdit(\'' + p.partId + '\')">Edit</button>' +
-    '</div>').join('');
+  const spl = document.getElementById('savepd-list');
+  spl.textContent = '';
+  for (const p of parts) {
+    const id = p.partId;
+    const row = _el('div', 'pd-row');
+    const sw = _el('div', 'pd-swatch');
+    sw.style.background = p.color;
+    const main = _el('div', 'pd-main');
+    main.onclick = () => savePdEdit(id);
+    main.append(_el('div', 'pd-name', { textContent: p.name }),
+                _el('div', 'pd-meta', { textContent: [kadGradeLabel(p.gradeId), pdThickLabel(p.thicknessMM),
+                                                      '\u00d7' + p.qty, p.job, p.customer].filter(Boolean).join(' \u00b7 ') }));
+    const ed = _el('button', 'pd-btn pd-edit', { textContent: 'Edit' });
+    ed.onclick = () => savePdEdit(id);
+    row.append(sw, main, ed);
+    spl.appendChild(row);
+  }
   const c = savePdCandidates();
   const count = n => n + ' object' + (n === 1 ? '' : 's');
   // Once a drawing has parts, what is left over is usually a side view or
@@ -16004,7 +16604,7 @@ function bomPointInPolygon(pt, poly) {
 
 function bomPartAreaMM2(part) {
   const ents = part.entityIds
-    .map(id => GeoMemory.objects.find(o => o.id === id))
+    .map(id => GeoMemory.get(id))
     .filter(Boolean);
   if (!ents.length) return null;
   if (!samePlane(ents)) return null;
@@ -17942,7 +18542,7 @@ function skadApply(entities) {
   const runId = ++SKAD_MODE.runs;
   const made = { poly: 0, circle: 0, text: 0, ids: [] };
 
-  for (const e of entities) {
+  GeoMemory.batch(() => { for (const e of entities) {
     let o = null;
     if (e.type === 'POLYLINE') {
       o = GeoMemory.addPolyline(e.pts, e.closed !== false, layer);
@@ -17958,7 +18558,7 @@ function skadApply(entities) {
     // output. Additive fields, so .kad files stay readable by older clients and
     // KAD_DOC_VERSION does not move.
     if (o) { o.src = 'skad'; o.srcRun = runId; made.ids.push(o.id); }
-  }
+  } });
 
   if (typeof scheduleRender === 'function') scheduleRender(); else render();
   return made;
@@ -18125,6 +18725,7 @@ function newDocument() {
 }
 
 function commitDocumentChange() {
+  if (GeoMemory._batch > 0) { GeoMemory._batchDirty = true; return; }
   markModelDirty();
   renderPropsPanel();
 }
@@ -18132,10 +18733,9 @@ function commitDocumentChange() {
 function updateProps() { commitDocumentChange(); }
 
 function renderPropsPanel() {
-  const lines    = GeoMemory.objects.filter(o=>o.type==='LINE').length;
-  const hatches  = GeoMemory.objects.filter(o=>o.type==='HATCH').length;
-  const polys    = GeoMemory.objects.filter(o=>o.type==='POLYLINE').length;
-  const arcs2=GeoMemory.objects.filter(o=>o.type==='ARC'||o.type==='CIRCLE').length;
+  const c = GeoMemory.counts();
+  const lines = c.LINE || 0, polys = c.POLYLINE || 0;
+  const arcs2 = (c.ARC || 0) + (c.CIRCLE || 0);
   document.getElementById('prop-objects').textContent = GeoMemory.objects.length;
   document.getElementById('prop-lines').textContent   = lines + (polys?` +${polys}pl`:'') + (arcs2?` +${arcs2}arc`:'');
 }
@@ -18180,8 +18780,8 @@ let chamferState = {active:false, line1:null, line2:null};
 function getChamfer(){const d=parseFloat(document.getElementById('chamfer-d-input').value)||5;return parseFloat(fromDisplay(d).toFixed(6));}
 
 function commitChamfer(line1Id, line2Id) {
-  const o1 = GeoMemory.objects.find(o=>o.id===line1Id);
-  const o2 = GeoMemory.objects.find(o=>o.id===line2Id);
+  const o1 = GeoMemory.get(line1Id);
+  const o2 = GeoMemory.get(line2Id);
   if (!o1||!o2||o1.type!=='LINE'||o2.type!=='LINE') { showToast('Select two lines for chamfer'); return; }
   if (!requireSamePlane([o1,o2], 'Chamfer')) return;
 
@@ -18226,7 +18826,7 @@ function drawChamferPreview() {
   ctx.save();
   ctx.strokeStyle = 'rgba(255,170,0,0.6)';
   ctx.lineWidth = 2;
-  const o = GeoMemory.objects.find(o=>o.id===chamferState.line1);
+  const o = GeoMemory.get(chamferState.line1);
   if (o) {
     const a = worldToScreen(o.x1,o.y1), b = worldToScreen(o.x2,o.y2);
     ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
@@ -18242,7 +18842,7 @@ function copySelected() {
   if (!selectedIds.size) { showToast('Select objects first'); return; }
   _clipboard = []; _pasteCount = 0;
   for (const id of selectedIds) {
-    const o = GeoMemory.objects.find(x => x.id === id);
+    const o = GeoMemory.get(id);
     if (o) _clipboard.push(JSON.parse(JSON.stringify(o)));
   }
   showToast('Copied ' + _clipboard.length + ' object' + (_clipboard.length!==1?'s':'') + ' · Ctrl+V to paste');
@@ -18253,7 +18853,7 @@ function pasteSelected() {
   _pasteCount++;
   const dx = PASTE_STEP * _pasteCount, dy = -PASTE_STEP * _pasteCount;
   selectedIds.clear();
-  for (const o of _clipboard) {
+  GeoMemory.batch(() => { for (const o of _clipboard) {
     let n; const lay = o.layer || 'Layer_0';
     if      (o.type==='LINE')     n = GeoMemory.addLine(o.x1+dx,o.y1+dy,o.x2+dx,o.y2+dy,lay);
     else if (o.type==='CIRCLE')   n = GeoMemory.addCircle(o.cx+dx,o.cy+dy,o.r,lay);
@@ -18265,7 +18865,7 @@ function pasteSelected() {
       {pattern:o.pattern, scale:o.scale, angle:o.angle,
        origin:{x:o.origin.x+dx, y:o.origin.y+dy}}, lay);
     if (n) { _inheritPlane(n, o); selectedIds.add(n.id); }
-  }
+  } });
   updateProps(); render();
   showToast('Pasted ' + _clipboard.length + ' object' + (_clipboard.length!==1?'s':''));
 }
@@ -20824,8 +21424,8 @@ function kvArcToSVG(s, lay, mk, X, Y) {
   const w   = kvN(kvArcHalfWidth(s) * 2);
   const op  = (s.alpha != null ? s.alpha : 0.9);
   const dash = s.dashed ? ` stroke-dasharray="${kvN(kvArcHalfWidth(s)*6)},${kvN(kvArcHalfWidth(s)*4.4)}"` : '';
-  const head = `<g data-kvs-id="${s.id}" data-kvs-role="arc" data-kvs-arc="${s.full?'full':'open'}"${mk} `
-             + `fill="none" stroke="${col}" stroke-opacity="${op}" stroke-width="${w}" `
+  const head = `<g data-kvs-id="${kvSvgEsc(s.id)}" data-kvs-role="arc" data-kvs-arc="${s.full?'full':'open'}"${mk} `
+             + `fill="none" stroke="${kvSvgEsc(col)}" stroke-opacity="${kvSvgEsc(op)}" stroke-width="${w}" `
              + `stroke-linecap="round"${dash}>`;
   if (s.full) {
     return head + `<circle cx="${X(s.cx)}" cy="${Y(s.cy)}" r="${kvN(s.r)}"/></g>`;
@@ -21252,11 +21852,12 @@ function kvDeserialize(text) {
   if (typeof d.grid === 'boolean') kvShowGrid    = d.grid;
   if (typeof d.snap === 'boolean') kvSnapEnabled = d.snap;
   if (d.brush) {
-    if (d.brush.color) B.color = d.brush.color;
+    if (d.brush.color) B.color = kadSafeColor(d.brush.color, B.color);
     if (d.brush.size)  B.size  = d.brush.size;
     if (d.brush.alpha != null) B.alpha = d.brush.alpha;
   }
-  if (Array.isArray(d.layers) && d.layers.length) KVM.layers = d.layers;
+  if (Array.isArray(d.layers) && d.layers.length) KVM.layers = kvCleanLayers(d.layers);
+  kvCleanSpaceRefs(d);
   KVM.strokes = Array.isArray(d.strokes) ? d.strokes : [];
   KVM.dims    = Array.isArray(d.dims)    ? d.dims    : [];
   KVM.welds   = Array.isArray(d.welds)   ? d.welds   : [];
@@ -21294,7 +21895,7 @@ function kvRestoreSheets(k) {
   if (typeof k.grid === 'boolean') kvShowGrid    = k.grid;
   if (typeof k.snap === 'boolean') kvSnapEnabled = k.snap;
   if (k.brush) {
-    if (k.brush.color) B.color = k.brush.color;
+    if (k.brush.color) B.color = kadSafeColor(k.brush.color, B.color);
     if (k.brush.size)  B.size  = k.brush.size;
     if (k.brush.alpha != null) B.alpha = k.brush.alpha;
   }
@@ -21305,6 +21906,9 @@ function kvRestoreSheets(k) {
   KV_SHEETS.length = 0;
   _kvSheetSeq = 1;
   for (const sh of k.sheets) {
+    if (!sh || typeof sh !== 'object') continue;
+    kvCleanSpaceRefs(sh);
+    if (Array.isArray(sh.layers)) sh.layers = kvCleanLayers(sh.layers);
     KV_SHEETS.push({
       id:_kvSheetSeq, name: kvUniqueSheetName(sh.name || ('Sheet ' + _kvSheetSeq)),
       page: sh.page ? {...sh.page} : {...KV_PAGE_SIZES.a3l},
@@ -21672,9 +22276,9 @@ function commitVecImport() {
   try {
     if (dest === 'both') {
       kvAdoptKVS(text, name);
-      res = kvsToGeometry(text, F, layer);
+      res = GeoMemory.batch(() => kvsToGeometry(text, F, layer));
     }
-    else res = (kind === 'kvs') ? kvsToGeometry(text, F, layer) : svgToGeometry(text, F, layer);
+    else res = GeoMemory.batch(() => (kind === 'kvs') ? kvsToGeometry(text, F, layer) : svgToGeometry(text, F, layer));
   } catch (e) { showToast('Import failed: ' + e.message); return; }
   if (res.error) { showToast(res.error); return; }
   if (!res.added) { showToast('Nothing importable found in ' + name); return; }
@@ -21899,16 +22503,16 @@ function kvExportSVG() {
     const mk = maskForIndex(i);
     if (s.type === 'text') {
       const tr = s.rot ? ` transform="rotate(${kvN(-s.rot)} ${X(s.x)} ${Y(s.y)})"` : '';
-      out.push(`<text data-kvs-id="${s.id}" x="${X(s.x)}" y="${Y(s.y)}"${mk}${tr} `
+      out.push(`<text data-kvs-id="${kvSvgEsc(s.id)}" x="${X(s.x)}" y="${Y(s.y)}"${mk}${tr} `
              + `font-family="JetBrains Mono, monospace" font-size="${kvN((s.size||10)*0.5)}" `
-             + `fill="${s.color||lay.color}">${kvSvgEsc(s.text)}</text>`);
+             + `fill="${kvSvgEsc(s.color||lay.color)}">${kvSvgEsc(s.text)}</text>`);
     } else if (kvIsTrueArc(s)) {
       out.push(kvArcToSVG(s, lay, mk, X, Y));
     } else {
       const g = kvStrokeGeometry(s);
       if (!g) return;
-      out.push(`<g data-kvs-id="${s.id}" data-kvs-mode="${s.mode||'curve'}"${mk} `
-             + `fill="${s.color||lay.color}" fill-opacity="${s.alpha!=null?s.alpha:0.9}" stroke="none">`
+      out.push(`<g data-kvs-id="${kvSvgEsc(s.id)}" data-kvs-mode="${kvSvgEsc(s.mode||'curve')}"${mk} `
+             + `fill="${kvSvgEsc(s.color||lay.color)}" fill-opacity="${kvSvgEsc(s.alpha!=null?s.alpha:0.9)}" stroke="none">`
              + pathFor(g) + `</g>`);
     }
   });
@@ -21924,10 +22528,10 @@ function kvExportSVG() {
     for (const w of welds) {
       const a = { x:X(w.p1.x), y:Y(w.p1.y) }, b = { x:X(w.p2.x), y:Y(w.p2.y) };
       out.push(`<g data-kvs-role="weld" data-kvs-weld="${kvSvgEsc(w.weldType||'')}" `
-             + `stroke="${lay.color}" stroke-width="0.3" fill="none">`
+             + `stroke="${kvSvgEsc(lay.color)}" stroke-width="0.3" fill="none">`
              + `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`
              + `<line x1="${b.x}" y1="${b.y}" x2="${kvN(b.x+14)}" y2="${b.y}"/>`
-             + `<text x="${kvN(b.x+2)}" y="${kvN(b.y-1.5)}" font-size="3" fill="${lay.color}" stroke="none">`
+             + `<text x="${kvN(b.x+2)}" y="${kvN(b.y-1.5)}" font-size="3" fill="${kvSvgEsc(lay.color)}" stroke="none">`
              + `${kvSvgEsc((w.size||'') + ' ' + (w.weldType||''))}</text></g>`);
     }
     out.push(`</g>`);
@@ -21941,7 +22545,7 @@ function kvExportSVG() {
 
 function kvDimToSVG(d, lay, X, Y) {
   const col = lay.color;
-  const open = `<g data-kvs-role="dim" data-kvs-dim="${d.type}" stroke="${col}" stroke-width="0.25" fill="none">`;
+  const open = `<g data-kvs-role="dim" data-kvs-dim="${kvSvgEsc(d.type)}" stroke="${kvSvgEsc(col)}" stroke-width="0.25" fill="none">`;
   if (d.type === 'linear' && d.p1 && d.p2) {
     const dx = d.p2.x - d.p1.x, dy = d.p2.y - d.p1.y;
     const len = Math.hypot(dx, dy) || 1;
@@ -21953,7 +22557,7 @@ function kvDimToSVG(d, lay, X, Y) {
       + `<line x1="${X(d.p1.x)}" y1="${Y(d.p1.y)}" x2="${X(a.x)}" y2="${Y(a.y)}"/>`
       + `<line x1="${X(d.p2.x)}" y1="${Y(d.p2.y)}" x2="${X(b.x)}" y2="${Y(b.y)}"/>`
       + `<line x1="${X(a.x)}" y1="${Y(a.y)}" x2="${X(b.x)}" y2="${Y(b.y)}"/>`
-      + `<text x="${X(mid.x)}" y="${Y(mid.y)-1}" font-size="3.2" fill="${col}" stroke="none" text-anchor="middle">${kvSvgEsc(val)}</text>`
+      + `<text x="${X(mid.x)}" y="${Y(mid.y)-1}" font-size="3.2" fill="${kvSvgEsc(col)}" stroke="none" text-anchor="middle">${kvSvgEsc(val)}</text>`
       + `</g>`;
   }
   if (d.type === 'radial' && d.center) {
@@ -21962,7 +22566,7 @@ function kvDimToSVG(d, lay, X, Y) {
     return open
       + `<circle cx="${X(d.center.x)}" cy="${Y(d.center.y)}" r="${kvN(r)}" stroke-dasharray="1.5 1.5"/>`
       + `<line x1="${X(d.center.x)}" y1="${Y(d.center.y)}" x2="${X(e.x)}" y2="${Y(e.y)}"/>`
-      + `<text x="${X(e.x)+1}" y="${Y(e.y)-1}" font-size="3.2" fill="${col}" stroke="none">R${kvSvgEsc(d.label||fmtU(r))}</text>`
+      + `<text x="${X(e.x)+1}" y="${Y(e.y)-1}" font-size="3.2" fill="${kvSvgEsc(col)}" stroke="none">R${kvSvgEsc(d.label||fmtU(r))}</text>`
       + `</g>`;
   }
   return '';
@@ -22139,12 +22743,12 @@ function kvBuildLayerList() {
     const row = document.createElement('div');
     row.className = 'layer-row' + (l.name === KVM.activeLayer ? ' act' : '') +
                     (l.visible ? '' : ' hidden');
-    row.innerHTML =
-      `<div class="layer-dot" style="background:${l.color}"></div>` +
-      `<span class="layer-name">${l.name}</span>` +
-      (l.visible
+    const dot = _el('div', 'layer-dot');
+    dot.style.background = l.color;
+    row.append(dot, _el('span', 'layer-name', { textContent: l.name }));
+    row.insertAdjacentHTML('beforeend', l.visible
         ? `<svg class="layer-eye" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`
-        : `<svg class="layer-eye" viewBox="0 0 24 24" style="opacity:0.3"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`);
+        : `<svg class="layer-eye" viewBox="0 0 24 24" style="opacity:0.3"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`);   // static markup only
     row.querySelector('.layer-eye').onclick = (ev) => { ev.stopPropagation(); kvToggleLayerVis(l.name); };
     row.onclick = () => kvSetActiveLayer(l.name);
     el.appendChild(row);
@@ -22255,7 +22859,7 @@ function kvNextSheetNumber() {
 }
 
 function kvUniqueSheetName(desired, skipIdx) {
-  let base = String(desired || '').trim().slice(0, 40) || ('Sheet ' + kvNextSheetNumber());
+  let base = kadCleanName(desired, 40) || ('Sheet ' + kvNextSheetNumber());
   const taken = new Set();
   KV_SHEETS.forEach((s, i) => { if (i !== skipIdx) taken.add((s.name || '').toLowerCase()); });
   if (!taken.has(base.toLowerCase())) return base;
@@ -22380,8 +22984,8 @@ function kvBuildSheetTabs() {
   KV_SHEETS.forEach((s, i) => {
     const b = document.createElement('button');
     b.className = 'kv-sheet-tab' + (i === kvSheetIdx ? ' act' : '');
-    b.innerHTML = `<span class="kvs-name">${s.name}</span>` +
-                  `<span class="kvs-dim">${kvPageDim(s.page)}</span>`;
+    b.append(_el('span', 'kvs-name', { textContent: s.name }),
+             _el('span', 'kvs-dim',  { textContent: kvPageDim(s.page) }));
     b.onclick = () => kvGoSheet(i);
     b.ondblclick = () => { if (i === kvSheetIdx) kvRenameSheet(); };
     el.appendChild(b);
@@ -23554,18 +24158,18 @@ if ('launchQueue' in window) {
 </script>
 
 <link rel="preconnect" href="https://unpkg.com">
-<script defer src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<script defer src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"
+        integrity="sha384-PMNj1TmCgXfW24/rfIyxYSAWwj2mffkMfguUWv08iNFcy0kTC0JN7E/tE+pJ7+fa"
+        crossorigin="anonymous"></script>
 
 <script type="module">
-  const firebaseConfig = {
-    apiKey:            "YOUR_API_KEY",
-    authDomain:        "YOUR_PROJECT.firebaseapp.com",
-    projectId:         "YOUR_PROJECT",
-    storageBucket:     "YOUR_PROJECT.appspot.com",
-    messagingSenderId: "YOUR_SENDER_ID",
-    appId:             "YOUR_APP_ID"
-  };
-  if (firebaseConfig.apiKey !== "YOUR_API_KEY") {
+  // KLOUD's paid tiers read their Firebase web config from
+  // window.KLOUD_FIREBASE_CONFIG ({ apiKey, authDomain, projectId,
+  // storageBucket, messagingSenderId, appId }), set by a script that runs
+  // before this one. Unset, nothing loads and the free peer-to-peer tier is
+  // unaffected. See KLOUD-HOSTING.md.
+  const firebaseConfig = window.KLOUD_FIREBASE_CONFIG || null;
+  if (firebaseConfig && firebaseConfig.apiKey) {
     try {
       const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
       const { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged } =
@@ -23690,7 +24294,7 @@ function kloudSpacePayload(space) {
 }
 function kloudSendSpace(c, space) {
   if (space === 'kanvas' && kloudRole === 'host' && kloudShareKanvas !== true) return;
-  try { c.send({type:'doc', space, payload: kloudSpacePayload(space)}); } catch(e) {}
+  try { c.send({type:'doc', space, payload: kloudSpacePayload(space)}); } catch(e) { console.warn('[KAD] KLOUD send failed', e); }
 }
 function kloudBroadcast(space, force) {
   if (!kloudRole) return;
@@ -23703,7 +24307,7 @@ function kloudBroadcast(space, force) {
     if (space === 'kanvas' && payload === kloudLastKanvas) return;
   }
   if (space === 'model') kloudLastModel = payload; else kloudLastKanvas = payload;
-  for (const x of live) { try { x.send({type:'doc', space, payload}); } catch(e) {} }
+  for (const x of live) { try { x.send({type:'doc', space, payload}); } catch(e) { console.warn('[KAD] KLOUD broadcast failed', e); } }
 }
 
 
@@ -23722,7 +24326,7 @@ function kloudWire(c){
       const sp = data.space === 'kanvas' ? 'kanvas' : 'model';
       const did = (data.op === 'redo') ? redoSpace(sp) : undoSpace(sp);
       if(!did){
-        try{ c.send({type:'note', text:'Nothing to ' + (data.op||'undo')}); }catch(e){}
+        try{ c.send({type:'note', text:'Nothing to ' + (data.op||'undo')}); }catch(e){ console.warn('[KAD] KLOUD note failed', e); }
       }
       return;   // the resulting document reaches everyone via the normal poll
     }
@@ -23746,7 +24350,7 @@ function kloudWire(c){
 
     if(ok && kloudRole==='host'){
       for(const other of kloudConns){
-        if(other!==c && other.open){ try{ other.send({type:'doc', space, payload}); }catch(e){} }
+        if(other!==c && other.open){ try{ other.send({type:'doc', space, payload}); }catch(e){ console.warn('[KAD] KLOUD relay failed', e); } }
       }
     }
   });
@@ -23803,7 +24407,7 @@ function kloudGoogleSignIn(){
 }
 
 window.addEventListener('load', ()=>{
-  try { updatePartsPanel(); } catch(e) {}
+  try { updatePartsPanel(); } catch(e) { console.warn('[KAD] parts panel init failed', e); }
   try {
     const hash=(location.hash||'').replace('#','');
     if(hash && hash.length>4 && !hash.includes('/')){
@@ -23812,7 +24416,7 @@ window.addEventListener('load', ()=>{
       kloudStatus('Invitation detected — authenticating into space…', 'var(--accent)');
       setTimeout(()=>kloudJoin(hash), 400);
     }
-  } catch(e){}
+  } catch(e){ console.warn('[KAD] KLOUD invite link not handled', e); }
 });
 </script>
 
