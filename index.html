@@ -3848,12 +3848,31 @@ body.kanvas-mode #app {
 'use strict';
 
 
-const KAD_APP_VERSION = '1.4.2';
+const KAD_APP_VERSION = '1.4.3';
 
 // Public changelog. Only list features once they're fully live (no display:none
 // gates, no feature flags left off). Newest entry first. Keep entries short —
 // this is the "what shipped", not the dev log; that stays in KAD-DEV-NOTES.md.
 const KAD_CHANGELOG = [
+  {
+    version: '1.4.3',
+    date: '2026-10-09',
+    groups: [
+      {
+        label: 'NC1 (DSTV) import',
+        items: [
+          'A plate\u2019s outline comes in again. DSTV names the face (v, o, u, h) only on the first point of a contour, and KAD read every line as if it did: from the second point on, each coordinate slid one column over and the outline collapsed onto the bottom edge',
+          'Header fields land in the right places when the file has a ** comment line. Comments may sit anywhere in a DSTV file, and one under ST shifted every field down one: the grade showed as the part mark and the quantity as the grade',
+          'Flange and web thickness were read the wrong way round. Plates are unaffected; a rolled section now takes its web thickness',
+          'Each outline and cut-out is one closed polyline instead of loose lines, so it selects, offsets and hatches as one piece, and the BOM can weigh a plate with cut-outs',
+          'ASTM grades in the file \u2014 A36, A572 Gr.50, A588, A514 \u2014 are suggested by name, and A992 as A572 Gr.50 by its 50 ksi yield. Only EN grades (S355 and the like) got a suggestion before',
+          'A plate whose weight per metre in the file does not match its own size is flagged in the import dialog, and the BOM weighs it from the drawing instead',
+          'Marks (hole code m) are no longer drawn as holes. Slotted holes, notch corners and corner radii that come in simplified are named in the import dialog',
+          'When a one-part file keeps its part mark in another header field, the part takes the file\u2019s own name, which stays editable in the dialog',
+        ],
+      },
+    ],
+  },
   {
     version: '1.4.2',
     date: '2026-10-08',
@@ -12665,9 +12684,13 @@ function openImportDialog(parsed, filename, kind) {
       const suggestedId = suggested ? suggested.id : 'a36';
       const note = document.getElementById('dlg-nc1-grade-note');
       if (note) {
-        note.textContent = suggested
-          ? `Suggested by nearest yield: ${kadGradeLabel(suggested.id)} (file \u2248${suggested.yieldMPa} MPa / \u2248${suggested.yieldKsi} ksi, catalogue is \u2248${suggested.deltaKsi} ksi off)`
-          : 'No automatic match for this grade string \u2014 defaulted to mild steel, please confirm.';
+        note.textContent = !suggested
+          ? 'No automatic match for this grade string \u2014 defaulted to mild steel, please confirm.'
+          : suggested.via === 'name'
+          ? `Suggested from the grade name: ${kadGradeLabel(suggested.id)}`
+          : suggested.via === 'yield'
+          ? `${suggested.token} is not in the catalogue \u2014 suggested by its ${suggested.yieldKsi} ksi yield: ${kadGradeLabel(suggested.id)}`
+          : `Suggested by nearest yield: ${kadGradeLabel(suggested.id)} (file \u2248${suggested.yieldMPa} MPa / \u2248${suggested.yieldKsi} ksi, catalogue is \u2248${suggested.deltaKsi} ksi off)`;
         note.className = suggested ? 'ok' : 'warn';
       }
       renderGradePicker(suggestedId, 'nc1-grades');
@@ -12923,6 +12946,7 @@ function commitDxfImport() {
         nc1StRaw:           p.stRaw,
         nc1PrimaryFace:     p.primaryFace,
         nc1OtherFaceRaw:    p.otherFaceRaw,
+        nc1WeightSuspect:   !!p.weightSuspect,
       });
     });
     updatePartsPanel();
@@ -12967,8 +12991,10 @@ function nc1ParseST(stLines) {
     length:          num(8),
     height:          num(9),
     width:           num(10),
-    webThickness:    num(11),
-    flangeThickness: num(12),
+    // DSTV: field 12 is flange thickness, field 13 web thickness (1-based).
+    // The same number on a plate; different on every rolled section.
+    flangeThickness: num(11),
+    webThickness:    num(12),
     radius:          num(13),
     weightPerM:      num(14),
     surfacePerM:     num(15),
@@ -12982,7 +13008,7 @@ const NC1_GRADE_CANDIDATE_GROUP = 'Carbon Steel - Plate';
 function nc1SuggestGrade(gradeRaw) {
   if (!gradeRaw) return null;
   const m = /^S\s*(\d{2,3})/i.exec(String(gradeRaw).trim());
-  if (!m) return null;
+  if (!m) return nc1SuggestAstmGrade(gradeRaw);
   const yieldMPa = parseFloat(m[1]);
   if (!Number.isFinite(yieldMPa) || yieldMPa <= 0) return null;
   const yieldKsi = yieldMPa * 0.145038;
@@ -13001,6 +13027,32 @@ function nc1SuggestGrade(gradeRaw) {
   };
 }
 
+// US detailing packages write ASTM names (A36, A572-GR.50, A992), which the
+// EN yield rule above cannot read. The plate grades KAD catalogues are matched
+// by name with the same tokens the FastCAM reader uses, kept to structural
+// plate for the same reason as above. A992 — the usual grade for wide-flange
+// shapes — has no catalogue entry and is suggested by its 50 ksi yield, which
+// lands on A572 Gr.50 under the same tie rule. Suggested, never applied.
+function nc1SuggestAstmGrade(gradeRaw) {
+  const s = String(gradeRaw).trim();
+  for (const [re, id] of CAM_GRADE_TOKENS) {
+    if (!re.test(s)) continue;
+    const mat = kadMaterialById(id);
+    if (!mat || mat.group !== NC1_GRADE_CANDIDATE_GROUP) continue;
+    return { id, via: 'name', token: (s.match(re) || [''])[0].trim() };
+  }
+  if (/\bA\s*-?\s*992\b/i.test(s)) {
+    let best = null, bestDelta = Infinity;
+    for (const mat of KAD_MATERIALS) {
+      if (mat.group !== NC1_GRADE_CANDIDATE_GROUP) continue;
+      const d = Math.abs(mat.yield - 50);
+      if (d < bestDelta) { bestDelta = d; best = mat; }
+    }
+    if (best) return { id: best.id, via: 'yield', yieldMPa: 345, yieldKsi: 50, deltaKsi: parseFloat(bestDelta.toFixed(1)), token: 'A992' };
+  }
+  return null;
+}
+
 function nc1FacePlanes(part) {
   const h = Number(part.height) || 0;   // section depth
   const b = Number(part.width)  || 0;   // flange width
@@ -13013,8 +13065,41 @@ function nc1FacePlanes(part) {
   };
 }
 
-function parseNC1(text) {
-  const rawLines = text.split(/\r?\n/);
+// One DSTV point line. Only the first point of a contour (or the first hole
+// of a run) has to name its face — v web/front, o top flange, u bottom flange,
+// h back; later lines start straight with X and keep the face they follow.
+// A number may end in a letter: o/s/u say which edge a coordinate is measured
+// to, t/w mark a notch at a contour corner, and on a hole the depth carries a
+// hole code (s countersink, g thread, l slot, m mark).
+function nc1PointLine(line, faceIn) {
+  const toks = String(line).trim().split(/\s+/).filter(Boolean);
+  if (!toks.length) return null;
+  let face = faceIn || null;
+  if (/^[vouh]$/i.test(toks[0])) face = toks.shift().toLowerCase();
+  else if (/^[vouh][-+.\d]/i.test(toks[0])) { face = toks[0][0].toLowerCase(); toks[0] = toks[0].slice(1); }
+  const nums = [], tags = [];
+  for (const t of toks) {
+    const m = /^([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)([a-z]*)$/i.exec(t);
+    nums.push(m ? parseFloat(m[1]) : NaN);
+    tags.push(m ? m[2].toLowerCase() : t);
+  }
+  return { face, nums, tags };
+}
+
+// The part mark a file is named after: its own name, or the one in a
+// leading "** NAME.nc1" comment.
+function nc1Stem(name) {
+  const m = /([^\\/\s*]+?)\.(nc1|nc|dstv)\s*$/i.exec(String(name || '').trim());
+  return m ? m[1] : '';
+}
+
+function parseNC1(text, fileName) {
+  // "**" lines are comments and may sit anywhere, including inside the ST
+  // header. Blank lines are NOT dropped: header fields are positional and an
+  // unused one is written as an empty line.
+  const allLines = text.split(/\r?\n/);
+  const commentStem = nc1Stem((allLines.find(l => /^\s*\*\*/.test(l)) || '').replace(/^\s*\*\*\s*/, ''));
+  const rawLines = allLines.filter(l => !/^\s*\*\*/.test(l));
 
   let firstIdx = 0;
   while (firstIdx < rawLines.length && rawLines[firstIdx].trim() === '') firstIdx++;
@@ -13047,7 +13132,8 @@ function parseNC1(text) {
       name:            st.piece || ('Part ' + (parts.length + 1)),
       qty:             st.qty,
       gradeRaw:        st.gradeRaw,
-      thicknessMM:     st.webThickness != null ? st.webThickness : 6.35,
+      thicknessMM:     st.webThickness != null ? st.webThickness
+                     : st.flangeThickness != null ? st.flangeThickness : 6.35,
       profile:         st.profile,
       profileType:     st.profileType,
       length:          st.length,
@@ -13066,8 +13152,12 @@ function parseNC1(text) {
       otherFaceRaw:    [],
       facesSeen:       {},
       arcsFlattened:   0,
+      notchCorners:    0,
+      slots:           0,
+      marks:           0,
       malformedLines:  0,
       lines:           [],
+      polys:           [],
       circles:         [],
     };
 
@@ -13077,60 +13167,67 @@ function parseNC1(text) {
       if (kw === 'ST') break; // next part — leave i pointing at it
 
       if (kw === 'AK' || kw === 'IK') {
+        // One contour per face run. A new face letter, or a point that closes
+        // the loop back onto its start, ends the contour in hand; DSTV does
+        // not have to repeat the first point, and the loop is closed either way.
         i++;
-        const pts = [];
-        while (i < rawLines.length && !isKeywordLine(rawLines[i])) {
-          const toks = rawLines[i].trim().split(/\s+/).filter(Boolean);
-          if (toks.length >= 3) {
-            const face = toks[0], x = parseFloat(toks[1]), y = parseFloat(toks[2]);
-            const r = toks.length >= 4 ? parseFloat(toks[3]) : null;
-            if (Number.isFinite(x) && Number.isFinite(y)) pts.push({ face, x, y, r: Number.isFinite(r) ? r : null });
-            else part.malformedLines++;
-          } else if (toks.length > 0) {
-            part.malformedLines++;
-          }
-          i++;
-        }
-        if (pts.length >= 2) {
-          if (part.primaryFace == null) part.primaryFace = pts[0].face;
-          {
+        let face = null, pts = [];
+        const finish = () => {
+          if (pts.length >= 2) {
             const _face = pts[0].face;
-            const _fp = (_face !== part.primaryFace) ? ('NC1_' + _face) : null;
-            if (_fp) part.otherFaceRaw.push({ block: kw, face: _face, points: pts.length });
+            if (part.primaryFace == null) part.primaryFace = _face;
+            if (_face !== part.primaryFace) part.otherFaceRaw.push({ block: kw, face: _face, points: pts.length });
             part.facesSeen[_face] = true;
-            for (let k = 0; k < pts.length - 1; k++) {
-              if (pts[k].r) part.arcsFlattened++;
-              part.lines.push({ type:'LINE', layer:'Layer_0', x1:pts[k].x, y1:pts[k].y, x2:pts[k+1].x, y2:pts[k+1].y, _face });
-            }
-            const p0 = pts[0], pN = pts[pts.length - 1];
-            if (p0.x !== pN.x || p0.y !== pN.y) {
-              if (pN.r) part.arcsFlattened++;
-              part.lines.push({ type:'LINE', layer:'Layer_0', x1:pN.x, y1:pN.y, x2:p0.x, y2:p0.y });
-            }
-          }
+            const a = pts[0], z = pts[pts.length - 1];
+            if (pts.length > 2 && Math.abs(a.x - z.x) < 1e-9 && Math.abs(a.y - z.y) < 1e-9) pts.pop();
+            for (const q of pts) { if (q.r) part.arcsFlattened++; if (q.notch) part.notchCorners++; }
+            part.polys.push({ type:'POLYLINE', layer:'Layer_0', closed: pts.length >= 3,
+                              pts: pts.map(q => ({ x: q.x, y: q.y })), _face });
+          } else if (pts.length) part.malformedLines++;
+          pts = [];
+        };
+        while (i < rawLines.length && !isKeywordLine(rawLines[i])) {
+          const L = nc1PointLine(rawLines[i], face);
+          i++;
+          if (!L) continue;
+          const x = L.nums[0], y = L.nums[1];
+          if (!(L.nums.length >= 2 && Number.isFinite(x) && Number.isFinite(y))) { part.malformedLines++; continue; }
+          const f = L.face || part.primaryFace || 'v';
+          if (pts.length && f !== pts[0].face) finish();
+          face = f;
+          const r = L.nums[2];
+          pts.push({ face: f, x, y, r: Number.isFinite(r) && r !== 0 ? r : null,
+                     notch: /[tw]/.test(L.tags[0] || '') || /[tw]/.test(L.tags[1] || '') });
+          if (pts.length > 3 && Math.abs(pts[0].x - x) < 1e-9 && Math.abs(pts[0].y - y) < 1e-9) finish();
         }
+        finish();
         continue;
       }
 
       if (kw === 'BO') {
         i++;
+        let face = null;
         while (i < rawLines.length && !isKeywordLine(rawLines[i])) {
-          const toks = rawLines[i].trim().split(/\s+/).filter(Boolean);
-          if (toks.length >= 4) {
-            const face = toks[0];
-            const x = parseFloat(toks[1]), y = parseFloat(toks[2]), d = parseFloat(toks[3]);
-            if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(d) && d > 0) {
-              if (part.primaryFace == null) part.primaryFace = face;
-              if (face !== part.primaryFace) part.otherFaceRaw.push({ block:'BO', face, x, y, d });
-              part.facesSeen[face] = true;
-              part.circles.push({ type:'CIRCLE', layer:'Layer_0', cx:x, cy:y, r:d/2, _face:face });
-            } else {
-              part.malformedLines++;
-            }
-          } else if (toks.length > 0) {
-            part.malformedLines++;
-          }
+          const L = nc1PointLine(rawLines[i], face);
           i++;
+          if (!L) continue;
+          const x = L.nums[0], y = L.nums[1], d = L.nums[2];
+          if (!(L.nums.length >= 3 && Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(d) && d > 0)) {
+            part.malformedLines++; continue;
+          }
+          face = L.face || part.primaryFace || 'v';
+          const code = L.tags[3] || '';
+          // A mark (m) is a centre-punch or scribe point, not a hole: drawing
+          // it as a circle would cut it. Counted and left out.
+          if (code === 'm') { part.marks++; continue; }
+          // A slot or rectangular hole (l) carries its extent in the values
+          // after the code, which KAD has no shape for yet: it comes in as a
+          // round hole at the given point, and is counted so it gets checked.
+          if (code === 'l') part.slots++;
+          if (part.primaryFace == null) part.primaryFace = face;
+          if (face !== part.primaryFace) part.otherFaceRaw.push({ block:'BO', face, x, y, d });
+          part.facesSeen[face] = true;
+          part.circles.push({ type:'CIRCLE', layer:'Layer_0', cx:x, cy:y, r:d/2, _face:face });
         }
         continue;
       }
@@ -13149,21 +13246,60 @@ function parseNC1(text) {
   for (const p of parts) {
     if (xOffset > 0) {
       for (const ln of p.lines)   { ln.x1 += xOffset; ln.x2 += xOffset; }
+      for (const pl of p.polys)   for (const q of pl.pts) q.x += xOffset;
       for (const c  of p.circles) { c.cx  += xOffset; }
     }
     let maxX = -Infinity;
     for (const ln of p.lines)   maxX = Math.max(maxX, ln.x1, ln.x2);
+    for (const pl of p.polys)   for (const q of pl.pts) maxX = Math.max(maxX, q.x);
     for (const c  of p.circles) maxX = Math.max(maxX, c.cx + c.r);
     if (Number.isFinite(maxX)) xOffset = maxX + GAP;
   }
 
-  const lines = [], circles = [];
+  const lines = [], circles = [], polys = [];
   let totalMalformed = 0;
   parts.forEach((p, pi) => {
     for (const ln of p.lines)   lines.push(Object.assign({}, ln, { _ncPart: pi }));
+    for (const pl of p.polys)   polys.push(Object.assign({}, pl, { _ncPart: pi }));
     for (const c  of p.circles) circles.push(Object.assign({}, c,  { _ncPart: pi }));
     totalMalformed += p.malformedLines;
   });
+
+  // A single-part file named after one of its own header fields — but not
+  // the piece field — has the part mark somewhere other than where DSTV puts
+  // it. The file name is then the better guess, and stays editable.
+  if (parts.length === 1) {
+    const p = parts[0];
+    const stem = [nc1Stem(fileName), commentStem].find(t => t && t !== p.name &&
+                   (t === p.drawingNumber || t === p.phase));
+    if (stem) p.name = stem;
+  }
+
+  // A plate's weight per metre follows from its own section. One that is far
+  // off (a different unit, or a different field in this slot) is not trusted
+  // for the BOM; the geometry is weighed instead.
+  const notes = [];
+  parts.forEach(p => {
+    const t = p.thicknessMM;
+    if (p.profileType === 'B' && p.weightPerM > 0 && p.height > 0 && t > 0) {
+      const expect = p.height * t * 7.85e-3;     // kg/m for steel at 7,850 kg/m3
+      if (Math.abs(p.weightPerM - expect) / expect > 0.25) {
+        p.weightSuspect = true;
+        notes.push((p.name || 'Part') + ': file weight ' + p.weightPerM + ' kg/m does not match a ' +
+                   p.height + ' \u00d7 ' + t + ' mm plate (\u2248' + expect.toFixed(1) +
+                   ' kg/m); the BOM weighs it from the drawing');
+      }
+    }
+  });
+  const sum = (k) => parts.reduce((n, p) => n + (p[k] || 0), 0);
+  const skippedTypes = Object.create(null);
+  if (sum('marks')) skippedTypes['marking point (DSTV hole code m)'] = sum('marks');
+  if (sum('slots'))  notes.push(sum('slots') + ' slotted or rectangular hole' + (sum('slots') > 1 ? 's' : '') +
+                                ' (code l) came in as round holes at the given point \u2014 check them');
+  if (sum('notchCorners')) notes.push(sum('notchCorners') + ' notch corner' + (sum('notchCorners') > 1 ? 's' : '') +
+                                ' (t/w) came in as sharp corners');
+  if (sum('arcsFlattened')) notes.push(sum('arcsFlattened') + ' contour radius' + (sum('arcsFlattened') > 1 ? 'es' : '') +
+                                ' came in as straight chords');
 
   const ncPlanes = [];
   const _faceSeen = Object.create(null);
@@ -13185,12 +13321,14 @@ function parseNC1(text) {
     }
     delete e._face;
   });
-  _assign(lines); _assign(circles);
+  _assign(lines); _assign(circles); _assign(polys);
 
   return {
-    lines, circles, arcs: [],
+    lines, circles, arcs: [], polys,
     rawInsUnits: 4,      // DSTV is unambiguously millimetres — reuses the DXF label path
-    skipped:     totalMalformed,
+    skipped:     totalMalformed + sum('marks'),
+    skippedTypes: Object.assign(totalMalformed ? { 'unreadable line': totalMalformed } : {}, skippedTypes),
+    importNotes: notes,
     ncParts:     parts,
     planes:      ncPlanes,
   };
@@ -13203,7 +13341,7 @@ function importNC1(event) {
   reader.onload = e => {
     const text = e.target.result;
     let parsed;
-    try { parsed = parseNC1(text); }
+    try { parsed = parseNC1(text, file.name); }
     catch (err) { showToast('NC1 parse error: ' + err.message); event.target.value=''; return; }
 
     if (parsed.error) { showToast('NC1 error: ' + parsed.error); event.target.value=''; return; }
@@ -16615,9 +16753,16 @@ function bomPartAreaMM2(part) {
   const other      = ents.filter(o => !['POLYLINE','LINE','ARC','BEZIER','CIRCLE'].includes(o.type));
   if (other.length) return null; // TEXT, POINT, HATCH etc. mixed in — don't guess
 
-  let outer = null;
+  let outer = null, cutouts = [];
   if (polylines.length === 1 && segs.length === 0 && polylines[0].closed) {
     outer = polylines[0].pts;
+  } else if (polylines.length > 1 && segs.length === 0 && polylines.every(p => p.closed)) {
+    // The largest closed polyline is the outline; the rest must sit inside it
+    // and are cut out of it (NC1 IK contours land this way).
+    const byArea = polylines.slice().sort((a, b) => bomShoelaceArea(b.pts) - bomShoelaceArea(a.pts));
+    outer = byArea[0].pts;
+    cutouts = byArea.slice(1);
+    if (!cutouts.every(p => p.pts.every(q => bomPointInPolygon(q, outer)))) return null;
   } else if (polylines.length === 0 && segs.length === 1 && segs[0].type === 'BEZIER' && segs[0].closed) {
     const b0 = segs[0];
     const pts = [{ x:b0.beziers[0].x0, y:b0.beziers[0].y0 }];
@@ -16630,6 +16775,7 @@ function bomPartAreaMM2(part) {
   if (!outer || outer.length < 3) return null;
 
   let area = bomShoelaceArea(outer);
+  for (const p of cutouts) area -= bomShoelaceArea(p.pts);
   for (const c of circles) {
     if (!bomPointInPolygon({ x:c.cx, y:c.cy }, outer)) return null;
     area -= Math.PI * c.r * c.r;
@@ -16639,7 +16785,7 @@ function bomPartAreaMM2(part) {
 
 function bomPartWeight(part) {
   if (typeof part.nc1WeightPerM === 'number' && typeof part.nc1Length === 'number'
-      && part.nc1WeightPerM > 0 && part.nc1Length > 0) {
+      && part.nc1WeightPerM > 0 && part.nc1Length > 0 && !part.nc1WeightSuspect) {
     const kg = part.nc1WeightPerM * (part.nc1Length / 1000);
     return { kg, lb: kg * LB_PER_KG };
   }
